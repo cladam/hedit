@@ -1,5 +1,5 @@
 main_branch_name: main
-release_url_template: https://github.com/owner/repository/releases/tag/{{version}}
+release_url_template: https://github.com/cladam/hedit/releases/tag/{{version}}
 stale_branch_threshold_days: 1
 log_display_count: 15
 monorepo:
@@ -8,7 +8,7 @@ monorepo:
 issue_handling:
   strategy: branch-name
 review:
-  enabled: false
+  enabled: true
   default_reviewers: []
   strategy: github-issue
   workflow: null
@@ -20,7 +20,7 @@ review:
     dismissed: review-dismissed
   concern_blocks_status: false
 radar:
-  enabled: false
+  enabled: true
   level: file
   on_sync: true
   on_commit: off
@@ -29,12 +29,12 @@ radar:
   - '*-lock.*'
   - CHANGELOG.md
 ci_check:
-  enabled: false
+  enabled: true
 branch_types:
   fix: fix/
   feat: feat/
-  release: release_
-  feature: feature_
+  release: release/
+  feature: feature/
   refactor: refactor/
   ci: ci/
   docs: docs/
