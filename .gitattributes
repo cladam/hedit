@@ -1,0 +1,2 @@
+# Map .hc files to hica for GitHub language detection
+*.hc linguist-language=hica

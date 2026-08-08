@@ -1,0 +1,19 @@
+.build/
+.koka/
+lib/
+vendor/
+.clinerules
+
+docs/hicurl-design.md
+
+src/*
+!src/*.hc
+
+tests/*
+!tests/*.hc
+
+examples/*
+!examples/*.hc
+
+# tbdflow intent log (local-only, never committed)
+.tbdflow-intent.json
