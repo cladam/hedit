@@ -1,0 +1,16 @@
+@project {
+    name: "hedit"
+    version: "0.1.0"
+    license: "MIT"
+    entry: "src/main.hc"
+}
+
+@dependencies {
+}
+
+@description {
+    summary: "A hica project"
+    author: ""
+    homepage: ""
+    repository: ""
+}
