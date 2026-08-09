@@ -4,7 +4,8 @@ lib/
 vendor/
 .clinerules
 
-docs/hicurl-design.md
+docs/hedit-design.md
+docs/hica-issues.md
 
 src/*
 !src/*.hc
