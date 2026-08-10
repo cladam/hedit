@@ -1,0 +1,3 @@
+[submodule "lib/hilisp"]
+	path = lib/hilisp
+	url = https://github.com/cladam/hica-lisp.git

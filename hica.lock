@@ -1,0 +1,6 @@
+# hica.lock — auto-generated, do not edit
+
+[[package]]
+name = "hml"
+version = "latest"
+source = "registry+pkg.hica.dev@latest"

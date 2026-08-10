@@ -6,6 +6,7 @@
 }
 
 @dependencies {
+    hml: "latest"
 }
 
 @description {

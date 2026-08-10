@@ -1,10 +1,7 @@
 .build/
 .koka/
-lib/
-vendor/
 .clinerules
 
-docs/hedit-design.md
 docs/hica-issues.md
 
 src/*
