@@ -447,46 +447,40 @@ These land once §7.5 has been in daily use long enough to feel stable.
 
 ---
 
-## 8. HiLisp Gaps to Address Upstream
+## 8. HiLisp Dependency
 
-The v1 API can be built with HiLisp as it stands today, but three limitations are already visible from the design and are worth fixing in `hica-lisp` before v2.
+**Version pin:** `hica-lisp ≥ 0.7.0`.
 
-### 8.1 String Escape Sequences
+All four gaps identified during the design phase are now resolved upstream:
 
-HiLisp treats `"\n"` as a literal backslash-n. Editor scripting frequently needs newlines, tabs, and quotes in string literals (status messages, generated snippets, key labels). Proposed minimum set:
+| Gap | Status | Notes |
+|---|---|---|
+| 8.1 String escape sequences (`\n` `\t` `\r` `\\` `\"`) | ✅ shipped | Tokeniser decodes escapes; `lval_show` re-escapes on display so values round-trip. |
+| 8.2 Hash-map / assoc type | ✅ shipped in 0.7.0 | `LHash` value type + eight builtins (`hash-map`, `hash-get`, `hash-set`, `hash-del`, `hash-has?`, `hash-keys`, `hash-vals`, `hash?`) plus a `{k v …}` reader literal that desugars to `(hash-map …)`. Backing store is an alist; a persistent HAMT can follow if profiling calls for it. |
+| 8.3 Symbol values distinct from strings | ✅ already present | `LSym(name, span)` is a first-class `LVal` case; `quote` preserves it; builtins pattern-match on `LSym`. `(bind "Ctrl-s" 'save)` works as intended. |
+| 8.4 Line/column in error messages | ✅ already present | Spans are threaded through tokeniser → parser → `LSym` → `LError`; `render_snippet` prints a Rust-style caret snippet in eval errors. |
 
-| Sequence | Meaning |
-|---|---|
-| `\n` | newline (`0x0A`) |
-| `\t` | tab (`0x09`) |
-| `\r` | carriage return |
-| `\\` | literal backslash |
-| `\"` | literal double-quote |
+### 8.1 What the config layer relies on
 
-Implementation touches `tokeniser.hc` (recognise the escape after `\`) and `display.hc` (round-trip through `lval_show` without double-escaping).
+The scripting bridge (§7) can assume:
 
-### 8.2 A Hash-Map / Assoc Type
+- **String escapes** — status messages, generated snippets, and key labels can
+  contain `\n`, `\t`, `\r`, `\\`, `\"` naturally.
+- **Hash-maps** — the entire `ConfigState` can be a single `LHash` on the
+  HiLisp side, with `(hash-get cfg "tabsize")` on the hedit side; no
+  hand-rolled alist walk. Nested groups (`{"editor" {"tabsize" 4}}`) are fine.
+- **Symbols** — `(bind "Ctrl-s" 'save)` passes an `LSym("save", span)` that
+  hedit maps to a variant of the closed `Action` enum. Unknown symbols
+  produce an `LError` with source location.
+- **Source spans on errors** — bad `init.hl` prints a Rust-style caret snippet
+  pointing at the offending token, useful even without hedit intervention.
 
-Config is naturally a `key → value` map. Today the only aggregate is `list`, so `(set …)` on the hedit side becomes N calls or a hand-rolled alist. HiLisp would benefit from a first-class map value:
+### 8.2 Follow-ups (not blocking)
 
-```lisp
-(def m (hash-map "tabsize" 4 "theme" "gruvbox"))
-(hash-get m "theme")            ; → "gruvbox"
-(hash-set m "theme" "nord")     ; → new map, structural sharing preferred
-(hash-keys m)                   ; → ("tabsize" "theme")
-```
-
-Even a naïve `list<(string, LVal)>` implementation would unblock plugin authors; a proper persistent HAMT can follow.
-
-### 8.3 Symbol Values Distinct from Strings
-
-For `(bind "Ctrl-s" 'save)` to be idiomatic, `'save` needs to evaluate to a *symbol* value that hedit's built-in can dispatch on, not a string. HiLisp currently supports quoting for lists but doesn't expose a `Symbol` LVal case to built-ins. Proposal:
-
-- Add `LVal.Sym(string)` to `ast.hc`.
-- Extend `quote` to preserve symbols.
-- Extend `lval_show` and comparison accordingly.
-- Update `builtins.hc` so built-ins can pattern-match `Sym(name)`.
-
-### 8.4 (Nice-to-have) Line/Column in Error Messages
-
-Config errors should point at the offending source location. If the tokeniser already tracks positions internally, surfacing them in eval errors would make `init.hl` debugging painless.
+- **Persistent HAMT for `LHash`** if config sizes ever justify it. Alist walks
+  are O(n) per lookup, which is fine for the tens-of-keys range of an editor
+  config.
+- **Non-string hash keys.** Currently keys must be `LStr`. Symbol keys would
+  let us write `{'tabsize 4}`; deferred unless a hedit API actually needs it.
+- **`{…}` inside quoted forms** — the reader literal always desugars; if we
+  ever need literal-map data we'd add a matching quote path.
