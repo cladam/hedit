@@ -4,24 +4,9 @@
 // carved down to the minimum: a single active cursor, single-line append.
 // No effects yet, so no file save / no rendering — those arrive with the
 // `fs` and `terminal` effects.
-//
-// WORKAROUNDS pending compiler fixes (see docs/hica-issues.md):
-//   * Issue 1: can't use `char` literals inside nested constructor patterns
-//              (e.g. `KShortcut(Ctrl, 'q')` wedges the parser) — so we bind
-//              the payload with a variable pattern and compare in a guard.
-//   * Issue 2: `==` isn't derived for user enums yet — so `is_ctrl` etc. use
-//              `match` instead of `m == Ctrl`. These helpers become deletable
-//              once auto-derived `(==)` ships.
 
 import "types"
 import "model"
-
-// ------------------- variant predicates (Issue 2 workaround) -------------
-
-pub fun is_ctrl(m: Modifier)  : bool => match m { Ctrl  => true, _ => false }
-pub fun is_alt(m: Modifier)   : bool => match m { Alt   => true, _ => false }
-pub fun is_meta(m: Modifier)  : bool => match m { Meta  => true, _ => false }
-pub fun is_shift(m: Modifier) : bool => match m { Shift => true, _ => false }
 
 // ------------------- list helpers (pure, index-safe) ---------------------
 
@@ -75,13 +60,15 @@ pub fun insert_char(state: EditorState, c: char) : EditorState {
 
 // ------------------- pure event dispatcher -------------------------------
 
-// Matches the shape of `handle_action` in the design doc. The Ctrl-Q arm is
-// written with a bound variable + guard rather than the more natural
-// `KeyEvent(KShortcut(Ctrl, 'q'))` — see WORKAROUNDS above.
+// Matches the shape of `handle_action` in the design doc. hica now
+// auto-derives `==` on enums, so we can destructure the payload and compare
+// the modifier directly — no `is_ctrl` helper needed. The condition is
+// parenthesised because `x == Ctrl { ... }` would otherwise be parsed as a
+// struct literal (see hica language-reference §Enums).
 pub fun handle_action(state: EditorState, evt: Event) : EditorState =>
   match evt {
     KeyEvent(KShortcut(m, c)) =>
-      if is_ctrl(m) && c == 'q' {
+      if (m == Ctrl) && c == 'q' {
         EditorState { ...state, should_quit: true }
       } else {
         state

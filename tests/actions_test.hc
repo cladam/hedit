@@ -22,6 +22,18 @@ test "ctrl-q sets should_quit" {
   assert(s1.should_quit == true)
 }
 
+test "non-ctrl shortcut does not quit" {
+  let s0 = init_editor(None)
+  let s1 = handle_action(s0, KeyEvent(KShortcut(Alt, 'q')))
+  assert(s1.should_quit == false)
+}
+
+test "ctrl + non-q does not quit" {
+  let s0 = init_editor(None)
+  let s1 = handle_action(s0, KeyEvent(KShortcut(Ctrl, 'x')))
+  assert(s1.should_quit == false)
+}
+
 test "resize updates screen size" {
   let s0 = init_editor(None)
   let s1 = handle_action(s0, ResizeEvent(120, 40))
@@ -35,9 +47,15 @@ test "unhandled event leaves state unchanged" {
   assert(s1.should_quit == false)
 }
 
-test "is_ctrl / is_alt distinguish modifiers" {
-  assert(is_ctrl(Ctrl) == true)
-  assert(is_ctrl(Alt)  == false)
-  assert(is_alt(Alt)   == true)
-  assert(is_alt(Shift) == false)
+test "enum equality distinguishes modifier variants" {
+  assert((Ctrl == Ctrl) == true)
+  assert((Ctrl == Alt)  == false)
+  assert((Alt  == Alt)  == true)
+}
+
+test "enum equality distinguishes key payloads" {
+  assert((KShortcut(Ctrl, 'q') == KShortcut(Ctrl, 'q')) == true)
+  assert((KShortcut(Ctrl, 'q') == KShortcut(Alt,  'q')) == false)
+  assert((KShortcut(Ctrl, 'q') == KShortcut(Ctrl, 'x')) == false)
+  assert((KChar('x') == KShortcut(Ctrl, 'q')) == false)
 }
