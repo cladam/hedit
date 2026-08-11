@@ -449,7 +449,7 @@ These land once §7.5 has been in daily use long enough to feel stable.
 
 ## 8. HiLisp Dependency
 
-**Version pin:** `hica-lisp ≥ 0.7.0`.
+**Version pin:** `hica-lisp ≥ 0.8.0`.
 
 All four gaps identified during the design phase are now resolved upstream:
 
@@ -457,8 +457,8 @@ All four gaps identified during the design phase are now resolved upstream:
 |---|---|---|
 | 8.1 String escape sequences (`\n` `\t` `\r` `\\` `\"`) | ✅ shipped | Tokeniser decodes escapes; `lval_show` re-escapes on display so values round-trip. |
 | 8.2 Hash-map / assoc type | ✅ shipped in 0.7.0 | `LHash` value type + eight builtins (`hash-map`, `hash-get`, `hash-set`, `hash-del`, `hash-has?`, `hash-keys`, `hash-vals`, `hash?`) plus a `{k v …}` reader literal that desugars to `(hash-map …)`. Backing store is an alist; a persistent HAMT can follow if profiling calls for it. |
-| 8.3 Symbol values distinct from strings | ✅ already present | `LSym(name, span)` is a first-class `LVal` case; `quote` preserves it; builtins pattern-match on `LSym`. `(bind "Ctrl-s" 'save)` works as intended. |
-| 8.4 Line/column in error messages | ✅ already present | Spans are threaded through tokeniser → parser → `LSym` → `LError`; `render_snippet` prints a Rust-style caret snippet in eval errors. |
+| 8.3 Symbol values distinct from strings | ✅ shipped in 0.8.0 | `LSym(name, span)` was already first-class; 0.7 adds host-facing `(symbol? v)` and `(symbol-name sym)` builtins and name-based `=` for `LSym`/`LSym`. `(bind "Ctrl-s" 'save)` dispatch is idiomatic. |
+| 8.4 Line/column in error messages | ✅ shipped in 0.8.0 | Spans were already tokenised/parsed and rendered via `render_snippet` for parse-time errors; 0.8 threads the call-site span through `eval_call` and stamps it onto span-less builtin errors, so runtime type/arity errors also print a caret snippet at the offending form. |
 
 ### 8.1 What the config layer relies on
 

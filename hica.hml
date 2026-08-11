@@ -9,6 +9,8 @@
     hml: "latest"
 }
 
+@koka { include: "./lib/hilisp/src" }
+
 @description {
     summary: "A hica project"
     author: ""
