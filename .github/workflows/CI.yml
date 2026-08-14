@@ -115,10 +115,6 @@ jobs:
           %ARGS%
           '@ | Out-File -Encoding ascii -FilePath "C:\Windows\.cmd"
 
-          # Copy package source files to src/ and tests/ so imports resolve cleanly
-          Get-ChildItem -Path "$hicaPkg" -Recurse | Where-Object { $_.Extension -in '.hc', '.kk' } | Copy-Item -Destination "src\" -Force
-          Get-ChildItem -Path "$hicaPkg" -Recurse | Where-Object { $_.Extension -in '.hc', '.kk' } | Copy-Item -Destination "tests\" -Force
-
           # Build project binary
           hica fetch
           hica build -o hedit
