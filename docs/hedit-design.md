@@ -385,9 +385,11 @@ Resolution order, first hit wins:
 
 If neither exists, `hedit` runs with hard-coded defaults and no user script is executed.
 
-### 7.5 v1 Configuration Language
+### 7.5 v1 Configuration & Plugin Language
 
-The initial scripting scope is deliberately narrow: **settings + keybindings.** Plugin discovery, event hooks, and dynamic buffer manipulation are explicitly out of scope for v1 and slated for a follow-up milestone.
+HiLisp is the sole language for both **configuration** and **plugins** in `hedit` — there is no second scripting layer planned. Configuration files, keybindings, and (in later milestones) plugins are all authored as `.hl` files evaluated by the same embedded HiLisp interpreter.
+
+The initial scripting scope is deliberately narrow: **settings + keybindings.** Plugin discovery, event hooks, and dynamic buffer manipulation are explicitly out of scope for v1 and slated for a follow-up milestone (see §7.9), but they will land as additional HiLisp built-ins on the same interpreter — not as a separate plugin system.
 
 ```lisp
 ;; ~/.config/hedit/init.hl — v1 example
@@ -436,14 +438,28 @@ The event loop consults `ConfigState.bindings` **before** the hard-coded switch 
 
 ### 7.9 Deferred (v2+)
 
+Everything in this section is planned to be written **in HiLisp** — the same
+language users already touch for config. There is no separate plugin runtime.
+
 Explicitly not in v1:
 
-- Plugin discovery (`~/.config/hedit/plug/*/plugin.hl`).
-- Event hooks (`onBufferOpen`, `preInsertChar`, `onSave`, `onQuit`).
-- Buffer introspection / mutation from Lisp (`current-buffer`, `insert-text`, `replace-line`).
-- Runtime `:eval` command inside the editor.
+- **Plugin discovery.** `~/.config/hedit/plug/*/plugin.hl` files auto-loaded
+  after `init.hl`, each plugin being an ordinary HiLisp file with access to the
+  same built-ins plus the expanded API below.
+- **Event hooks.** `(on 'buffer-open  (fn [buf] …))`,
+  `(on 'pre-insert-char (fn [ch buf] …))`,
+  `(on 'save (fn [buf] …))`, `(on 'quit (fn [] …))` — registered from HiLisp,
+  fired by the hedit event loop.
+- **Buffer introspection & mutation from HiLisp.** Built-ins such as
+  `(current-buffer)`, `(insert-text s)`, `(replace-line n s)`, `(cursor-pos)`,
+  `(set-cursor line col)` letting plugins drive the editor.
+- **Runtime `:eval` command** inside the editor — a mini-REPL that evaluates a
+  HiLisp expression against the live env, useful for plugin authors.
 
-These land once §7.5 has been in daily use long enough to feel stable.
+These land once §7.5 has been in daily use long enough to feel stable. Because
+plugins are HiLisp, adding them is largely a matter of exposing more hedit
+built-ins on the existing `HilispHost` — no new language, no new build step,
+no second embedded runtime.
 
 ---
 
