@@ -19,16 +19,18 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            artifact: hicurl-linux-x86_64
+            artifact: hedit-linux-x86_64
           - os: ubuntu-24.04-arm
-            artifact: hicurl-linux-arm64
+            artifact: hedit-linux-arm64
           - os: macos-latest
-            artifact: hicurl-macos-arm64
+            artifact: hedit-macos-arm64
           - os: windows-latest
-            artifact: hicurl-windows-x86_64
+            artifact: hedit-windows-x86_64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Install Koka (Unix)
         if: runner.os != 'Windows'
@@ -117,7 +119,7 @@ jobs:
 
           # Build project binary
           hica fetch
-          hica build -o hedit
+          hica build -o hedit.exe
 
       - name: Run unit tests (Unix)
         if: runner.os != 'Windows'
