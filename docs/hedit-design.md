@@ -10,114 +10,116 @@ This document provides a baseline architecture, with explicit focus on **user-fa
 
 ## 2. Core Algebraic Effect Definitions
 
-To maintain pure, testable core logic, `hedit` decomposes all side-effecting operations into fine-grained algebraic effects. The compiler must support effect operations, performant multi-effect composition, and deep/shallow effect handlers.
+To keep the core editor logic pure and testable, `hedit` factors all
+side-effecting operations behind **user-defined algebraic effects**
+(hica 0.49+). Effect names are **PascalCase**, operation names are
+**snake_case**, matching the language reference.
 
-### 2.1 Terminal I/O Effect (`effect terminal`)
+### 2.0 Which effects are user-defined in v1
 
-Encapsulates ANSI/VT100 screen buffer rendering and input event polling.
+`hica` 0.49 already exposes a rich set of *built-in* effects that we
+reuse directly instead of wrapping in an `effect` block:
+
+- **`<fsys>`** — via `read_file` / `write_file`. Save / open flow rides
+  on these; there is no v1 `effect FileSystem`.
+- **`<console>`** — via `println` / `eprintln`. Debug output and
+  status messages don't need a `Log` effect.
+- **`<env>` / args** — via `get_env`, `env_or`, `get_args`. HiLisp
+  config discovery lives on top of these directly.
+- **`exec`** for external processes — deferred until a real
+  async / long-running-process story materialises (no v1 `effect
+  Process`).
+
+The two effects that *are* worth defining as first-class hica effects
+in v1:
+
+| Effect | Ops | Real handler | Test handler |
+|---|---|---|---|
+| `Terminal` | `poll_event`, `render_frame`, `get_dimensions`, `set_cursor_style` | native ANSI / `std/term` (stub in M1, real in M2+) | scripted event queue, sink render, canned size |
+| `Clipboard` | `get_selection`, `set_selection` | OS clipboard (deferred; in-memory placeholder to start) | in-memory `with var buf = ""` |
+
+`Terminal` is the killer app for effect-based testing — swap real ANSI
+I/O for a scripted key stream and the editor loop becomes trivially
+testable. `Clipboard` is small, real-world, and cross-platform-messy —
+perfect handler-swap candidate. Everything else stays as built-in
+`hica` calls until a concrete use case demands a wrapper.
+
+### 2.1 Terminal I/O Effect (`effect Terminal`)
+
+Encapsulates ANSI/VT100 screen buffer rendering and input event
+polling. This is the surface hedit's `event_loop` calls into; the
+handler decides whether those calls hit a real TTY or a scripted test
+queue.
 
 ```hica
 // Represents raw or parsed user input
-enum Key {
-    Char(Char),
-    Special(SpecialKey), // Enter, Backspace, Tab, Esc, Arrows, F1-F12
-    Shortcut(Modifier, Char) // Ctrl, Alt, Meta
+pub type Key {
+  KChar(c: char),
+  KSpecial(k: SpecialKey),
+  KShortcut(m: Modifier, c: char)
 }
 
-enum MouseAction { Press, Release, Drag, ScrollUp, ScrollDown }
+pub type MouseAction { Press, Release, Drag, ScrollUp, ScrollDown }
 
-enum Event {
-    KeyEvent(Key),
-    MouseEvent(MouseAction, Int, Int), // Action, X, Y
-    ResizeEvent(Int, Int),             // Width, Height
-    Tick
+pub type Event {
+  KeyEvent(k: Key),
+  MouseEvent(a: MouseAction, x: int, y: int),
+  ResizeEvent(w: int, h: int),
+  Tick
 }
 
-struct ScreenCell {
-    glyph: Char,
-    fg_color: Color,
-    bg_color: Color,
-    style: StyleFlags // Bold, Underline, Italic
+// Minimal M1 ScreenBuffer: width, height, one string per row.
+// M2 upgrades this to a `list<ScreenCell>` with fg/bg + style flags.
+pub struct ScreenBuffer {
+  width: int,
+  height: int,
+  lines: list<string>
 }
 
-struct ScreenBuffer {
-    width: Int,
-    height: Int,
-    cells: Vector<ScreenCell>
-}
+pub type CursorStyle { Block, Bar, Underscore }
 
-// User-Facing Effect Definition
-effect terminal {
-    fun poll_event(): Event
-    fun render_frame(buffer: ScreenBuffer): Unit
-    fun get_dimensions(): (Int, Int)
-    fun set_cursor_style(style: CursorStyle): Unit
+// User-facing effect declaration (hica 0.49 syntax).
+// Arm bodies auto-resume; there is no explicit `resume` call in the
+// handler.
+effect Terminal {
+  fun poll_event() : Event
+  fun render_frame(buf: ScreenBuffer)
+  fun get_dimensions() : (int, int)
+  fun set_cursor_style(style: CursorStyle)
 }
-
 ```
 
-### 2.2 File System Effect (`effect fs`)
+### 2.2 File I/O — built-in `<fsys>` (no v1 effect)
 
-Encapsulates disk access, file I/O, path metadata, and file watching.
+hedit calls `read_file(path) : result<string, string>` and
+`write_file(path, content) : ()` directly from `<fsys>`. That gives us
+the "open / save" story in M2 without adding an `effect FileSystem`
+declaration. If we ever need to mock the file system (e.g. to inject
+faults), we'll introduce an `effect Fs` at that point — not before.
+
+### 2.3 Clipboard Effect (`effect Clipboard`)
+
+Abstracts system / X11 / Wayland / macOS clipboards and internal
+fallback buffers. Lands in M3 with an in-memory handler; a real OS
+handler follows in a later milestone.
 
 ```hica
-struct FileMeta {
-    path: String,
-    readonly: Bool,
-    size_bytes: Int64,
-    modified_at: Int64
+effect Clipboard {
+  fun get_selection() : string
+  fun set_selection(text: string)
 }
-
-effect fs {
-    fun read_file_to_string(path: String): Result<String, FsError>
-    fun write_string_to_file(path: String, content: String): Result<Unit, FsError>
-    fun fetch_metadata(path: String): Result<FileMeta, FsError>
-    fun watch_file(path: String): Unit
-}
-
 ```
 
-### 2.3 Clipboard Effect (`effect clipboard`)
+### 2.4 Deferred: Process / Env effects
 
-Abstracts system/X11/Wayland/OSX clipboards and internal fallback buffers.
+`effect Process` and `effect Env` from the pre-0.49 draft are **out of
+v1**. External process invocation goes through the built-in `exec`;
+environment lookup goes through `get_env` / `env_or`. Wrapping either
+in a hica-side effect only becomes worthwhile once we have real
+handler-swap use cases (e.g. sandboxing a formatter, faking a config
+path in tests) — see the effects journal (§Milestone map) for when we
+revisit.
 
-```hica
-effect clipboard {
-    fun get_selection(): String
-    fun set_selection(text: String): Unit
-}
-
-```
-
-### 2.4 Command & Process Effect (`effect process`)
-
-Allows `hedit` to spawn external tools (e.g., formatters, linters, Git subcommands) asynchronously.
-
-```hica
-struct ProcessOutput {
-    exit_code: Int,
-    stdout: String,
-    stderr: String
-}
-
-effect process {
-    fun exec_cmd(cmd: String, args: List<String>): ProcessOutput
-    fun spawn_background(cmd: String, args: List<String>): ProcessId
-}
-
-```
-
-### 2.5 Config & Environment Effect (`effect env`)
-
-Handles dynamic setting lookups (e.g., `.micro/settings.json` equivalent or `hedit.hica` configs).
-
-```hica
-effect env {
-    fun get_config_var(key: String): Maybe<String>
-    fun set_config_var(key: String, value: String): Unit
-}
-
-```
 
 ---
 
@@ -174,77 +176,83 @@ struct EditorState {
 
 ## 4. Effect Handlers & Executable Contexts
 
-One of the main advantages of this architecture is complete decoupling of logic from runtime environments. Handlers translate high-level effect operations into platform-specific implementations or mock objects.
+The `event_loop` in `src/runtime.hc` calls the `Terminal` ops
+abstractly; each *handler* decides how those calls are fulfilled.
+Handlers are hica 0.49 `handle E { arms } in { body }` expressions,
+where each arm body auto-resumes — no explicit `resume(...)` calls in
+user code.
 
-### 4.1 Production Terminal Handler (POSIX / ANSI)
+### 4.1 Production Terminal Handler (POSIX / ANSI) — M1 stub, M2 real
+
+In M1 the "native" handler is a **stub** that returns a canned
+`Ctrl-q` so `hica run src/main.hc` exits cleanly and we prove the
+handler shape compiles end-to-end. M2 replaces the arms with real ANSI
+I/O (via `std/term` and a `read` primitive).
 
 ```hica
-fun run_native_editor(init_path: Maybe<String>): Unit => {
-    with handler terminal {
-        poll_event() => native_ansi_read_key(),
-        render_frame(sb) => native_ansi_flush_screen(sb),
-        get_dimensions() => native_tty_get_size(),
-        set_cursor_style(s) => native_ansi_set_cursor(s)
-    } 
-    with handler fs {
-        read_file_to_string(p) => host_fs_read(p),
-        write_string_to_file(p, c) => host_fs_write(p, c),
-        fetch_metadata(p) => host_fs_stat(p),
-        watch_file(p) => host_fs_watch(p)
-    }
-    with handler clipboard {
-        get_selection() => host_clip_get(),
-        set_selection(t) => host_clip_set(t)
-    }
-    in {
-        let state = init_editor(init_path)
-        event_loop(state)
-    }
+// M1 shape (src/main.hc). Deliberately trivial: one hard-coded event,
+// sink render, canned size — the point is that the handler-arm shape
+// type-checks against `event_loop : EditorState -> <Terminal> EditorState`.
+fun main() {
+  let s0 = init_editor(None)
+  handle Terminal {
+    poll_event()          => KeyEvent(KShortcut(Ctrl, 'q')),
+    render_frame(_buf)    => (),
+    get_dimensions()      => (80, 24),
+    set_cursor_style(_s)  => ()
+  } in {
+    let _ = event_loop(s0)
+    ()
+  }
 }
-
 ```
+
+Once the ANSI wiring lands (M2+), the arms grow real bodies —
+`poll_event` decodes a keystroke from stdin, `render_frame` flushes a
+diffed `ScreenBuffer` with ANSI positioning, `get_dimensions` calls
+`tcgetwinsize`, etc. The `event_loop` code above **does not change**.
 
 ### 4.2 Headless / Compiler Test Handler
 
-For integration testing within the `hica` compiler test suite, we can instantiate `hedit` headlessly. Synthetic input events are injected, and buffer states are asserted without opening a terminal window or accessing disk.
+For unit-testing the runtime we install a stateful handler that
+scripts events from a `var` queue, sinks render calls, and returns a
+canned size. This is what `tests/runtime_test.hc` uses.
 
 ```hica
-fun test_editor_ctrl_s_saves_file(): Unit => {
-    let mock_events = [
-        Event.KeyEvent(Key.Char('h')),
-        Event.KeyEvent(Key.Char('i')),
-        Event.KeyEvent(Key.Shortcut(Modifier.Ctrl, 's'))
-    ]
-    
-    var file_written = false
-    var written_content = ""
-
-    with handler terminal {
-        poll_event() => pop_event(mock_events),
-        render_frame(_) => (), // No-op rendering
-        get_dimensions() => (80, 24),
-        set_cursor_style(_) => ()
-    }
-    with handler fs {
-        read_file_to_string(_) => Ok(""),
-        write_string_to_file(_, content) => {
-            file_written = true
-            written_content = content
-            Ok(())
-        },
-        fetch_metadata(_) => Err(FsError.NotFound),
-        watch_file(_) => ()
-    }
-    in {
-        let state = init_editor(Just("test.txt"))
-        run_test_loop(state)
-        
-        assert(file_written == true)
-        assert(written_content == "hi")
-    }
+// Simplified sketch of tests/runtime_test.hc pattern.
+test "scripted keys 'h','i',Ctrl-q leave buffer as [\"hi\"]" {
+  let events0 = [
+    KeyEvent(KChar('h')),
+    KeyEvent(KChar('i')),
+    KeyEvent(KShortcut(Ctrl, 'q'))
+  ]
+  let final = handle Terminal {
+    poll_event() => match events {
+      []          => KeyEvent(KShortcut(Ctrl, 'q')),
+      [e, ..rest] => { events = rest; e }
+    },
+    render_frame(_buf)   => render_count = render_count + 1,
+    get_dimensions()     => (80, 24),
+    set_cursor_style(_s) => ()
+  } with var events = events0, var render_count = 0 in {
+    event_loop(init_editor(None))
+  }
+  assert(final.buffer.lines == ["hi"])
 }
-
 ```
+
+Two things to notice:
+
+1. The test never touches a real terminal. It cannot flake because of
+   TTY state, size queries, or CI environment.
+2. The same `event_loop` runs. There is no test-only branch inside the
+   loop — the divergence lives entirely in the handler.
+
+File I/O in M2's save-on-Ctrl-s and clipboard round-trips in M3 land
+as additions to `handle_action` (`write_file` via built-in `<fsys>`,
+`Clipboard` ops via a second handler stack). The `Terminal` handler
+above stays exactly as shown.
+
 
 ---
 

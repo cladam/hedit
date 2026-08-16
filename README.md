@@ -89,8 +89,12 @@ hica clean   # remove generated files
 - ✅ Design document drafted (`docs/hedit-design.md`)
 - ✅ HiLisp submodule wired into the build
 - 🚧 Scripting bridge (`src/script/hilisp_host.hc`) — in progress
-- ⏳ Core editor (buffers, panes, event loop, effects) — not yet started
+- 🚧 Core editor / event loop / effects — M1 partial:
+      `src/runtime.hc` ships `effect Terminal` + `event_loop`, checks
+      clean in isolation; wiring `handle Terminal { ... }` into
+      `src/main.hc` is blocked ATM.
 - ⏳ Native terminal handler — not yet started
+
 
 ## License
 

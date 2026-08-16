@@ -118,6 +118,7 @@ jobs:
           '@ | Out-File -Encoding ascii -FilePath "C:\Windows\.cmd"
 
           # Build project binary
+          New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.hica\stdlib"
           hica fetch
           hica build -o hedit.exe
 
