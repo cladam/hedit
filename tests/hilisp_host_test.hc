@@ -5,7 +5,7 @@
 // and that the four upstream v0.8.0 features we care about (arithmetic,
 // hash-maps, string escapes, quoted symbols) all round-trip.
 
-import "../src/script/hilisp_host"
+import "../src/hilisp_host"
 import "../lib/hilisp/src/lisp"
 
 // Sanity: arithmetic and let bindings
