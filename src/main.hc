@@ -1,33 +1,33 @@
 // main.hc — hedit entry point.
 //
-// M1 status: **BLOCKED on hica upstream — see docs/hica-issues.md
-// Issue 3.** The intended M1 shape (documented in
-// docs/effects-journal.md) installs a native-stub `Terminal` handler
-// here and hands control to `event_loop` in `src/runtime.hc`. hica
-// 0.49 doesn't yet propagate `effect` declarations across module
-// imports, so the `handle Terminal { ... }` block below would fail
-// with "unknown effect: 'Terminal'".
+// M1: install the *native stub* Terminal handler and hand control to
+// `event_loop` in `src/runtime.hc`. The stub returns a canned
+// `Ctrl-q` from `poll_event`, sinks `render_frame`, and reports an
+// 80x24 canvas — enough to make `hica run src/main.hc` exit cleanly
+// and prove the effect-arm shape compiles under a real (non-test)
+// backend. Real ANSI wiring lands in M2 alongside `write_file`-backed
+// save.
 //
-// Rather than duplicate the effect declaration (which the checker
-// wouldn't unify anyway, per hica effects-design §12 Q1) or inline
-// the loop and abandon the module split we planned, we leave main()
-// in its pre-M1 synthetic shape until the upstream fix lands. At that
-// point we swap this file for the handler-install shape sketched in
-// hedit-design.md §4.1.
+// hica 0.49.2 finally propagates user-defined effects across module
+// imports (`import "runtime"` brings `effect Terminal` into scope
+// here), unblocking the M1 split we designed.
 
-import "types"
+import "keys"
 import "model"
-import "actions"
-import "runtime"  // ScreenBuffer / build_screen / event_loop / effect Terminal
+import "runtime"
 
 fun main() {
   let s0 = init_editor(None)
-  let s1 = handle_action(s0, KeyEvent(KChar('h')))
-  let s2 = handle_action(s1, KeyEvent(KChar('i')))
-  let s3 = handle_action(s2, KeyEvent(KShortcut(Ctrl, 'q')))
+  let final = handle Terminal {
+    poll_event()         => KeyEvent(KShortcut(Ctrl, 'q')),
+    render_frame(_buf)   => (),
+    get_dimensions()     => (80, 24),
+    set_cursor_style(_s) => ()
+  } in {
+    event_loop(s0)
+  }
 
-  println("hedit synthetic run (M1 handler wiring pending — see docs/hica-issues.md #3):")
-  println("  lines:       {s3.buffer.lines}")
-  println("  is_dirty:    {s3.buffer.is_dirty}")
-  println("  should_quit: {s3.should_quit}")
+  println("hedit m1 native-stub run:")
+  println("  lines:       {final.buffer.lines}")
+  println("  should_quit: {final.should_quit}")
 }

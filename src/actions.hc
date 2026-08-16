@@ -5,7 +5,7 @@
 // No effects yet, so no file save / no rendering — those arrive with the
 // `fs` and `terminal` effects.
 
-import "types"
+import "keys"
 import "model"
 
 // ------------------- list helpers (pure, index-safe) ---------------------

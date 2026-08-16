@@ -18,7 +18,7 @@
 // handler). This module has no `handle Terminal { … } in { … }` of
 // its own — that's the whole point of the split.
 
-import "types"
+import "keys"
 import "model"
 import "actions"
 
@@ -45,7 +45,7 @@ pub type CursorStyle {
 
 // User-facing effect (hica 0.49 syntax). Arm bodies auto-resume; no
 // explicit `resume(...)` anywhere in user code.
-effect Terminal {
+pub effect Terminal {
   fun poll_event() : Event
   fun render_frame(buf: ScreenBuffer)
   fun get_dimensions() : (int, int)

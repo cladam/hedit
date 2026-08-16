@@ -4,7 +4,7 @@
 // assert on the resulting `EditorState`. Each `test` block has its own
 // inference scope (SKILL §14) so generic helpers stay unconstrained.
 
-import "../src/types"
+import "../src/keys"
 import "../src/model"
 import "../src/actions"
 
@@ -55,7 +55,7 @@ test "enum equality distinguishes modifier variants" {
 
 test "enum equality distinguishes key payloads" {
   assert((KShortcut(Ctrl, 'q') == KShortcut(Ctrl, 'q')) == true)
-  assert((KShortcut(Ctrl, 'q') == KShortcut(Alt,  'q')) == false)
+  assert((KShortcut(Ctrl, 'q') == KShortcut(Alt, 'q')) == false)
   assert((KShortcut(Ctrl, 'q') == KShortcut(Ctrl, 'x')) == false)
   assert((KChar('x') == KShortcut(Ctrl, 'q')) == false)
 }

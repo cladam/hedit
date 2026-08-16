@@ -89,10 +89,14 @@ hica clean   # remove generated files
 - ✅ Design document drafted (`docs/hedit-design.md`)
 - ✅ HiLisp submodule wired into the build
 - 🚧 Scripting bridge (`src/script/hilisp_host.hc`) — in progress
-- 🚧 Core editor / event loop / effects — M1 partial:
-      `src/runtime.hc` ships `effect Terminal` + `event_loop`, checks
-      clean in isolation; wiring `handle Terminal { ... }` into
-      `src/main.hc` is blocked ATM.
+- 🚧 Core editor / event loop / effects — **M1 green**:
+      `src/runtime.hc` ships `pub effect Terminal` + `event_loop`,
+      `src/main.hc` installs a native-stub `Terminal` handler and
+      runs `event_loop(init_editor(None))`, `tests/runtime_test.hc`
+      exercises the loop with scripted events under a headless
+      handler (4/4 green). Real ANSI wiring + save on Ctrl-s land in
+      M2. See `docs/effects-journal.md`.
+
 - ⏳ Native terminal handler — not yet started
 
 
