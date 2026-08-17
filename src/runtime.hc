@@ -1,50 +1,22 @@
 // runtime.hc — the impure shell around `handle_action`.
 //
-// M1 (see docs/effects-journal.md) carves the effectful surface out of
-// `src/main.hc` and puts it here. `handle_action` in `src/actions.hc`
-// stays 100% pure; this module owns:
+// M1: extracted Terminal effect + event_loop here.
+// M2: ScreenBuffer/CursorStyle moved to model.hc; build_screen replaced by
+//     render_editor_to_buffer from render.hc; event_loop gains <fsys> from
+//     handle_action's Ctrl-s save path.
 //
-//   * the `Terminal` effect declaration (poll_event / render_frame /
-//     get_dimensions / set_cursor_style),
-//   * the `ScreenBuffer` shape the handler flushes,
-//   * `build_screen` (trivial in M1: dump the buffer lines; M2 will
-//     bring a real `render_editor_to_buffer`),
-//   * `event_loop`, the tail-recursive driver that ticks
-//     `poll_event -> handle_action -> render_frame` until
-//     `state.should_quit` flips to true.
-//
-// Handlers live at the *call site* (see `src/main.hc` for the native
-// stub, `tests/runtime_test.hc` for the headless scripted-events
-// handler). This module has no `handle Terminal { … } in { … }` of
-// its own — that's the whole point of the split.
+// Handlers live at the call site (src/main.hc for native,
+// tests/runtime_test.hc for headless). This module has no
+// `handle Terminal { … } in { … }` of its own.
 
 import "keys"
 import "model"
 import "actions"
+import "render"
 
-// ------------------- Terminal effect + surface types --------------------
+// ------------------- Terminal effect -----------------------------------
 
-// The pixel-free "screen buffer" the handler flushes. Minimal M1 shape:
-// width/height plus one string per row. M2 will upgrade this to
-// `list<ScreenCell>` with fg/bg + style flags — the `Terminal` effect
-// signature does not need to change when that happens because
-// `render_frame` already takes an abstract `ScreenBuffer`.
-pub struct ScreenBuffer {
-  width: int,
-  height: int,
-  lines: list<string>
-}
-
-// Cursor-shape hint for the handler. Not consumed in M1 (the stub arm
-// is `() => ()`); wired up when the native ANSI handler lands.
-pub type CursorStyle {
-  Block,
-  Bar,
-  Underscore
-}
-
-// User-facing effect (hica 0.49 syntax). Arm bodies auto-resume; no
-// explicit `resume(...)` anywhere in user code.
+// User-facing effect (hica 0.49 syntax). Arm bodies auto-resume.
 pub effect Terminal {
   fun poll_event() : Event
   fun render_frame(buf: ScreenBuffer)
@@ -52,33 +24,51 @@ pub effect Terminal {
   fun set_cursor_style(style: CursorStyle)
 }
 
-// ------------------- helpers around EditorState -------------------------
+// ------------------- save (fsys) ---------------------------------------
 
-// Trivial M1 renderer: mirror the current buffer's lines into a
-// `ScreenBuffer` sized to the caller-supplied `(w, h)`. A real render
-// (cursor overlay, status line, viewport scrolling) arrives in M2.
-pub fun build_screen(state: EditorState, dims: (int, int)) : ScreenBuffer {
-  let (w, h) = dims
-  ScreenBuffer { width: w, height: h, lines: state.buffer.lines }
+// Apply the write_file result to state: clear dirty + status on success,
+// error status on failure.
+fun apply_write_result(state: EditorState, result: result<(), string>) {
+  match result {
+    Ok(_) => {
+      let saved_buf = TextBuffer { ...state.buffer, is_dirty: false }
+      set_status_message(EditorState { ...state, buffer: saved_buf }, "Saved")
+    },
+    Err(msg) => set_status_message(state, "Save failed: " + msg)
+  }
 }
 
-// ------------------- the loop -------------------------------------------
+// Write buffer content to disk. Called from event_loop for Ctrl-s.
+// Return-type annotation omitted: carries <fsys> (Koka rejects pure annotation).
+fun save_buffer(state: EditorState) {
+  match state.buffer.path {
+    None    => set_status_message(state, "No file — save not possible"),
+    Some(p) => apply_write_result(state, write_file(p, join(state.buffer.lines, "\n")))
+  }
+}
 
-// Tail-recursive event loop, parameterised over the installed `Terminal`
-// handler. Each tick queries `get_dimensions` (so M2 can react to
-// resizes), sinks a rendered frame via `render_frame`, then blocks on
-// `poll_event` for the next input. The pure `handle_action` drives the
-// state transition; when `should_quit` flips to true we return the
-// final `EditorState` so callers (tests, main) can assert on it.
-pub fun event_loop(state: EditorState) : <Terminal> EditorState {
+// ------------------- the loop ------------------------------------------
+
+// Tail-recursive event loop parameterised over the installed Terminal handler.
+// Each tick: query dimensions → render → poll → dispatch → recurse.
+// Ctrl-s is intercepted here (before handle_action) so handle_action stays pure.
+// Returns final EditorState when should_quit flips true.
+// Return-type annotation omitted: the full effect row (<Terminal, fsys, div>)
+// is inferred by Koka — explicit annotation would be rejected as too narrow.
+pub fun event_loop(state: EditorState) {
   if state.should_quit {
     state
   } else {
     let dims = get_dimensions()
     let sized = EditorState { ...state, screen_size: dims }
-    render_frame(build_screen(sized, dims))
+    render_frame(render_editor_to_buffer(sized))
     let evt = poll_event()
-    let next = handle_action(sized, evt)
+    let next = match evt {
+      KeyEvent(KShortcut(m, c)) =>
+        if (m == Ctrl) && c == 's' { save_buffer(sized) }
+        else { handle_action(sized, evt) },
+      _ => handle_action(sized, evt)
+    }
     event_loop(next)
   }
 }

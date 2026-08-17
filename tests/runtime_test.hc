@@ -20,7 +20,10 @@ import "../src/runtime"
 // ------------------- test 1: quit terminates immediately ----------------
 
 test "scripted Ctrl-q terminates the loop after one tick" {
-  let final = handle Terminal {
+  // The EditorState annotation on `final` prevents a cross-module type-inference
+  // issue where Koka resolves `final.buffer.lines` as the prelude `hc_lines(string)
+  // rather than the TextBuffer field accessor.
+  let final: EditorState = handle Terminal {
     poll_event() => match events {
       []          => KeyEvent(KShortcut(Ctrl, 'q')),
       [e, ..rest] => { events = rest; e }
@@ -39,7 +42,7 @@ test "scripted Ctrl-q terminates the loop after one tick" {
 // ------------------- test 2: scripted keys build "hi" -------------------
 
 test "scripted keys h i Ctrl-q leave buffer as [hi]" {
-  let final = handle Terminal {
+  let final: EditorState = handle Terminal {
     poll_event() => match events {
       []          => KeyEvent(KShortcut(Ctrl, 'q')),
       [e, ..rest] => { events = rest; e }
@@ -62,13 +65,9 @@ test "scripted keys h i Ctrl-q leave buffer as [hi]" {
 // ------------------- test 3: render fires each iteration ----------------
 
 test "render_frame is called at least once per iteration" {
-  // We can't smuggle handler-local state into an outer `var` (the
-  // Koka handler scope pins it down), so instead of a spy variable we
-  // wire `render_count` through the arm bodies and pass it back by
-  // returning it from the `in { … }` block as part of a tuple. That
-  // keeps every read/write inside the handler where the escape rule
-  // is satisfied.
-  let (final, renders) = handle Terminal {
+  // Return the EditorState alongside render_count as a typed tuple so that
+  // the EditorState type flows through to the result.0 binding.
+  let pair: (EditorState, int) = handle Terminal {
     poll_event() => match events {
       []          => KeyEvent(KShortcut(Ctrl, 'q')),
       [e, ..rest] => { events = rest; e }
@@ -85,8 +84,9 @@ test "render_frame is called at least once per iteration" {
     let s = event_loop(init_editor(None))
     (s, render_count)
   }
-  // Four events processed → at least four render_frame calls before
-  // we quit.
+  let final = pair.0
+  let renders = pair.1
+  // Four events processed → at least four render_frame calls before we quit.
   assert(renders >= 4)
   assert(final.buffer.lines == ["abc"])
 }
@@ -103,4 +103,32 @@ test "get_dimensions is propagated onto EditorState.screen_size" {
     event_loop(init_editor(None))
   }
   assert(final.screen_size == (120, 40))
+}
+
+// ------------------- test 5: Ctrl-s writes the file --------------------
+
+test "ctrl-s on a named buffer writes content to disk" {
+  let tmp_path = "/tmp/hedit_test_m2_save.txt"
+  let s0 = init_editor(Some(tmp_path))
+  let final = handle Terminal {
+    poll_event() => match events {
+      []          => KeyEvent(KShortcut(Ctrl, 'q')),
+      [e, ..rest] => { events = rest; e }
+    },
+    render_frame(_buf)   => (),
+    get_dimensions()     => (80, 24),
+    set_cursor_style(_s) => ()
+  } with var events = [
+    KeyEvent(KChar('h')),
+    KeyEvent(KChar('i')),
+    KeyEvent(KShortcut(Ctrl, 's')),
+    KeyEvent(KShortcut(Ctrl, 'q'))
+  ] in {
+    event_loop(s0)
+  }
+  assert(final.buffer.is_dirty == false)
+  assert(final.status_message == Some("Saved"))
+  // Verify the file was written by reading it back.
+  let content = read_file(tmp_path)
+  assert(content == Ok("hi"))
 }

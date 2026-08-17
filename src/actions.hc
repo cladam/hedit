@@ -1,9 +1,8 @@
 // actions.hc — pure event → state transitions.
 //
-// This is the "handle_action" core from section 5 of docs/hedit-design.md,
-// carved down to the minimum: a single active cursor, single-line append.
-// No effects yet, so no file save / no rendering — those arrive with the
-// `fs` and `terminal` effects.
+// handle_action stays 100% pure (no file I/O). Ctrl-s save is handled by
+// event_loop in runtime.hc (consistent with design doc §5); save_buffer
+// lives there too. This file owns only the pure state-update logic.
 
 import "keys"
 import "model"
@@ -60,11 +59,8 @@ pub fun insert_char(state: EditorState, c: char) : EditorState {
 
 // ------------------- pure event dispatcher -------------------------------
 
-// Matches the shape of `handle_action` in the design doc. hica now
-// auto-derives `==` on enums, so we can destructure the payload and compare
-// the modifier directly — no `is_ctrl` helper needed. The condition is
-// parenthesised because `x == Ctrl { ... }` would otherwise be parsed as a
-// struct literal (see hica language-reference §Enums).
+// Matches the shape of `handle_action` in the design doc. Ctrl-s save is
+// NOT here — it lives in event_loop (runtime.hc) so this stays pure.
 pub fun handle_action(state: EditorState, evt: Event) : EditorState =>
   match evt {
     KeyEvent(KShortcut(m, c)) =>

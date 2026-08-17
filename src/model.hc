@@ -37,6 +37,21 @@ pub struct EditorState {
   should_quit: bool
 }
 
+// The pixel-free "screen buffer" the Terminal handler flushes.
+// Minimal M1/M2 shape: one string per row. M3+ can upgrade to ScreenCell.
+pub struct ScreenBuffer {
+  width: int,
+  height: int,
+  lines: list<string>
+}
+
+// Cursor-shape hint forwarded to the Terminal handler.
+pub type CursorStyle {
+  Block,
+  Bar,
+  Underscore
+}
+
 // --- constructors ---------------------------------------------------------
 
 // A fresh buffer with one empty line and one cursor at (0, 0).
