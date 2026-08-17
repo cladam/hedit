@@ -28,17 +28,6 @@ pub effect Terminal {
   fun set_cursor_style(style: CursorStyle)
 }
 
-// ------------------- Clipboard effect ----------------------------------
-
-// Cross-platform clipboard abstraction (M3). The in-memory handler in
-// tests + `src/main.hc` uses a `with var buf = ""` slot; a native
-// handler (pbcopy / wl-copy / xclip) can land later without touching
-// event_loop or the Copy/Paste dispatch here.
-pub effect Clipboard {
-  fun get_selection() : string
-  fun set_selection(text: string)
-}
-
 // ------------------- save (fsys) ---------------------------------------
 
 // Apply the write_file result to state: clear dirty + status on success,
@@ -69,9 +58,8 @@ fun save_buffer(state: EditorState) {
 
 // ------------------- the loop ------------------------------------------
 
-// Tail-recursive event loop parameterised over the installed Terminal +
-// Clipboard handlers. Each tick: query dimensions → render → poll →
-// resolve → dispatch → recurse.
+// Tail-recursive event loop parameterised over the installed Terminal handler.
+// Each tick: query dimensions → render → poll → resolve → dispatch → recurse.
 //
 // The dispatch is deliberately thin: `resolve_action` turns the raw Event
 // into a semantic `Action` using `state.config.bindings`, and event_loop
@@ -79,9 +67,8 @@ fun save_buffer(state: EditorState) {
 // pure action falls through to `apply_action`, which stays effect-free.
 //
 // Returns final EditorState when should_quit flips true.
-// Return-type annotation omitted: the full effect row
-// (<Terminal, Clipboard, fsys, div>) is inferred by Koka — explicit
-// annotation would be rejected as too narrow.
+// Return-type annotation omitted: the full effect row (<Terminal, fsys, div>)
+// is inferred by Koka — explicit annotation would be rejected as too narrow.
 pub fun event_loop(state: EditorState) {
   if state.should_quit {
     state
@@ -93,35 +80,9 @@ pub fun event_loop(state: EditorState) {
     let action = resolve_action(sized, evt)
     let next   = match action {
       // Effectful actions handled inline; pure ones fall through.
-      Save  => save_buffer(sized),
-      Copy  => {
-        set_selection(current_line(sized))
-        set_status_message(sized, "Copied line")
-      },
-      Paste => paste_text(sized, get_selection()),
-      _     => apply_action(sized, action)
+      Save => save_buffer(sized),
+      _    => apply_action(sized, action)
     }
     event_loop(next)
   }
 }
-
-// ------------------- scripted harness (removed pending Issue #5) --------
-//
-// A `pub fun run_scripted(initial, events, clip0) : (EditorState, string)`
-// that installed both `Clipboard` and `Terminal` handlers around
-// `event_loop` was drafted here as an M3 test harness. It hit hica-
-// issues.md **Issue #5**: the emitted `with handler` blocks inside
-// hica's per-handler `(fn())` wrapper hide the outer Clipboard handler
-// from the inner Terminal handler's scope, so `event_loop`'s
-// `set_selection(...)` call from a Copy/Paste dispatch escapes as an
-// unhandled effect all the way out to the test-file `fun main()`.
-//
-// Notably, *the mere presence* of such a `pub fun` in this module is
-// enough to make Koka treat `runtime/clipboard` as an inferred effect
-// of the module's `main` expression — so even omitting the call site
-// in `tests/runtime_test.hc` doesn't dodge the failure. Until the
-// codegen fix lands upstream (see `docs/hica-issues.md` Issue #5), the
-// harness is removed entirely and Copy/Paste coverage lives at the
-// pure-unit level in `tests/actions_test.hc`. Once fixed, restore
-// `run_scripted` here and re-enable the three Ctrl-c/Ctrl-v tests
-// sketched at the bottom of `tests/runtime_test.hc`.

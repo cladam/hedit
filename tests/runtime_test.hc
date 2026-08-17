@@ -1,4 +1,4 @@
-// runtime_test.hc — M1/M2/M3 headless-handler regression tests.
+// runtime_test.hc — M1 headless-handler regression tests.
 //
 // Every test installs a scripted `Terminal` handler with two pieces of
 // handler-local state:
@@ -8,10 +8,6 @@
 //     the event loop.
 //   * `var render_count` — bumped on every `render_frame()` call so we
 //     can assert the loop actually ticked.
-//
-// M3 tests additionally wrap the Terminal handler in an in-memory
-// `Clipboard` handler (`with var clip = ""`), so Ctrl-c / Ctrl-v
-// round-trips are asserted without hitting a real OS clipboard.
 //
 // `event_loop` in `src/runtime.hc` is the pure driver we're testing;
 // each arm body auto-resumes (hica 0.49 handler semantics), so we
@@ -137,34 +133,3 @@ test "ctrl-s on a named buffer writes content to disk" {
   let content = read_file(tmp_path)
   assert(content == Ok("hi\n"))
 }
-
-// ------------------- Clipboard integration tests (blocked on Issue #5) --
-//
-// M3 was intended to grow three integration tests here that drive the
-// Copy/Paste path through `event_loop` end-to-end (Ctrl-c copy, Ctrl-v
-// paste, full copy→paste round-trip). Each would install both the
-// `Terminal` and `Clipboard` handlers around
-// `event_loop(init_editor(None))` — either inline via nested `handle`
-// blocks, or via the `pub fun run_scripted(...)` harness we prepared
-// in `src/runtime.hc`.
-//
-// Both approaches hit hica-issues.md **Issue #5**: hica's codegen
-// wraps every `with handler` block in an anonymous `(fn() … )()`, and
-// that anonymous-function boundary hides the enclosing handler chain
-// from any inner `with handler`. So when `event_loop` calls
-// `set_selection(...)` (a Clipboard op) from inside the inner Terminal
-// handler's `(fn())`, no Clipboard handler is live at that stack
-// frame, and Koka reports `unhandled effect: runtime/clipboard` from
-// the test-mode `fun main()`.
-//
-// The `run_scripted` harness is retained in `src/runtime.hc` so that
-// once the codegen fix lands upstream, we can re-enable these three
-// tests with a single `let pair: (EditorState, string) = run_scripted
-// (...)` call — no logic change required.
-//
-// Meanwhile, Copy/Paste coverage lives at the pure-unit level in
-// `tests/actions_test.hc` (6 dedicated tests: `resolve_action → Copy /
-// Paste`, `apply_action` no-op behaviour on both, and pure-helper
-// coverage for `current_line` + `paste_text`). The integration path
-// itself is exercised by hand via `hica run src/main.hc` — the M3
-// stub installs the in-memory Clipboard handler and exits cleanly.
