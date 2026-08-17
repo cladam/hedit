@@ -89,15 +89,23 @@ hica clean   # remove generated files
 - ✅ Design document drafted (`docs/hedit-design.md`)
 - ✅ HiLisp submodule wired into the build
 - 🚧 Scripting bridge (`src/script/hilisp_host.hc`) — in progress
-- 🚧 Core editor / event loop / effects — **M2 green** (+ pre-M3 cleanup):
-      `src/render.hc` ships `render_editor_to_buffer` (pure ScreenBuffer
-      builder with content rows + status line); `event_loop` in
-      `src/runtime.hc` dispatches through a config-driven `Action`
-      pipeline (no hard-coded keybindings — micro-style,
-      HiLisp-remappable in M4) and handles `Save` via built-in
-      `write_file`. 31/31 tests green: 13 actions, 9 HiLisp host,
-      4 render, 5 runtime. Real ANSI positioning lands in a later pass.
+- 🚧 Core editor / event loop / effects — **M3 green**:
+      `src/runtime.hc` now declares two `pub effect`s — `Terminal`
+      (poll/render/dimensions/cursor-style) and `Clipboard` (get/set
+      selection) — and `event_loop` dispatches Save via built-in
+      `write_file`, Copy/Paste through the `Clipboard` effect. All
+      keybindings still flow through the config-driven `Action`
+      pipeline (Ctrl-c → Copy, Ctrl-v → Paste added to
+      `default_bindings()` — micro-style, HiLisp-remappable in M4).
+      `src/main.hc` stacks an in-memory Clipboard handler outside the
+      Terminal stub. 40/40 tests green: 19 actions (6 new
+      Copy/Paste unit tests), 9 HiLisp host, 4 render, 8 runtime
+      (3 new nested-handler integration tests for Ctrl-c/Ctrl-v /
+      round-trip). Requires **hica ≥ 0.49.4** for the test-mode
+      panic-handler fix (see `docs/hica-issues.md` Issue #5). Real
+      ANSI positioning + real OS clipboard land in a later pass.
 - ⏳ Native terminal handler — not yet started
+
 
 
 ## License

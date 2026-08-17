@@ -1,4 +1,4 @@
-// runtime_test.hc — M1 headless-handler regression tests.
+// runtime_test.hc — M1/M2/M3 headless-handler regression tests.
 //
 // Every test installs a scripted `Terminal` handler with two pieces of
 // handler-local state:
@@ -8,6 +8,10 @@
 //     the event loop.
 //   * `var render_count` — bumped on every `render_frame()` call so we
 //     can assert the loop actually ticked.
+//
+// M3 tests additionally wrap the Terminal handler in an in-memory
+// `Clipboard` handler (`with var clip = ""`), so Ctrl-c / Ctrl-v
+// round-trips are asserted without hitting a real OS clipboard.
 //
 // `event_loop` in `src/runtime.hc` is the pure driver we're testing;
 // each arm body auto-resumes (hica 0.49 handler semantics), so we
@@ -132,4 +136,111 @@ test "ctrl-s on a named buffer writes content to disk" {
   // added by save_buffer for POSIX-friendliness (`wc -l`, `git diff`, …).
   let content = read_file(tmp_path)
   assert(content == Ok("hi\n"))
+}
+
+// ------------------- Clipboard integration tests (M3) ------------------
+//
+// Nested Terminal+Clipboard handlers around `event_loop`. Previously
+// blocked on hica-issues.md Issue #5 (test-mode `fun main()` didn't
+// discharge user-defined effects from `try({ hctest_() })`); resolved
+// in hica 0.49.3 with the auto-installed panic-handler fix.
+
+// ------------------- test 6: Ctrl-c copies current line ----------------
+
+test "ctrl-c copies the head cursor line into the Clipboard" {
+  // Type "abc", Ctrl-c, then Ctrl-q. After the loop returns, `clip`
+  // should hold "abc" and the buffer itself should still be "abc".
+  let pair: (EditorState, string) = handle Clipboard {
+    get_selection()  => clip,
+    set_selection(t) => clip = t
+  } with var clip = "" in {
+    let final: EditorState = handle Terminal {
+      poll_event() => match events {
+        []          => KeyEvent(KShortcut(Ctrl, 'q')),
+        [e, ..rest] => { events = rest; e }
+      },
+      render_frame(_buf)   => (),
+      get_dimensions()     => (80, 24),
+      set_cursor_style(_s) => ()
+    } with var events = [
+      KeyEvent(KChar('a')),
+      KeyEvent(KChar('b')),
+      KeyEvent(KChar('c')),
+      KeyEvent(KShortcut(Ctrl, 'c')),
+      KeyEvent(KShortcut(Ctrl, 'q'))
+    ] in {
+      event_loop(init_editor(None))
+    }
+    (final, clip)
+  }
+  let final = pair.0
+  let clipped = pair.1
+  assert(clipped == "abc")
+  assert(final.buffer.lines == ["abc"])
+  assert(final.status_message == Some("Copied line"))
+}
+
+// ------------------- test 7: Ctrl-v pastes from Clipboard --------------
+
+test "ctrl-v appends Clipboard contents to head cursor line" {
+  // Pre-seed the clipboard with "xyz". After Ctrl-v, the buffer's first
+  // line should read "xyz" (empty + paste), is_dirty should flip true.
+  let pair: (EditorState, string) = handle Clipboard {
+    get_selection()  => clip,
+    set_selection(t) => clip = t
+  } with var clip = "xyz" in {
+    let inner: EditorState = handle Terminal {
+      poll_event() => match events {
+        []          => KeyEvent(KShortcut(Ctrl, 'q')),
+        [e, ..rest] => { events = rest; e }
+      },
+      render_frame(_buf)   => (),
+      get_dimensions()     => (80, 24),
+      set_cursor_style(_s) => ()
+    } with var events = [
+      KeyEvent(KShortcut(Ctrl, 'v')),
+      KeyEvent(KShortcut(Ctrl, 'q'))
+    ] in {
+      event_loop(init_editor(None))
+    }
+    (inner, clip)
+  }
+  let final = pair.0
+  assert(final.buffer.lines == ["xyz"])
+  assert(final.buffer.is_dirty == true)
+}
+
+// ------------------- test 8: full Copy → Paste round-trip --------------
+
+test "copy then paste duplicates the line content" {
+  // Type "hi", Copy, Paste, Ctrl-q. Final line should be "hihi",
+  // clipboard should hold the pre-paste "hi".
+  let pair: (EditorState, string) = handle Clipboard {
+    get_selection()  => clip,
+    set_selection(t) => clip = t
+  } with var clip = "" in {
+    let inner: EditorState = handle Terminal {
+      poll_event() => match events {
+        []          => KeyEvent(KShortcut(Ctrl, 'q')),
+        [e, ..rest] => { events = rest; e }
+      },
+      render_frame(_buf)   => (),
+      get_dimensions()     => (80, 24),
+      set_cursor_style(_s) => ()
+    } with var events = [
+      KeyEvent(KChar('h')),
+      KeyEvent(KChar('i')),
+      KeyEvent(KShortcut(Ctrl, 'c')),
+      KeyEvent(KShortcut(Ctrl, 'v')),
+      KeyEvent(KShortcut(Ctrl, 'q'))
+    ] in {
+      event_loop(init_editor(None))
+    }
+    (inner, clip)
+  }
+  let final = pair.0
+  let clipped = pair.1
+  assert(final.buffer.lines == ["hihi"])
+  assert(final.buffer.is_dirty == true)
+  assert(clipped == "hi")
 }

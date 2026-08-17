@@ -15,12 +15,14 @@ actions. Nothing is hard-coded in the dispatcher — the defaults live in
 `src/model.hc::default_bindings()` and can be replaced from HiLisp (M4)
 via `(bind "Ctrl-x" 'save)`.
 
-### Current default bindings (M2)
+### Current default bindings (M3)
 
 | Chord    | Action | Notes |
 |----------|--------|-------|
-| `Ctrl-q` | `quit` | Sets `should_quit`; event loop terminates. |
-| `Ctrl-s` | `save` | Writes buffer to disk (needs a named buffer). |
+| `Ctrl-q` | `quit`  | Sets `should_quit`; event loop terminates. |
+| `Ctrl-s` | `save`  | Writes buffer to disk (needs a named buffer). |
+| `Ctrl-c` | `copy`  | Copies the head cursor's current line into the clipboard. |
+| `Ctrl-v` | `paste` | Appends the clipboard content at the end of the head cursor's line. |
 
 Typing any printable character routes to `insert` automatically — you
 don't (and can't) bind `a`, `b`, `c`, … Those aren't chord bindings.
@@ -28,6 +30,7 @@ don't (and can't) bind `a`, `b`, `c`, … Those aren't chord bindings.
 Unbound shortcuts (e.g. `Ctrl-x` today) resolve to the `Ignore` action —
 they are silently no-ops rather than errors, so a stale binding in your
 `init.hl` won't wedge the editor.
+
 
 ### Coming in M4
 
@@ -37,7 +40,38 @@ they are silently no-ops rather than errors, so a stale binding in your
 
 ---
 
+## Copy / Paste (Ctrl-c / Ctrl-v) semantics
+
+M3 v1 is deliberately small-scope so the effect scaffolding lands
+without dragging in a full cursor-model rewrite. Behaviour:
+
+- **Copy (Ctrl-c)** hands the head cursor's *current line* (no
+  trailing newline) to `Clipboard.set_selection`, and sets the status
+  line to `"Copied line"`. The buffer itself is unchanged and
+  `is_dirty` doesn't flip.
+- **Paste (Ctrl-v)** reads `Clipboard.get_selection` and appends the
+  text verbatim to the end of the head cursor's line. Every cursor's
+  column advances by `length(text)`. `is_dirty` flips true.
+- **Handler swap.** `src/main.hc` installs an in-memory `Clipboard`
+  handler (`with var clip = ""`). Tests install the same shape via
+  the nested-handler pattern in `tests/runtime_test.hc`. A real OS
+  clipboard (pbcopy / wl-copy / xclip) can slot in by swapping only
+  the two arm bodies — `event_loop` doesn't change.
+
+**Simplifications you'll notice:**
+
+- No selection model yet — Copy always grabs the whole current line,
+  not an anchor-to-head range.
+- No `\n` splitting on Paste. A clipboard containing `"foo\nbar"` is
+  pasted as a literal 7-char string; multi-line paste needs the
+  buffer to grow a `split_line` op first (M5+).
+- No system clipboard integration in the shipped stub — Copy/Paste
+  round-trip only inside a single hedit session for now.
+
+---
+
 ## Save (Ctrl-s) semantics
+
 
 - Writes `join(buffer.lines, "\n") + "\n"` — POSIX line-oriented tools
   (`wc -l`, `git diff`, most greps) expect a trailing newline, and files

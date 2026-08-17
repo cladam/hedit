@@ -54,6 +54,8 @@ pub type Action {
   Save,
   Insert(c: char),
   Resize(w: int, h: int),
+  Copy,
+  Paste,
   Ignore
 }
 
@@ -80,7 +82,9 @@ pub struct KeyChord {
 pub fun default_bindings() : list<(KeyChord, Action)> =>
   [
     (KeyChord { m: Ctrl, c: 'q' }, Quit),
-    (KeyChord { m: Ctrl, c: 's' }, Save)
+    (KeyChord { m: Ctrl, c: 's' }, Save),
+    (KeyChord { m: Ctrl, c: 'c' }, Copy),
+    (KeyChord { m: Ctrl, c: 'v' }, Paste)
   ]
 
 // Resolve a `KeyChord` against a bindings map. Unbound chords resolve to
