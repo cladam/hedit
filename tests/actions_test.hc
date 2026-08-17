@@ -90,6 +90,53 @@ test "resolve_action maps every KChar to Insert" {
   assert(resolve_action(s0, KeyEvent(KChar('Z'))) == Insert('Z'))
 }
 
+// ------------------- Copy/Paste resolution (Clipboard land in M3) ------
+
+test "resolve_action maps Ctrl-c to Copy via default_bindings" {
+  let s0 = init_editor(None)
+  let a  = resolve_action(s0, KeyEvent(KShortcut(Ctrl, 'c')))
+  assert(a == Copy)
+}
+
+test "resolve_action maps Ctrl-v to Paste via default_bindings" {
+  let s0 = init_editor(None)
+  let a  = resolve_action(s0, KeyEvent(KShortcut(Ctrl, 'v')))
+  assert(a == Paste)
+}
+
+// Pure `apply_action` no-ops Copy/Paste; the actual clipboard round-trip
+// lives in event_loop with the Clipboard handler installed (see
+// runtime_test.hc). Guarding here that the pure surface stays pure.
+test "apply_action leaves state untouched for Copy" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, Copy)
+  assert(s1.buffer.lines == [""])
+  assert(s1.buffer.is_dirty == false)
+}
+
+test "apply_action leaves state untouched for Paste" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, Paste)
+  assert(s1.buffer.lines == [""])
+  assert(s1.buffer.is_dirty == false)
+}
+
+// paste_text is the pure helper event_loop feeds `get_selection()` into.
+test "paste_text appends clipboard content to head cursor line" {
+  let s0 = init_editor(None)
+  let s1 = paste_text(s0, "hello")
+  assert(s1.buffer.lines == ["hello"])
+  assert(s1.buffer.is_dirty == true)
+}
+
+// current_line reads what event_loop hands to `set_selection()` on Copy.
+test "current_line returns the head cursor line" {
+  let s0 = init_editor(None)
+  let s1 = handle_action(s0, KeyEvent(KChar('h')))
+  let s2 = handle_action(s1, KeyEvent(KChar('i')))
+  assert(current_line(s2) == "hi")
+}
+
 test "custom bindings override defaults — Ctrl-x becomes Quit" {
   // Simulate a HiLisp init.hl that did `(bind "Ctrl-x" 'quit)`.
   let custom: list<(KeyChord, Action)> =

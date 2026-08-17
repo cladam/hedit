@@ -4,6 +4,10 @@
 // M2: render_frame arm now flushes the ScreenBuffer lines to stdout
 //     (simple line-by-line dump — full ANSI diffing lands in a later pass).
 //     event_loop gains <fsys> from handle_action's Ctrl-s save path.
+// M3: adds an in-memory Clipboard handler stacked outside the Terminal
+//     handler. Ctrl-c / Ctrl-v round-trip through a `with var clip = ""`
+//     slot; a native pbcopy/wl-copy/xclip handler can replace this arm
+//     without touching event_loop or the M4 HiLisp bridge.
 
 import "keys"
 import "model"
@@ -11,15 +15,20 @@ import "runtime"
 
 fun main() {
   let s0 = init_editor(None)
-  let final = handle Terminal {
-    poll_event()         => KeyEvent(KShortcut(Ctrl, 'q')),
-    render_frame(buf)    => foreach(buf.lines, println),
-    get_dimensions()     => (80, 24),
-    set_cursor_style(_s) => ()
-  } in {
-    event_loop(s0)
+  let final = handle Clipboard {
+    get_selection()   => clip,
+    set_selection(t)  => clip = t
+  } with var clip = "" in {
+    handle Terminal {
+      poll_event()         => KeyEvent(KShortcut(Ctrl, 'q')),
+      render_frame(buf)    => foreach(buf.lines, println),
+      get_dimensions()     => (80, 24),
+      set_cursor_style(_s) => ()
+    } in {
+      event_loop(s0)
+    }
   }
 
   println("---")
-  println("hedit m2 stub run complete.")
+  println("hedit m3 stub run complete.")
 }
