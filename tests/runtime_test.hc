@@ -128,7 +128,8 @@ test "ctrl-s on a named buffer writes content to disk" {
   }
   assert(final.buffer.is_dirty == false)
   assert(final.status_message == Some("Saved"))
-  // Verify the file was written by reading it back.
+  // Verify the file was written by reading it back. Trailing newline is
+  // added by save_buffer for POSIX-friendliness (`wc -l`, `git diff`, …).
   let content = read_file(tmp_path)
-  assert(content == Ok("hi"))
+  assert(content == Ok("hi\n"))
 }

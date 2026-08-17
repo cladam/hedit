@@ -13,7 +13,7 @@ fun main() {
   let s0 = init_editor(None)
   let final = handle Terminal {
     poll_event()         => KeyEvent(KShortcut(Ctrl, 'q')),
-    render_frame(buf)    => foreach(buf.lines, (l) => println(l)),
+    render_frame(buf)    => foreach(buf.lines, println),
     get_dimensions()     => (80, 24),
     set_cursor_style(_s) => ()
   } in {

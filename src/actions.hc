@@ -1,8 +1,16 @@
 // actions.hc — pure event → state transitions.
 //
-// handle_action stays 100% pure (no file I/O). Ctrl-s save is handled by
-// event_loop in runtime.hc (consistent with design doc §5); save_buffer
-// lives there too. This file owns only the pure state-update logic.
+// The dispatcher is a two-step pipeline:
+//
+//   raw Event  ──resolve_action──►  Action  ──apply_action──►  EditorState
+//
+// `resolve_action` consults `state.config.bindings`, so users can
+// remap any Ctrl-/Alt-shortcut from a HiLisp `init.hl` (M4) without
+// editing hica sources — mirroring micro's model
+// (https://github.com/micro-editor/micro/blob/master/runtime/help/keybindings.md).
+//
+// Only pure actions live here. Effectful ones (`Save`, which needs
+// `<fsys>`) are dispatched by `event_loop` in `runtime.hc`.
 
 import "keys"
 import "model"
@@ -57,19 +65,40 @@ pub fun insert_char(state: EditorState, c: char) : EditorState {
   EditorState { ...state, buffer: new_buf }
 }
 
-// ------------------- pure event dispatcher -------------------------------
+// ------------------- Event → Action resolution ---------------------------
 
-// Matches the shape of `handle_action` in the design doc. Ctrl-s save is
-// NOT here — it lives in event_loop (runtime.hc) so this stays pure.
-pub fun handle_action(state: EditorState, evt: Event) : EditorState =>
+// Turn a raw `Event` into a semantic `Action` using the bindings currently
+// installed on `state.config`. Pure: no I/O, no hardcoded chord names.
+//
+// Priority: KChar always inserts, ResizeEvent always resizes; only
+// KShortcuts pass through the user-configurable binding table. Unbound
+// shortcuts resolve to `Ignore` — event_loop then no-ops.
+pub fun resolve_action(state: EditorState, evt: Event) : Action =>
   match evt {
+    KeyEvent(KChar(c))        => Insert(c),
     KeyEvent(KShortcut(m, c)) =>
-      if (m == Ctrl) && c == 'q' {
-        EditorState { ...state, should_quit: true }
-      } else {
-        state
-      },
-    KeyEvent(KChar(c))  => insert_char(state, c),
-    ResizeEvent(w, h)   => EditorState { ...state, screen_size: (w, h) },
-    _                   => state
+      lookup_binding(state.config.bindings, KeyChord { m: m, c: c }),
+    ResizeEvent(w, h)         => Resize(w, h),
+    _                         => Ignore
   }
+
+// ------------------- Action → EditorState apply -------------------------
+
+// Apply an `Action` to state, purely. `Save` is intentionally NOT handled
+// here (it needs `<fsys>`); event_loop peels `Save` off before calling
+// `apply_action`.
+pub fun apply_action(state: EditorState, action: Action) : EditorState =>
+  match action {
+    Quit         => EditorState { ...state, should_quit: true },
+    Insert(c)    => insert_char(state, c),
+    Resize(w, h) => EditorState { ...state, screen_size: (w, h) },
+    Save         => state, // handled in event_loop; no-op here for purity
+    Ignore       => state
+  }
+
+// ------------------- pure event dispatcher ------------------------------
+
+// Convenience combinator: resolve + apply in one call. Used by callers
+// that don't need to inspect the intermediate `Action` (all pure paths).
+pub fun handle_action(state: EditorState, evt: Event) : EditorState =>
+  apply_action(state, resolve_action(state, evt))

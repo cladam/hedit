@@ -89,12 +89,14 @@ hica clean   # remove generated files
 - ✅ Design document drafted (`docs/hedit-design.md`)
 - ✅ HiLisp submodule wired into the build
 - 🚧 Scripting bridge (`src/script/hilisp_host.hc`) — in progress
-- 🚧 Core editor / event loop / effects — **M2 green**:
+- 🚧 Core editor / event loop / effects — **M2 green** (+ pre-M3 cleanup):
       `src/render.hc` ships `render_editor_to_buffer` (pure ScreenBuffer
       builder with content rows + status line); `event_loop` in
-      `src/runtime.hc` handles Ctrl-s save via built-in `write_file`
-      (26/26 tests green: 8 actions, 9 HiLisp host, 4 render, 5 runtime).
-      Real ANSI positioning lands in M3+. See `docs/effects-journal.md`.
+      `src/runtime.hc` dispatches through a config-driven `Action`
+      pipeline (no hard-coded keybindings — micro-style,
+      HiLisp-remappable in M4) and handles `Save` via built-in
+      `write_file`. 31/31 tests green: 13 actions, 9 HiLisp host,
+      4 render, 5 runtime. Real ANSI positioning lands in a later pass.
 - ⏳ Native terminal handler — not yet started
 
 

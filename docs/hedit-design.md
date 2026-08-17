@@ -258,69 +258,101 @@ above stays exactly as shown.
 
 ## 5. Event Processing Core
 
-The heart of `hedit` is a tail-recursive function performing pure state updates inside an effectful shell.
+The heart of `hedit` is a tail-recursive `event_loop` around a pure
+`Event → Action → EditorState` pipeline. Bindings live in
+`state.config.bindings` (see §7 for the HiLisp source), so **no
+keystroke is hard-coded in the dispatcher**. This mirrors micro's model
+([keybindings.md](https://github.com/micro-editor/micro/blob/master/runtime/help/keybindings.md))
+— every op is a named `Action`, users remap by editing the binding
+table.
+
+### 5.1 Pure core: `resolve_action` + `apply_action`
+
+`resolve_action` looks the incoming `Event` up against the user's
+bindings and returns a semantic `Action`. `apply_action` then folds
+that action into a new `EditorState`. Both are pure — no effects.
 
 ```hica
-// Pure state update step (no effects)
-fun handle_action(state: EditorState, evt: Event): EditorState => {
-    match evt {
-        Event.KeyEvent(Key.Shortcut(Modifier.Ctrl, 'q')) => {
-            // Signal exit
-            state
-        },
-        Event.KeyEvent(Key.Char(c)) => {
-            insert_char_at_cursors(state, c)
-        },
-        Event.MouseEvent(MouseAction.Press, x, y) => {
-            set_primary_cursor_from_screen(state, x, y)
-        },
-        _ => state
+// keys.hc / model.hc (shape only)
+pub type Action {
+  Quit,
+  Save,
+  Insert(c: char),
+  Resize(w: int, h: int),
+  Ignore
+}
+pub struct KeyChord { m: Modifier, c: char }
+
+// actions.hc
+pub fun resolve_action(state: EditorState, evt: Event) : Action =>
+  match evt {
+    KeyEvent(KChar(c))        => Insert(c),
+    KeyEvent(KShortcut(m, c)) =>
+      lookup_binding(state.config.bindings, KeyChord { m: m, c: c }),
+    ResizeEvent(w, h)         => Resize(w, h),
+    _                         => Ignore
+  }
+
+pub fun apply_action(state: EditorState, action: Action) : EditorState =>
+  match action {
+    Quit         => EditorState { ...state, should_quit: true },
+    Insert(c)    => insert_char(state, c),
+    Resize(w, h) => EditorState { ...state, screen_size: (w, h) },
+    Save         => state,   // event_loop peels Save off (needs <fsys>)
+    Ignore       => state
+  }
+
+// Convenience for pure callers (all tests).
+pub fun handle_action(state: EditorState, evt: Event) : EditorState =>
+  apply_action(state, resolve_action(state, evt))
+```
+
+### 5.2 Effectful shell: `event_loop`
+
+`event_loop` runs inside a `handle Terminal { … }` context. It renders,
+polls, resolves an action, and then either handles it inline (for
+effectful actions like `Save` that need `<fsys>`) or delegates to the
+pure `apply_action`.
+
+```hica
+// runtime.hc — return type is inferred as <Terminal, fsys, div>.
+pub fun event_loop(state: EditorState) {
+  if state.should_quit {
+    state
+  } else {
+    let dims  = get_dimensions()
+    let sized = EditorState { ...state, screen_size: dims }
+    render_frame(render_editor_to_buffer(sized))
+    let evt    = poll_event()
+    let action = resolve_action(sized, evt)
+    let next   = match action {
+      Save => save_buffer(sized),        // <fsys> lives here
+      _    => apply_action(sized, action) // pure
     }
+    event_loop(next)
+  }
 }
 
-// Main event loop leveraging combined algebraic effects
-fun event_loop(state: EditorState): Unit {
-    // Perform I/O operations via effects
-    let screen = render_editor_to_buffer(state)
-    render_frame(screen)
-    
-    let evt = poll_event()
-    
-    match evt {
-        Event.KeyEvent(Key.Shortcut(Modifier.Ctrl, 'q')) => {
-            // Check for unsaved changes before exiting
-            if has_unsaved_buffers(state) then {
-                let confirmation_state = prompt_save_warning(state)
-                event_loop(confirmation_state)
-            } else {
-                () // Terminate loop
-            }
-        },
-        Event.KeyEvent(Key.Shortcut(Modifier.Ctrl, 's')) => {
-            let updated_state = save_active_buffer(state)
-            event_loop(updated_state)
-        },
-        _ => {
-            let next_state = handle_action(state, evt)
-            event_loop(next_state)
-        }
+// Effectful save; only called from event_loop.
+fun save_buffer(state: EditorState) {
+  match state.buffer.path {
+    None    => set_status_message(state, "No file — save not possible"),
+    Some(p) => {
+      let body = join(state.buffer.lines, "\n") + "\n"
+      apply_write_result(state, write_file(p, body))
     }
+  }
 }
+```
 
-fun save_active_buffer(state: EditorState): EditorState => {
-    let buf = get_active_buffer(state)
-    match buf.path {
-        Just(p) => {
-            let text = flatten_buffer(buf)
-            match write_string_to_file(p, text) {
-                Ok(()) => mark_buffer_clean(state, buf.id),
-                Err(err) => set_status_message(state, "Failed to save file!")
-            }
-        },
-        Nothing => set_status_message(state, "No file name specified!")
-    }
-}
+Two invariants worth calling out:
 
+1. **`handle_action` stays pure.** Any future keybinding that needs
+   I/O gets added as a new `Action` variant *and* an arm in
+   `event_loop`'s inline match — never inside `apply_action`.
+2. **No keystroke → op mapping in code.** `resolve_action` reads the
+   entire mapping from `state.config.bindings`, which the defaults in
+   `default_bindings()` seed and HiLisp `(bind …)` (M4) overrides.
 ```
 
 ---
@@ -331,11 +363,13 @@ By building `hedit` against this design, the `hica` compiler development team ca
 
 | Feature Target | `hedit` Subsystem Exercising Feature | Success Criteria |
 | --- | --- | --- |
-| **User-facing `effect` syntax** | Declarations of `terminal`, `fs`, `clipboard`, `process` | Clean typing, correct effect signatures, clear diagnostic error messages for missing operations. |
-| **Handler scoping (`with handler`)** | Swapping Native vs Headless Test Handlers | Zero performance overhead when executing effect operations inside nested handlers. |
-| **Perceus FBIP Optimization** | High-frequency text manipulation (`insert_char_at_cursors`) | Verification that unique buffers update in-place without triggering heap allocations on keystrokes. |
-| **Pattern Matching & Algebraic Data Types** | Event handling (`Key`, `MouseAction`), Pane Trees (`PaneNode`) | Complete exhaustiveness checking without compiler panics on deeply nested matches. |
-| **Asynchronous Effects & Continuations** | Background process invocation (`exec_cmd`) | Effect handlers can pause execution, perform background tasks, and resume continuations correctly. |
+| **User-facing `effect` syntax (0.49 `effect Name { fun … }`)** | `effect Terminal` in `src/runtime.hc`; M3 adds `effect Clipboard`. | Clean typing, correct effect signatures, clear diagnostic error messages for missing operations. |
+| **Cross-module effects (`pub effect`)** | `Terminal` declared in `runtime.hc`, handled from `main.hc` and `tests/runtime_test.hc`. | Effect row propagates through imports; consumer `handle` blocks type-check. |
+| **Handler scoping (`handle E { arms } in { body }`)** | Native vs headless `Terminal` handlers swapped without touching `event_loop`. | Zero performance overhead when executing effect operations inside nested handlers. |
+| **Handler-local state (`with var …`)** | `tests/runtime_test.hc` scripts events + counts renders via `with var events = …, var render_count = 0`. | State scoped to the `in { … }` block; observations return through the block's value, cannot escape. |
+| **Perceus FBIP Optimization** | High-frequency text manipulation (`insert_char`). | Unique buffers update in-place without triggering heap allocations on keystrokes. |
+| **Pattern matching & ADTs** | `Event` / `Key` / `Action` dispatched in `resolve_action` + `apply_action`. | Complete exhaustiveness checking without compiler panics on deeply nested matches. |
+| **Structural `==` on enums/structs** | `Action == Action`, `KeyChord == KeyChord` in `actions_test.hc`. | Auto-derived `==` covers user-declared types without hand-written instances. |
 
 ---
 
@@ -362,11 +396,14 @@ Rebuilding the submodule pointer is a deliberate act (`git submodule update --re
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│  hedit core (pure)                                         │
-│    types.hc / model.hc / actions.hc                        │
-│      handle_action : EditorState -> Event -> EditorState   │
+│  hedit core                                                │
+│    keys.hc / model.hc / actions.hc  (pure)                 │
+│    render.hc                        (pure)                 │
+│    runtime.hc                       (effectful shell)      │
+│      resolve_action + apply_action + event_loop            │
 │                                                            │
-│  effect terminal / fs / clipboard / process / env          │
+│  User-defined effect (v1):  Terminal   (M3: + Clipboard)   │
+│  Built-ins used directly :  <fsys> <console> <env>         │
 └──────────────┬─────────────────────────────────────────────┘
                │
 ┌──────────────▼─────────────────────────────────────────────┐
@@ -437,7 +474,14 @@ main()
   └─ enter event_loop(state)
 ```
 
-The event loop consults `ConfigState.bindings` **before** the hard-coded switch inside `handle_action`, so user bindings win over defaults but can never remove built-in fallbacks.
+`ConfigState.bindings` is the single source of truth for keystroke
+resolution — there is no hard-coded switch inside `handle_action` to
+fall back to. User bindings that shadow a default *replace* the
+default; unbound chords resolve to the `Ignore` action (a no-op) so a
+stale `init.hl` binding never wedges the editor. `default_bindings()`
+in `src/model.hc` seeds the map before the user's `init.hl` is
+evaluated, so out-of-the-box behaviour is preserved even with an empty
+config file.
 
 ### 7.8 Test Strategy
 
