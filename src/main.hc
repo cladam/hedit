@@ -8,24 +8,30 @@
 //     handler. Ctrl-c / Ctrl-v round-trip through a `with var clip = ""`
 //     slot; a native pbcopy/wl-copy/xclip handler can replace this arm
 //     without touching event_loop or the M4 HiLisp bridge.
-// M4: HiLisp `(set …)` / `(bind …)` bridge lands in
-//     `src/hilisp_host.hc` + `src/config_loader.hc` (tested end-to-end
-//     via `tests/hilisp_host_test.hc`, 19/19 green). `main.hc` does
-//     *not* yet call `load_user_config` at startup — pulling
-//     `lib/hilisp/src/*.kk` into a `hica build` currently fails with
-//     "could not find module: lisp" because hica.hml's
-//     `@koka { include }` block doesn't propagate through the build
-//     path. `hica test` handles the include correctly, which is why
-//     the M4 test surface is green. Wiring the loader into `main.hc`
-//     lands as M4b once the build-path issue is resolved (either a
-//     hica CLI fix or a manifest-key discovery on our end).
+// M4b: calls `load_user_config(default_config())` before installing
+//      handlers. If a user's `init.hl` sits under $XDG_CONFIG_HOME or
+//      $HOME its (set …) / (bind …) forms feed into the initial
+//      `EditorState.config`. Any status message from the loader
+//      (successful path, or an error string) is primed onto
+//      `EditorState.status_message` so the first render tick surfaces
+//      the load result — mirroring vim/emacs on .vimrc/init.el.
+//      Unblocked by the hica `hica build` include-path fix (see
+//      docs/hica-issues.md Issue #7) + HiLisp v0.9.1 with the
+//      apply-carve-out shipped upstream.
 
 import "keys"
 import "model"
 import "runtime"
+import "hilisp_host"
+import "config_loader"
 
 fun main() {
-  let s0 = init_editor(None)
+  let (cfg, status) = load_user_config(default_config())
+  let s0 = init_editor_with_config(None, cfg)
+  let s1 = match status {
+    None      => s0,
+    Some(msg) => set_status_message(s0, msg)
+  }
   let final = handle Clipboard {
     get_selection()   => clip,
     set_selection(t)  => clip = t
@@ -36,10 +42,10 @@ fun main() {
       get_dimensions()     => (80, 24),
       set_cursor_style(_s) => ()
     } in {
-      event_loop(s0)
+      event_loop(s1)
     }
   }
 
   println("---")
-  println("hedit m4 stub run complete.")
+  println("hedit m4b stub run complete.")
 }

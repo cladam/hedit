@@ -20,6 +20,7 @@
 import "../src/keys"
 import "../src/model"
 import "../src/runtime"
+import "../src/hilisp_host"
 
 // ------------------- test 1: quit terminates immediately ----------------
 
@@ -243,4 +244,34 @@ test "copy then paste duplicates the line content" {
   assert(final.buffer.lines == ["hihi"])
   assert(final.buffer.is_dirty == true)
   assert(clipped == "hi")
+}
+
+// ------------------- M4b integration: HiLisp-rebound chord fires action -
+
+// End-to-end proof that a HiLisp `(bind …)` form materialised through
+// `load_config` reaches the event loop's action dispatch. We rebind
+// `Ctrl-x` → 'quit and `Ctrl-q` → 'ignore, seed the editor with the
+// resulting Config, script a single Ctrl-x event, and assert
+// `should_quit` flipped true. Any regression in the M4 chain
+// (`load_config` → `Config.bindings` → `resolve_action` → `event_loop`)
+// surfaces here without touching the filesystem.
+test "HiLisp (bind Ctrl-x 'quit) rewires the quit chord end-to-end" {
+  let src = "(bind \"Ctrl-x\" 'quit) (bind \"Ctrl-q\" 'ignore)"
+  let (cfg, err) = load_config(src, default_config())
+  assert(err == None)
+  let s0 = init_editor_with_config(None, cfg)
+  let final: EditorState = handle Terminal {
+    poll_event() => match events {
+      []          => KeyEvent(KShortcut(Ctrl, 'x')),
+      [e, ..rest] => { events = rest; e }
+    },
+    render_frame(_buf)   => (),
+    get_dimensions()     => (80, 24),
+    set_cursor_style(_s) => ()
+  } with var events = [
+    KeyEvent(KShortcut(Ctrl, 'x'))
+  ] in {
+    event_loop(s0)
+  }
+  assert(final.should_quit == true)
 }

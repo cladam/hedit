@@ -87,31 +87,38 @@ hica clean   # remove generated files
 ## Status
 
 - ✅ Design document drafted (`docs/hedit-design.md`)
-- ✅ HiLisp submodule wired into the build
-- 🚧 Scripting bridge (`src/script/hilisp_host.hc`) — in progress
-- 🚧 Core editor / event loop / effects — **M4 green** (with a
-      documented `hica build` follow-up):
-      `src/hilisp_host.hc` and `src/config_loader.hc` implement the
-      real HiLisp bridge described in `docs/hedit-design.md` §7.
-      `(set …)` / `(get …)` / `(bind …)` in `init.hl` mutate a
+- ✅ HiLisp submodule wired into the build (pinned at
+      **HiLisp v0.9.2** — the symmetric `apply` carve-out for
+      wrapped `(host/…)` aliases)
+- ✅ Scripting bridge (`src/hilisp_host.hc` + `src/config_loader.hc`)
+      — HiLisp `(set …)` / `(get …)` / `(bind …)` mutate a
       hedit-side `Config` via HiLisp's host-dispatch (`host/set`,
-      `host/get`, `host/bind`). Config discovery walks
+      `host/get`, `host/bind`); config discovery walks
       `$XDG_CONFIG_HOME/hedit/init.hl` → `$HOME/.hedit.hl` (first
-      hit wins) via `load_user_config`. 50/50 tests green: 19
-      actions, 4 render, 8 runtime, 19 hilisp_host (10 new — 3
-      `parse_chord`, 7 end-to-end `load_config`). Full stack still
-      requires **hica ≥ 0.49.4** for the test-mode panic-handler
-      fix (`docs/hica-issues.md` Issue #5) plus the string-keyed-
-      alist totality fix (Issue #6, resolved via `map_set → foldr`)
-      and the local HiLisp submodule carve-out in
-      `lib/hilisp/src/eval.hc::apply` that propagates `__`-prefixed
-      host state from wrapped `(def foo (fn (…) (host/set …)))`
-      calls. M4b (wiring `load_user_config` into `main.hc`) is
-      pending a `hica build` include-path fix — `@koka { include }`
-      in `hica.hml` reaches `hica test` but not `hica build`. Real
-      ANSI positioning + real OS clipboard still land in a later
-      pass.
+      hit wins) via `load_user_config`.
+- ✅ Core editor / event loop / effects — **M4 green, M4b closed**.
+      `src/main.hc` now calls `load_user_config(default_config())`
+      at startup and primes any status message onto the first render
+      tick. `pub effect Terminal` + `pub effect Clipboard` in
+      `src/runtime.hc`; pure `handle_action` in `src/actions.hc`;
+      pure `render_editor_to_buffer` in `src/render.hc`; save via
+      built-in `write_file` on Ctrl-s. All action dispatch is
+      config-driven (Ctrl-q → Quit etc. all live in
+      `default_bindings()`, overridable from `init.hl`).
+      **51/51 tests green**: 19 actions + 4 render + 9 runtime
+      (incl. end-to-end HiLisp-rebound chord test) + 19 hilisp_host.
+      Requires **hica ≥ 0.49.4** (test-mode panic-handler fix,
+      `docs/hica-issues.md` Issue #5) + the `hica build` include-
+      path fix (Issue #7) + the `map_set → foldr` totality fix
+      (Issue #6) + HiLisp v0.9.2 (Issue #8: symmetric `apply`
+      carve-out).
+- 🚧 **M5 (stretch)** — `spawn Buffer { … }` per open file for
+      per-buffer state (undo/redo). Narrow scope: prove the
+      named-effect mechanism, defer multi-buffer navigation to M5.5.
+      Planned; not yet started.
 - ⏳ Native terminal handler — not yet started
+- ⏳ Real OS clipboard handler (pbcopy / wl-copy / xclip) — not yet
+      started
 
 
 
