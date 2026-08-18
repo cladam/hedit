@@ -303,29 +303,30 @@ fun host_get(args: list<LVal>, env: Env) : (LVal, Env) =>
     _ => (lerror("host/bad-args", "get expects (key)"), env)
   }
 
+// Once chord & action have both parsed, record the binding using the
+// same canonical chord string the user typed. Split out from
+// `host_bind` so the outer function doesn't nest `match` on maybe —
+// `hica analyse` flags depth-3 nesting as HIGH severity, and having
+// this in its own combinator reads clearer regardless.
+fun bind_ok(env: Env, chord_str: string, action_name: string) : (LVal, Env) {
+  let cur = match env_get(env, bindings_key()) {
+    LHash(entries) => entries,
+    _              => []
+  }
+  let updated = map_set(cur, chord_str, LStr(action_name))
+  (LNil, env_set(env, bindings_key(), LHash(updated)))
+}
+
 // `(bind "Ctrl-x" 'save)` — replace (or add) a binding.
 // Malformed chord strings or unknown action symbols surface as LErrors
 // with hedit-specific ids so `load_config`'s status can be helpful.
 fun host_bind(args: list<LVal>, env: Env) : (LVal, Env) =>
   match args {
     [LStr(chord_str), LSym(action_name, _)] =>
-      match parse_chord(chord_str) {
-        None => (lerror("host/bad-chord", "unrecognised chord: " + chord_str), env),
-        Some(_) =>
-          match string_to_action(action_name) {
-            None => (lerror("host/bad-action", "unknown action: " + action_name), env),
-            Some(_) => {
-              // Both sides validated; store using the same canonical
-              // chord string the user typed. Round-trips through
-              // `entries_to_bindings` on the way out.
-              let cur = match env_get(env, bindings_key()) {
-                LHash(entries) => entries,
-                _              => []
-              }
-              let updated = map_set(cur, chord_str, LStr(action_name))
-              (LNil, env_set(env, bindings_key(), LHash(updated)))
-            }
-          }
+      match (parse_chord(chord_str), string_to_action(action_name)) {
+        (None, _)    => (lerror("host/bad-chord", "unrecognised chord: " + chord_str), env),
+        (_, None)    => (lerror("host/bad-action", "unknown action: " + action_name), env),
+        (Some(_), Some(_)) => bind_ok(env, chord_str, action_name)
       },
     _ => (lerror("host/bad-args", "bind expects (chord-string 'action)"), env)
   }
@@ -347,7 +348,7 @@ fun preamble() : string =>
 //   * the initial Config snapshot under the well-known env keys,
 //   * the `set` / `get` / `bind` aliases so callers write idiomatic
 //     `(bind "Ctrl-s" 'save)` instead of `(host/bind …)`.
-pub fun make_hedit_env(cfg0: Config) : Env {
+pub fun make_hedit_env(cfg0:Config) : Env {
   let base       = make_env()
   let dispatched = register_host_dispatch(base, hedit_host_dispatch)
   let seeded     = env_with_config(dispatched, cfg0)
@@ -364,7 +365,7 @@ pub fun make_hedit_env(cfg0: Config) : Env {
 // `EditorState.status_message`). Even on error we return whatever
 // Config accumulated up to that point — a broken (bind …) at line 40
 // shouldn't lose the 39 preceding lines' worth of config.
-pub fun load_config(src: string, cfg0: Config) : (Config, maybe<string>) {
+pub fun load_config(src: string, cfg0:Config) : (Config, maybe<string>) {
   let env0    = make_hedit_env(cfg0)
   let tokens  = tokenise(src)
   let (result, env1) = eval_all(tokens, env0, LNil)

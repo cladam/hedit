@@ -18,26 +18,34 @@
 import "model"
 import "hilisp_host"
 
+// Prepend `dir + "/hedit/init.hl"` (or the plain `.hedit.hl` variant)
+// to a list. Kept as tiny helpers so the outer builder is a single
+// pipeline with no nested `match` on maybe (which `hica analyse`
+// treats as HIGH severity).
+fun opt_path(dir: maybe<string>, suffix: string) : list<string> =>
+  unwrap_maybe_or(map_maybe(dir, (d) => [d + suffix]), [])
+
+// Compose the XDG candidate: `$XDG_CONFIG_HOME/hedit/init.hl` if the
+// env var is set, otherwise `$HOME/.config/hedit/init.hl` when `$HOME`
+// is set, or empty list on total miss.
+fun xdg_candidate(xdg: maybe<string>, home: maybe<string>) : list<string> =>
+  match xdg {
+    Some(_) => opt_path(xdg, "/hedit/init.hl"),
+    None    => opt_path(home, "/.config/hedit/init.hl")
+  }
+
+// `$HOME/.hedit.hl` if `$HOME` is set, empty otherwise.
+fun home_candidate(home: maybe<string>) : list<string> =>
+  opt_path(home, "/.hedit.hl")
+
 // Compose the two candidate paths in priority order.
 //
 // Kept as a small pure helper so it can be unit-tested independently
 // of the filesystem — the caller supplies whatever `$XDG_CONFIG_HOME`
 // and `$HOME` resolve to at runtime, which keeps this function total
 // and lets tests fabricate paths without exporting env vars.
-pub fun candidate_paths(xdg: maybe<string>, home: maybe<string>) : list<string> {
-  let xdg_path = match xdg {
-    Some(x) => [x + "/hedit/init.hl"],
-    None    => match home {
-      Some(h) => [h + "/.config/hedit/init.hl"],
-      None    => []
-    }
-  }
-  let home_path = match home {
-    Some(h) => [h + "/.hedit.hl"],
-    None    => []
-  }
-  xdg_path + home_path
-}
+pub fun candidate_paths(xdg: maybe<string>, home: maybe<string>) : list<string> =>
+  xdg_candidate(xdg, home) + home_candidate(home)
 
 // Try each candidate path in order; the first `Ok(_)` wins. On success
 // we return `(source, Some(path_that_matched))`; on total miss we
@@ -67,7 +75,7 @@ pub fun read_first(paths: list<string>) : (string, maybe<string>) =>
 // `EditorState.status_message` so the first render tick surfaces
 // exactly one line of feedback about the config load — mirroring how
 // vim/emacs behave on `.vimrc` / `init.el` errors.
-pub fun load_user_config(cfg0: Config) : (Config, maybe<string>) {
+pub fun load_user_config(cfg0:Config) : (Config, maybe<string>) {
   let xdg    = get_env("XDG_CONFIG_HOME")
   let home   = get_env("HOME")
   let paths  = candidate_paths(xdg, home)

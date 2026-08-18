@@ -89,21 +89,28 @@ hica clean   # remove generated files
 - ✅ Design document drafted (`docs/hedit-design.md`)
 - ✅ HiLisp submodule wired into the build
 - 🚧 Scripting bridge (`src/script/hilisp_host.hc`) — in progress
-- 🚧 Core editor / event loop / effects — **M3 green**:
-      `src/runtime.hc` now declares two `pub effect`s — `Terminal`
-      (poll/render/dimensions/cursor-style) and `Clipboard` (get/set
-      selection) — and `event_loop` dispatches Save via built-in
-      `write_file`, Copy/Paste through the `Clipboard` effect. All
-      keybindings still flow through the config-driven `Action`
-      pipeline (Ctrl-c → Copy, Ctrl-v → Paste added to
-      `default_bindings()` — micro-style, HiLisp-remappable in M4).
-      `src/main.hc` stacks an in-memory Clipboard handler outside the
-      Terminal stub. 40/40 tests green: 19 actions (6 new
-      Copy/Paste unit tests), 9 HiLisp host, 4 render, 8 runtime
-      (3 new nested-handler integration tests for Ctrl-c/Ctrl-v /
-      round-trip). Requires **hica ≥ 0.49.4** for the test-mode
-      panic-handler fix (see `docs/hica-issues.md` Issue #5). Real
-      ANSI positioning + real OS clipboard land in a later pass.
+- 🚧 Core editor / event loop / effects — **M4 green** (with a
+      documented `hica build` follow-up):
+      `src/hilisp_host.hc` and `src/config_loader.hc` implement the
+      real HiLisp bridge described in `docs/hedit-design.md` §7.
+      `(set …)` / `(get …)` / `(bind …)` in `init.hl` mutate a
+      hedit-side `Config` via HiLisp's host-dispatch (`host/set`,
+      `host/get`, `host/bind`). Config discovery walks
+      `$XDG_CONFIG_HOME/hedit/init.hl` → `$HOME/.hedit.hl` (first
+      hit wins) via `load_user_config`. 50/50 tests green: 19
+      actions, 4 render, 8 runtime, 19 hilisp_host (10 new — 3
+      `parse_chord`, 7 end-to-end `load_config`). Full stack still
+      requires **hica ≥ 0.49.4** for the test-mode panic-handler
+      fix (`docs/hica-issues.md` Issue #5) plus the string-keyed-
+      alist totality fix (Issue #6, resolved via `map_set → foldr`)
+      and the local HiLisp submodule carve-out in
+      `lib/hilisp/src/eval.hc::apply` that propagates `__`-prefixed
+      host state from wrapped `(def foo (fn (…) (host/set …)))`
+      calls. M4b (wiring `load_user_config` into `main.hc`) is
+      pending a `hica build` include-path fix — `@koka { include }`
+      in `hica.hml` reaches `hica test` but not `hica build`. Real
+      ANSI positioning + real OS clipboard still land in a later
+      pass.
 - ⏳ Native terminal handler — not yet started
 
 

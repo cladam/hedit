@@ -32,11 +32,46 @@ they are silently no-ops rather than errors, so a stale binding in your
 `init.hl` won't wedge the editor.
 
 
-### Coming in M4
+### M4 (landed): HiLisp `(set …)` / `(bind …)` in `init.hl`
 
-- `(bind "Ctrl-x" 'save)` — replace a default.
-- `(bind "Alt-Enter" 'quit)` — add a new chord.
-- `(unbind "Ctrl-q")` — TBD; may just drop from the alist.
+The HiLisp bridge in `src/hilisp_host.hc` + `src/config_loader.hc`
+is complete. On startup (once M4b wires it into `main.hc`), hedit
+walks `$XDG_CONFIG_HOME/hedit/init.hl` → `$HOME/.hedit.hl` and
+evaluates the first hit against a HiLisp env seeded with your
+current `Config`. Three built-ins are exposed:
+
+| Form | Effect |
+|------|--------|
+| `(set "key" value)` | Records a string-typed value; retrieve with `get_config` / `get_config_int` from hedit code. |
+| `(get "key")` | Reads a previously-set value (returns nil when absent, so `(if (get "auto-indent") …)` reads naturally). |
+| `(bind "Ctrl-x" 'action)` | Rebinds a chord to a named action. Modifier prefixes: `Ctrl-`, `Alt-`, `Meta-`, `Shift-`. Supported action symbols (M4): `'quit`, `'save`, `'copy`, `'paste`, `'ignore`. |
+
+Bad chord strings or unknown action symbols produce an `LError`
+that surfaces on `EditorState.status_message` as `Config error
+(…): error[host/bad-chord]: …` — so a typo in `init.hl` won't
+lock you out of the editor, and you can see what tripped the
+loader on the first render tick.
+
+Anything you `(set …)` earlier in the file survives even if a
+later form errors — `load_config` returns the *partial* Config
+alongside the error message.
+
+Example (from `tests/hilisp_host_test.hc`, all green):
+
+```lisp
+;; ~/.config/hedit/init.hl
+(set "tabsize" 4)
+(bind "Ctrl-x" 'quit)     ; new chord
+(bind "Ctrl-s" 'save)     ; same as default, harmless
+```
+
+**Note on the `hica build` follow-up.** `hica test` handles the
+HiLisp submodule include-path correctly, but `hica build` doesn't
+yet — `@koka { include: "./lib/hilisp/src" }` in `hica.hml`
+doesn't reach the production entry point. Until that lands
+(tracked in the M4 journal), `main.hc` runs with hard-coded
+defaults; the bridge is exercised through tests only. Nothing
+changes for the config-file format itself.
 
 ---
 

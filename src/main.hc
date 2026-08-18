@@ -8,6 +8,17 @@
 //     handler. Ctrl-c / Ctrl-v round-trip through a `with var clip = ""`
 //     slot; a native pbcopy/wl-copy/xclip handler can replace this arm
 //     without touching event_loop or the M4 HiLisp bridge.
+// M4: HiLisp `(set …)` / `(bind …)` bridge lands in
+//     `src/hilisp_host.hc` + `src/config_loader.hc` (tested end-to-end
+//     via `tests/hilisp_host_test.hc`, 19/19 green). `main.hc` does
+//     *not* yet call `load_user_config` at startup — pulling
+//     `lib/hilisp/src/*.kk` into a `hica build` currently fails with
+//     "could not find module: lisp" because hica.hml's
+//     `@koka { include }` block doesn't propagate through the build
+//     path. `hica test` handles the include correctly, which is why
+//     the M4 test surface is green. Wiring the loader into `main.hc`
+//     lands as M4b once the build-path issue is resolved (either a
+//     hica CLI fix or a manifest-key discovery on our end).
 
 import "keys"
 import "model"
@@ -30,5 +41,5 @@ fun main() {
   }
 
   println("---")
-  println("hedit m3 stub run complete.")
+  println("hedit m4 stub run complete.")
 }

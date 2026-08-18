@@ -104,33 +104,62 @@ test "parse_chord: rejects garbage" {
   assert(parse_chord("Ctrl-") == None)
 }
 
-// ------------------- M4: (set)/(bind) end-to-end (BLOCKED) ---------------
+// ------------------- M4: (set)/(bind) end-to-end -------------------------
 //
-// These tests are the M4 exit criterion — they prove that a HiLisp
-// config string materialises into a hedit-side `Config`. They pass at
-// `hica check` but fail at `hica build` because `register_host_dispatch`
-// inside `make_hedit_env` triggers the totality gap documented in
-// `docs/hica-issues.md` Issue #6. Uncomment once that issue lands
-// upstream (or we accept an in-hedit workaround).
-//
-// test "load_config: (set) records values into the config" {
-//   let (cfg, err) = load_config("(set \"tabsize\" 4)", default_config())
-//   assert(err == None)
-//   assert(get_config(cfg, "tabsize", "?") == "4")
-//   assert(get_config_int(cfg, "tabsize", 99) == 4)
-// }
-//
-// test "load_config: (bind) rewires Ctrl-x to quit" {
-//   let (cfg, err) = load_config("(bind \"Ctrl-x\" 'quit)", default_config())
-//   assert(err == None)
-//   let chord = KeyChord { m: Ctrl, c: 'x' }
-//   assert(lookup_binding(cfg.bindings, chord) == Quit)
-// }
-//
-// test "load_config: bad chord surfaces as status message" {
-//   let (_, err) = load_config("(bind \"nope\" 'quit)", default_config())
-//   match err {
-//     Some(msg) => assert(str_length(msg) > 0),
-//     None      => assert(false)
-//   }
-// }
+// These tests are the real M4 exit criterion: a HiLisp config string
+// materialises into a hedit-side `Config`. They exercise
+// `register_host_dispatch` + `hedit_host_dispatch` + `load_config` in
+// one go. The pattern intentionally mirrors the design doc §7.5 example.
+
+test "load_config: (set) records values into the config" {
+  let (cfg, err) = load_config("(set \"tabsize\" 4)", default_config())
+  assert(err == None)
+  assert(get_config(cfg, "tabsize", "?") == "4")
+  assert(get_config_int(cfg, "tabsize", 99) == 4)
+}
+
+test "load_config: (set) with a string value" {
+  let (cfg, err) = load_config("(set \"theme\" \"gruvbox\")", default_config())
+  assert(err == None)
+  assert(get_config(cfg, "theme", "?") == "gruvbox")
+}
+
+test "load_config: (bind) rewires Ctrl-x to quit" {
+  let (cfg, err) = load_config("(bind \"Ctrl-x\" 'quit)", default_config())
+  assert(err == None)
+  let chord = KeyChord { m: Ctrl, c: 'x' }
+  assert(lookup_binding(cfg.bindings, chord) == Quit)
+}
+
+test "load_config: (bind) preserves defaults not shadowed" {
+  // The user only rebinds Ctrl-x; Ctrl-s → Save should survive.
+  let (cfg, err) = load_config("(bind \"Ctrl-x\" 'save)", default_config())
+  assert(err == None)
+  let ctrl_s = KeyChord { m: Ctrl, c: 's' }
+  assert(lookup_binding(cfg.bindings, ctrl_s) == Save)
+}
+
+test "load_config: multiple forms compose (set + bind)" {
+  let src = "(set \"tabsize\" 2) (bind \"Alt-w\" 'save)"
+  let (cfg, err) = load_config(src, default_config())
+  assert(err == None)
+  assert(get_config_int(cfg, "tabsize", 99) == 2)
+  let alt_w = KeyChord { m: Alt, c: 'w' }
+  assert(lookup_binding(cfg.bindings, alt_w) == Save)
+}
+
+test "load_config: bad chord surfaces as status message" {
+  let (_, err) = load_config("(bind \"nope\" 'quit)", default_config())
+  match err {
+    Some(msg) => assert(str_length(msg) > 0),
+    None      => assert(false)
+  }
+}
+
+test "load_config: unknown action surfaces as status message" {
+  let (_, err) = load_config("(bind \"Ctrl-x\" 'nonsense)", default_config())
+  match err {
+    Some(msg) => assert(str_length(msg) > 0),
+    None      => assert(false)
+  }
+}

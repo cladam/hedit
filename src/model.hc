@@ -120,12 +120,19 @@ pub fun get_config(cfg: Config, key: string, default: string) : string =>
 
 // Numeric convenience: reads the value under `key`, parses as int, and
 // falls back to `default` on missing key or non-numeric content.
+// We route through an explicit `parse_or` helper so hica codegen
+// doesn't build a `.default(default)` chain (Koka's `default` method
+// on maybe conflicts with our `default` parameter name in that call
+// position). Named parameter `fallback` sidesteps the clash entirely.
+fun parse_or(v: string, fallback: int) : int =>
+  match parse_int(v) {
+    Some(n) => n,
+    None    => fallback
+  }
+
 pub fun get_config_int(cfg: Config, key: string, default: int) : int =>
   match map_get(cfg.values, key) {
-    Some(v) => match parse_int(v) {
-      Some(n) => n,
-      None    => default
-    },
+    Some(v) => parse_or(v, default),
     None    => default
   }
 
