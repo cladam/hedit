@@ -1,10 +1,18 @@
-// hilisp_host_test.hc — smoke tests for the HiLisp embed (Step 1).
+// hilisp_host_test.hc — smoke tests for the HiLisp embed.
 //
-// These aren't testing HiLisp itself (its own suite lives in lib/hilisp) --
-// they're proving that hedit can talk to HiLisp through the tiny host wrapper
+// M0 tests: proves hedit can talk to HiLisp through the tiny host wrapper
 // and that the four upstream v0.8.0 features we care about (arithmetic,
 // hash-maps, string escapes, quoted symbols) all round-trip.
+//
+// M4 tests: end-to-end coverage of the `(set …)` / `(get …)` / `(bind …)`
+// bridge is *drafted* below but commented out — they exercise the code
+// path in `src/hilisp_host.hc::load_config` that currently trips the
+// `<div>` totality gap documented in `docs/hica-issues.md` Issue #6.
+// The `parse_chord` tests are safe to run today because they only
+// exercise the pure helper, not the host-callback machinery.
 
+import "../src/keys"
+import "../src/model"
 import "../src/hilisp_host"
 import "../lib/hilisp/src/lisp"
 
@@ -66,3 +74,63 @@ test "eval_source_val: undefined symbol returns LError with a span" {
     _ => assert(false)  // we expected an error with a real span
   }
 }
+
+// ------------------- M4: parse_chord (pure, always safe) -----------------
+
+test "parse_chord: Ctrl-s → KeyChord(Ctrl, 's')" {
+  match parse_chord("Ctrl-s") {
+    Some(kc) => {
+      assert((kc.m == Ctrl) == true)
+      assert((kc.c == 's') == true)
+    },
+    None => assert(false)
+  }
+}
+
+test "parse_chord: Alt-x → KeyChord(Alt, 'x')" {
+  match parse_chord("Alt-x") {
+    Some(kc) => {
+      assert((kc.m == Alt) == true)
+      assert((kc.c == 'x') == true)
+    },
+    None => assert(false)
+  }
+}
+
+test "parse_chord: rejects garbage" {
+  assert(parse_chord("nope") == None)
+  assert(parse_chord("Ctrl-longer") == None)
+  assert(parse_chord("BadMod-s") == None)
+  assert(parse_chord("Ctrl-") == None)
+}
+
+// ------------------- M4: (set)/(bind) end-to-end (BLOCKED) ---------------
+//
+// These tests are the M4 exit criterion — they prove that a HiLisp
+// config string materialises into a hedit-side `Config`. They pass at
+// `hica check` but fail at `hica build` because `register_host_dispatch`
+// inside `make_hedit_env` triggers the totality gap documented in
+// `docs/hica-issues.md` Issue #6. Uncomment once that issue lands
+// upstream (or we accept an in-hedit workaround).
+//
+// test "load_config: (set) records values into the config" {
+//   let (cfg, err) = load_config("(set \"tabsize\" 4)", default_config())
+//   assert(err == None)
+//   assert(get_config(cfg, "tabsize", "?") == "4")
+//   assert(get_config_int(cfg, "tabsize", 99) == 4)
+// }
+//
+// test "load_config: (bind) rewires Ctrl-x to quit" {
+//   let (cfg, err) = load_config("(bind \"Ctrl-x\" 'quit)", default_config())
+//   assert(err == None)
+//   let chord = KeyChord { m: Ctrl, c: 'x' }
+//   assert(lookup_binding(cfg.bindings, chord) == Quit)
+// }
+//
+// test "load_config: bad chord surfaces as status message" {
+//   let (_, err) = load_config("(bind \"nope\" 'quit)", default_config())
+//   match err {
+//     Some(msg) => assert(str_length(msg) > 0),
+//     None      => assert(false)
+//   }
+// }

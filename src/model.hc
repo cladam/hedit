@@ -96,14 +96,38 @@ pub fun lookup_binding(kb: list<(KeyChord, Action)>, chord: KeyChord) : Action =
     None    => Ignore
   }
 
-// Config bundle carried through the editor. For now it's just the key
-// bindings; M4 grows this with (set …) values like tabsize/theme.
+// Config bundle carried through the editor. M4 grows this with `(set …)`
+// values sourced from HiLisp — kept as `list<(string, string)>` so keys
+// and values round-trip through the HiLisp bridge without an extra ADT.
+// Booleans/ints are stringified at the boundary; helpers below decode
+// them back on the hedit side.
 pub struct Config {
-  bindings: list<(KeyChord, Action)>
+  bindings: list<(KeyChord, Action)>,
+  values: list<(string, string)>
 }
 
 pub fun default_config() : Config =>
-  Config { bindings: default_bindings() }
+  Config { bindings: default_bindings(), values: [] }
+
+// Look up a `(set key value)` value from the config, or `default` if
+// absent. Config values are stringly typed at the HiLisp boundary;
+// callers use `get_config_int` for numeric settings like `tabsize`.
+pub fun get_config(cfg: Config, key: string, default: string) : string =>
+  match map_get(cfg.values, key) {
+    Some(v) => v,
+    None    => default
+  }
+
+// Numeric convenience: reads the value under `key`, parses as int, and
+// falls back to `default` on missing key or non-numeric content.
+pub fun get_config_int(cfg: Config, key: string, default: int) : int =>
+  match map_get(cfg.values, key) {
+    Some(v) => match parse_int(v) {
+      Some(n) => n,
+      None    => default
+    },
+    None    => default
+  }
 
 // ---------------------------------------------------------------------------
 // Editor state
@@ -148,12 +172,20 @@ pub fun new_buffer(bid: int, path: maybe<string>) : TextBuffer =>
 // Initial editor state. `path` is optional — `None` means an unnamed scratch
 // buffer. A real file-open step will come with the `fs` effect later.
 pub fun init_editor(path: maybe<string>) : EditorState =>
+  init_editor_with_config(path, default_config())
+
+// Same as init_editor but takes a caller-supplied `Config` (typically
+// the merger of `default_config()` + the user's HiLisp init.hl, built
+// by `src/hilisp_host.hc::load_config`). Kept as a separate constructor
+// so `init_editor(None)` stays a one-liner for callers that don't touch
+// scripting (all pure tests).
+pub fun init_editor_with_config(path: maybe<string>, cfg: Config) : EditorState =>
   EditorState {
     buffer: new_buffer(0, path),
     status_message: None,
     screen_size: (80, 24),
     should_quit: false,
-    config: default_config()
+    config: cfg
   }
 
 // --- small pure helpers ---------------------------------------------------

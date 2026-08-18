@@ -142,7 +142,7 @@ test "custom bindings override defaults — Ctrl-x becomes Quit" {
   let custom: list<(KeyChord, Action)> =
     [(KeyChord { m: Ctrl, c: 'x' }, Quit)]
   let s0 = init_editor(None)
-  let s1 = EditorState { ...s0, config: Config { bindings: custom } }
+  let s1 = EditorState { ...s0, config: Config { bindings: custom, values: [] } }
   // Ctrl-x now resolves to Quit …
   assert(resolve_action(s1, KeyEvent(KShortcut(Ctrl, 'x'))) == Quit)
   // … and Ctrl-q, which was default, is now Ignore (custom map replaces).
