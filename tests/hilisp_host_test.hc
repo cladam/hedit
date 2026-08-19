@@ -146,6 +146,22 @@ test "load_config: (bind) rewires Ctrl-z to undo" {
   assert(lookup_binding(cfg.bindings, chord) == Undo)
 }
 
+test "load_config: (bind) rewires Ctrl-o to new-buffer (M5.5)" {
+  let (cfg, err) = load_config("(bind \"Alt-b\" 'new-buffer)", default_config())
+  assert(err == None)
+  let chord = KeyChord { m: Alt, c: 'b' }
+  assert(lookup_binding(cfg.bindings, chord) == NewBuffer)
+}
+
+test "load_config: next-buffer/prev-buffer/close-buffer symbols all resolve" {
+  let src = "(bind \"Alt-1\" 'next-buffer) (bind \"Alt-2\" 'prev-buffer) (bind \"Alt-3\" 'close-buffer)"
+  let (cfg, err) = load_config(src, default_config())
+  assert(err == None)
+  assert(lookup_binding(cfg.bindings, KeyChord { m: Alt, c: '1' }) == NextBuffer)
+  assert(lookup_binding(cfg.bindings, KeyChord { m: Alt, c: '2' }) == PrevBuffer)
+  assert(lookup_binding(cfg.bindings, KeyChord { m: Alt, c: '3' }) == CloseBuffer)
+}
+
 test "load_config: multiple forms compose (set + bind)" {
   let src = "(set \"tabsize\" 2) (bind \"Alt-w\" 'save)"
   let (cfg, err) = load_config(src, default_config())

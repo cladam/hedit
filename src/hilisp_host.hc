@@ -130,27 +130,35 @@ fun chord_to_str(chord: KeyChord) : string =>
 
 fun action_to_string(a: Action) : string =>
   match a {
-    Quit      => "quit",
-    Save      => "save",
-    Copy      => "copy",
-    Paste     => "paste",
-    Undo      => "undo",
-    Redo      => "redo",
-    Ignore    => "ignore",
-    Insert(_) => "insert",
+    Quit        => "quit",
+    Save        => "save",
+    Copy        => "copy",
+    Paste       => "paste",
+    Undo        => "undo",
+    Redo        => "redo",
+    NewBuffer   => "new-buffer",
+    NextBuffer  => "next-buffer",
+    PrevBuffer  => "prev-buffer",
+    CloseBuffer => "close-buffer",
+    Ignore      => "ignore",
+    Insert(_)   => "insert",
     Resize(_, _) => "resize"
   }
 
 fun string_to_action(s: string) : maybe<Action> =>
   match s {
-    "quit"   => Some(Quit),
-    "save"   => Some(Save),
-    "copy"   => Some(Copy),
-    "paste"  => Some(Paste),
-    "undo"   => Some(Undo),
-    "redo"   => Some(Redo),
-    "ignore" => Some(Ignore),
-    _        => None
+    "quit"         => Some(Quit),
+    "save"         => Some(Save),
+    "copy"         => Some(Copy),
+    "paste"        => Some(Paste),
+    "undo"         => Some(Undo),
+    "redo"         => Some(Redo),
+    "new-buffer"   => Some(NewBuffer),
+    "next-buffer"  => Some(NextBuffer),
+    "prev-buffer"  => Some(PrevBuffer),
+    "close-buffer" => Some(CloseBuffer),
+    "ignore"       => Some(Ignore),
+    _              => None
   }
 
 // ------------------- Env <-> Config shuttling --------------------------
@@ -163,6 +171,7 @@ fun string_to_action(s: string) : maybe<Action> =>
 // Well-known env keys. `__hedit_` prefix keeps them out of any name a
 // user might reasonably `(def …)`.
 fun bindings_key() : string => "__hedit_bindings"
+
 fun values_key() : string   => "__hedit_values"
 
 // Serialise a hedit-side `Config.bindings` alist into an `LHash` keyed

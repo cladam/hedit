@@ -275,3 +275,53 @@ test "HiLisp (bind Ctrl-x 'quit) rewires the quit chord end-to-end" {
   }
   assert(final.should_quit == true)
 }
+
+// ------------------- M5.5: multi-buffer navigation through event_loop --
+
+// Ctrl-o (new), Ctrl-n / Ctrl-p (cycle), Ctrl-w (close) all reach
+// `apply_action` through the same resolve_action/event_loop pipeline as
+// every other default binding — no special-casing in event_loop, since
+// these are all pure `Action`s (see src/actions.hc).
+test "Ctrl-o opens a new buffer, Ctrl-n cycles back to the original" {
+  let final: EditorState = handle Terminal {
+    poll_event() => match events {
+      []          => KeyEvent(KShortcut(Ctrl, 'q')),
+      [e, ..rest] => { events = rest; e }
+    },
+    render_frame(_buf)   => (),
+    get_dimensions()     => (80, 24),
+    set_cursor_style(_s) => ()
+  } with var events = [
+    KeyEvent(KChar('a')),
+    KeyEvent(KShortcut(Ctrl, 'o')), // open a fresh scratch buffer
+    KeyEvent(KChar('b')),
+    KeyEvent(KShortcut(Ctrl, 'n')), // cycle forward — wraps to buffer "a"
+    KeyEvent(KShortcut(Ctrl, 'q'))
+  ] in {
+    event_loop(init_editor(None))
+  }
+  assert(final.buffer.lines == ["a"])
+  assert(length(final.background_buffers) == 1)
+}
+
+test "Ctrl-w closes the active buffer and promotes the other one" {
+  let final: EditorState = handle Terminal {
+    poll_event() => match events {
+      []          => KeyEvent(KShortcut(Ctrl, 'q')),
+      [e, ..rest] => { events = rest; e }
+    },
+    render_frame(_buf)   => (),
+    get_dimensions()     => (80, 24),
+    set_cursor_style(_s) => ()
+  } with var events = [
+    KeyEvent(KChar('a')),
+    KeyEvent(KShortcut(Ctrl, 'o')), // buffer "b" is now active, "a" backgrounded
+    KeyEvent(KChar('b')),
+    KeyEvent(KShortcut(Ctrl, 'w')), // close "b" — "a" is promoted
+    KeyEvent(KShortcut(Ctrl, 'q'))
+  ] in {
+    event_loop(init_editor(None))
+  }
+  assert(final.buffer.lines == ["a"])
+  assert(length(final.background_buffers) == 0)
+}

@@ -112,7 +112,7 @@ hica clean   # remove generated files
       path fix (Issue #7) + the `map_set → foldr` totality fix
       (Issue #6) + HiLisp v0.9.2 (Issue #8: symmetric `apply`
       carve-out).
-- 🚧 **M5** — `pub effect Buffer` (named/spawned via `spawn Buffer { … }
+- ✅ **M5** — `pub effect Buffer` (named/spawned via `spawn Buffer { … }
       as ref`) provides per-buffer undo/redo history. `EditorState.buffer`
       stays a plain `TextBuffer` (pure core unchanged); only
       `event_loop` spawns and talks to the `ref<Buffer>`. `Ctrl-z` /
@@ -124,7 +124,19 @@ hica clean   # remove generated files
       Issue #9 — landed same day as a local build, not yet in the
       published/PATH `hica`). Docs updated
       (`docs/hedit-design.md` §9, `docs/notes.md` Undo/Redo section);
-      Reflection still pending in `docs/effects-journal.md`.
+      Reflection written in `docs/effects-journal.md`.
+- ✅ **M5.5** — multi-buffer navigation. `EditorState.buffer` stays
+      the active-buffer field; a new `background_buffers` ring holds
+      the rest of the open buffers (`NextBuffer`/`PrevBuffer` rotate
+      it, `NewBuffer`/`CloseBuffer` push/pop the front) — no
+      `active`-index bookkeeping to drift out of sync. Default
+      bindings `Ctrl-o` (new buffer), `Ctrl-n`/`Ctrl-p` (cycle),
+      `Ctrl-w` (close), all pure and config-driven like every other
+      action. `render_editor_to_buffer` gains a tabline row (active
+      buffer bracketed). **72/72 tests green**: 29 actions + 6 render
+      + 11 runtime + 22 hilisp_host + 4 spawn. Opening files from disk
+      (`OpenFile(path)`) and per-buffer isolated undo/redo are
+      deferred — see `docs/effects-journal.md` M5.5 non-goals.
 - ⏳ Native terminal handler — not yet started
 - ⏳ Real OS clipboard handler (pbcopy / wl-copy / xclip) — not yet
       started

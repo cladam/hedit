@@ -648,3 +648,68 @@ without touching the pure core.
 Multi-buffer navigation, a persistent/on-disk undo log, and coalescing
 consecutive `Insert` keystrokes into a single undo step (today every
 keystroke is its own snapshot) are all out of scope for M5.
+
+## 10. Multi-buffer navigation (M5.5)
+
+§3's original sketch (`buffers: Map<BufferId, TextBuffer>` +
+`active_buffer_id`) was aspirational, not binding — see
+`docs/effects-journal.md`'s M5.5 Log for why the shipped shape differs.
+
+### 10.1 The ring shape
+
+`EditorState.buffer` stays the sole active-buffer field (unchanged
+since M1 — every pure helper written against it keeps working).
+`EditorState.background_buffers: list<TextBuffer>` holds the rest of
+the open buffers as a **rotation ring** — there is no separate
+`active` index that could point at a stale or missing id:
+
+```hica
+pub struct EditorState {
+  buffer: TextBuffer,
+  background_buffers: list<TextBuffer>,
+  next_bid: int,
+  ...
+}
+
+pub fun open_buffers(s: EditorState) : list<TextBuffer> =>
+  [s.buffer] + s.background_buffers
+```
+
+`NextBuffer`/`PrevBuffer` rotate the ring (`cycle_next_buffer`
+pops the ring's head into `buffer`, pushing the old `buffer` to the
+back; `cycle_prev_buffer` is the same traversal run against
+`reverse(background_buffers)`). `NewBuffer` pushes the current
+`buffer` onto the ring and makes a fresh empty scratch buffer active.
+`CloseBuffer` drops the active buffer and promotes the ring's head —
+refusing (with a status message) to close the last remaining buffer.
+All four are pure — no `<fsys>`, no effect handler — so they live
+entirely in `apply_action` (`src/actions.hc`), with zero changes to
+`event_loop`.
+
+### 10.2 Default bindings
+
+`Ctrl-o` → `NewBuffer`, `Ctrl-n` → `NextBuffer`, `Ctrl-p` →
+`PrevBuffer`, `Ctrl-w` → `CloseBuffer`. Not `Ctrl-tab`/`Ctrl-o`-for-open
+as originally sketched — see the effects journal for why `Ctrl-tab`
+isn't representable and why "open" here means "new scratch buffer",
+not "open a file from disk".
+
+### 10.3 Tabline
+
+`render_editor_to_buffer` (`src/render.hc`) reserves row 0 for a
+tabline: every open buffer (`open_buffers`, active first) joined by
+`|`, with the active tab bracketed (`[scratch]`). Content rows and the
+status row are unchanged other than shrinking by one row
+(`n_content = h - 2`).
+
+### 10.4 Non-goals (deferred)
+
+- **Per-buffer isolated undo/redo.** The M5 `spawn Buffer` instance in
+  `event_loop` is still a single shared undo/redo stack; switching
+  buffers does not swap in separate history. A `spawn`-per-buffer pool
+  is the natural fix, deferred until there's real demand.
+- **`Action::OpenFile(path)`** — opening a file from disk needs a
+  command-line/path-prompt input widget; `(bind chord 'symbol)` can
+  only reach zero-argument actions today.
+- Split panes / windows (`PaneNode`, §3) — untouched.
+

@@ -58,6 +58,10 @@ pub type Action {
   Paste,
   Undo,
   Redo,
+  NewBuffer,
+  NextBuffer,
+  PrevBuffer,
+  CloseBuffer,
   Ignore
 }
 
@@ -88,7 +92,11 @@ pub fun default_bindings() : list<(KeyChord, Action)> =>
     (KeyChord { m: Ctrl, c: 'c' }, Copy),
     (KeyChord { m: Ctrl, c: 'v' }, Paste),
     (KeyChord { m: Ctrl, c: 'z' }, Undo),
-    (KeyChord { m: Ctrl, c: 'y' }, Redo)
+    (KeyChord { m: Ctrl, c: 'y' }, Redo),
+    (KeyChord { m: Ctrl, c: 'o' }, NewBuffer),
+    (KeyChord { m: Ctrl, c: 'n' }, NextBuffer),
+    (KeyChord { m: Ctrl, c: 'p' }, PrevBuffer),
+    (KeyChord { m: Ctrl, c: 'w' }, CloseBuffer)
   ]
 
 // Resolve a `KeyChord` against a bindings map. Unbound chords resolve to
@@ -144,9 +152,17 @@ pub fun get_config_int(cfg: Config, key: string, default: int) : int =>
 // Editor state
 // ---------------------------------------------------------------------------
 
-// Full editor state.  Single-buffer for step 1.
+// Full editor state. `buffer` is always the *active* buffer — every pure
+// helper written before M5.5 (actions.hc, render.hc) keeps working
+// unchanged. `background_buffers` holds the other open buffers as a
+// rotation ring (see `cycle_next_buffer` / `cycle_prev_buffer` below):
+// the active buffer is conceptually always "at the front", so switching
+// buffers never needs a separate active-index to stay in sync.
+// `next_bid` hands out fresh `TextBuffer.bid`s for `NewBuffer`.
 pub struct EditorState {
   buffer: TextBuffer,
+  background_buffers: list<TextBuffer>,
+  next_bid: int,
   status_message: maybe<string>,
   screen_size: (int, int),
   should_quit: bool,
@@ -193,11 +209,18 @@ pub fun init_editor(path: maybe<string>) : EditorState =>
 pub fun init_editor_with_config(path: maybe<string>, cfg: Config) : EditorState =>
   EditorState {
     buffer: new_buffer(0, path),
+    background_buffers: [],
+    next_bid: 1,
     status_message: None,
     screen_size: (80, 24),
     should_quit: false,
     config: cfg
   }
+
+// All currently-open buffers, active buffer first — the order a tabline
+// should render them in. Pure, read-only convenience over the ring shape.
+pub fun open_buffers(s: EditorState) : list<TextBuffer> =>
+  [s.buffer] + s.background_buffers
 
 // --- small pure helpers ---------------------------------------------------
 

@@ -15,7 +15,7 @@ actions. Nothing is hard-coded in the dispatcher — the defaults live in
 `src/model.hc::default_bindings()` and can be replaced from HiLisp (M4)
 via `(bind "Ctrl-x" 'save)`.
 
-### Current default bindings (M5)
+### Current default bindings (M5.5)
 
 | Chord    | Action | Notes |
 |----------|--------|-------|
@@ -25,6 +25,10 @@ via `(bind "Ctrl-x" 'save)`.
 | `Ctrl-v` | `paste` | Appends the clipboard content at the end of the head cursor's line. |
 | `Ctrl-z` | `undo`  | Restores the buffer to its last snapshot. |
 | `Ctrl-y` | `redo`  | Re-applies the most recently undone snapshot. |
+| `Ctrl-o` | `new-buffer`   | Opens a fresh in-memory scratch buffer and makes it active. |
+| `Ctrl-n` | `next-buffer`  | Cycles to the next open buffer (wraps around). |
+| `Ctrl-p` | `prev-buffer`  | Cycles to the previous open buffer (wraps around). |
+| `Ctrl-w` | `close-buffer` | Closes the active buffer; refuses to close the last one. |
 
 Typing any printable character routes to `insert` automatically — you
 don't (and can't) bind `a`, `b`, `c`, … Those aren't chord bindings.
@@ -46,7 +50,7 @@ current `Config`. Three built-ins are exposed:
 |------|--------|
 | `(set "key" value)` | Records a string-typed value; retrieve with `get_config` / `get_config_int` from hedit code. |
 | `(get "key")` | Reads a previously-set value (returns nil when absent, so `(if (get "auto-indent") …)` reads naturally). |
-| `(bind "Ctrl-x" 'action)` | Rebinds a chord to a named action. Modifier prefixes: `Ctrl-`, `Alt-`, `Meta-`, `Shift-`. Supported action symbols: `'quit`, `'save`, `'copy`, `'paste`, `'undo`, `'redo`, `'ignore`. |
+| `(bind "Ctrl-x" 'action)` | Rebinds a chord to a named action. Modifier prefixes: `Ctrl-`, `Alt-`, `Meta-`, `Shift-`. Supported action symbols: `'quit`, `'save`, `'copy`, `'paste`, `'undo`, `'redo`, `'new-buffer`, `'next-buffer`, `'prev-buffer`, `'close-buffer`, `'ignore`. |
 
 Bad chord strings or unknown action symbols produce an `LError`
 that surfaces on `EditorState.status_message` as `Config error
@@ -125,10 +129,39 @@ stacks of `TextBuffer` snapshots. Behaviour:
   stack, same as most editors — you can't redo past a fresh edit.
 - **Save/Copy don't snapshot.** Only actions that mutate
   `TextBuffer` content push history.
-- **Scope: single active buffer.** The undo/redo mechanism is proven
-  to scale to multiple independent instances (`tests/spawn_test.hc`
-  spawns two and checks isolation), but hedit itself only ever spawns
-  one per `event_loop` call — multi-buffer wiring is M5.5.
+- **Scope: single active buffer, per-buffer history not yet isolated.**
+  The undo/redo mechanism is proven to scale to multiple independent
+  instances (`tests/spawn_test.hc` spawns two and checks isolation),
+  but `event_loop` still only ever spawns *one* `Buffer` instance per
+  call. M5.5 added multi-buffer navigation (`Ctrl-o`/`Ctrl-n`/`Ctrl-p`/
+  `Ctrl-w`) without giving each open buffer its own undo/redo stack —
+  switching buffers doesn't swap in a separate history yet. See
+  `docs/effects-journal.md` M5.5 non-goals.
+
+---
+
+## Multi-buffer navigation (Ctrl-o / Ctrl-n / Ctrl-p / Ctrl-w)
+
+M5.5 lets hedit hold more than one open buffer. `EditorState.buffer` is
+always the *active* buffer; `EditorState.background_buffers` holds the
+rest as a rotation ring (see `docs/hedit-design.md` §10 for the shape).
+
+- **`Ctrl-o` (new-buffer)** backgrounds the current buffer and opens a
+  fresh, empty, unnamed scratch buffer as the new active one. This is
+  an **in-memory** buffer only — there's no way yet to open an existing
+  file from disk (`OpenFile(path)` needs a command/path-prompt input
+  widget that doesn't exist).
+- **`Ctrl-n` / `Ctrl-p` (next-buffer / prev-buffer)** rotate through
+  every open buffer, wrapping at both ends. With only one buffer open,
+  both are no-ops.
+- **`Ctrl-w` (close-buffer)** closes the active buffer and promotes the
+  next one in the ring. Refuses (with a `"Can't close the last
+  buffer"` status message) if it's the only buffer open — hedit always
+  keeps at least one buffer open.
+- **Tabline.** `render_editor_to_buffer` draws a tabline as the first
+  screen row: every open buffer's name (its path, or `"scratch"` for
+  an unnamed one), joined by `|`, with the active one bracketed —
+  e.g. `[scratch]|notes.txt`.
 
 ---
 

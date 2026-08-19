@@ -8,6 +8,11 @@ import "../src/keys"
 import "../src/model"
 import "../src/actions"
 
+// Small named helper (instead of an inline lambda) so the `TextBuffer`
+// receiver type is pinned — avoids the cross-module `hc_lines` collision
+// with the prelude's string `lines` function (see repo memory notes).
+fun buf_lines(b: TextBuffer) : list<string> => b.lines
+
 // ------------------- handle_action (Event → EditorState) ---------------
 
 test "typing appends chars to the active line" {
@@ -177,4 +182,71 @@ test "custom bindings override defaults — Ctrl-x becomes Quit" {
   assert(resolve_action(s1, KeyEvent(KShortcut(Ctrl, 'x'))) == Quit)
   // … and Ctrl-q, which was default, is now Ignore (custom map replaces).
   assert(resolve_action(s1, KeyEvent(KShortcut(Ctrl, 'q'))) == Ignore)
+}
+
+// ------------------- Multi-buffer navigation (M5.5) ---------------------
+//
+// `EditorState.buffer` is always the active buffer; `open_buffers`
+// returns the full ring (active first). `NewBuffer` only ever creates an
+// in-memory scratch buffer — opening a file from disk needs a
+// path-prompt input widget that's deferred (see
+// docs/effects-journal.md M5.5 non-goals).
+
+test "resolve_action maps the multi-buffer chords via default_bindings" {
+  let s0 = init_editor(None)
+  assert(resolve_action(s0, KeyEvent(KShortcut(Ctrl, 'o'))) == NewBuffer)
+  assert(resolve_action(s0, KeyEvent(KShortcut(Ctrl, 'n'))) == NextBuffer)
+  assert(resolve_action(s0, KeyEvent(KShortcut(Ctrl, 'p'))) == PrevBuffer)
+  assert(resolve_action(s0, KeyEvent(KShortcut(Ctrl, 'w'))) == CloseBuffer)
+}
+
+test "NewBuffer opens a fresh scratch buffer and keeps the old one open" {
+  let s0 = init_editor(None)
+  let s1 = handle_action(s0, KeyEvent(KChar('h')))
+  let s2 = apply_action(s1, NewBuffer)
+  // The new buffer is active and empty …
+  assert(s2.buffer.lines == [""])
+  // … and the "h" buffer is still open in the background.
+  let names = map(s2.background_buffers, buf_lines)
+  assert(names == [["h"]])
+}
+
+test "NextBuffer/PrevBuffer cycle through all open buffers and wrap" {
+  let s0 = init_editor(None)                    // buffer A: [""]
+  let s1 = handle_action(s0, KeyEvent(KChar('a')))
+  let s2 = apply_action(s1, NewBuffer)           // buffer B: [""], A backgrounded
+  let s3 = handle_action(s2, KeyEvent(KChar('b')))
+  // Open buffers, active first: [B:"b", A:"a"]
+  assert(s3.buffer.lines == ["b"])
+  let s4 = apply_action(s3, NextBuffer)          // wraps back to A
+  assert(s4.buffer.lines == ["a"])
+  let s5 = apply_action(s4, NextBuffer)          // wraps forward to B again
+  assert(s5.buffer.lines == ["b"])
+  let s6 = apply_action(s5, PrevBuffer)          // back to A
+  assert(s6.buffer.lines == ["a"])
+}
+
+test "NextBuffer/PrevBuffer are no-ops with a single open buffer" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, NextBuffer)
+  let s2 = apply_action(s1, PrevBuffer)
+  assert(s2.buffer.lines == [""])
+  assert(length(s2.background_buffers) == 0)
+}
+
+test "CloseBuffer drops the active buffer and promotes the next one" {
+  let s0 = init_editor(None)
+  let s1 = handle_action(s0, KeyEvent(KChar('a')))
+  let s2 = apply_action(s1, NewBuffer)
+  let s3 = handle_action(s2, KeyEvent(KChar('b')))
+  let s4 = apply_action(s3, CloseBuffer)         // closes "b", "a" becomes active
+  assert(s4.buffer.lines == ["a"])
+  assert(length(s4.background_buffers) == 0)
+}
+
+test "CloseBuffer on the last remaining buffer is a no-op with a status message" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, CloseBuffer)
+  assert(s1.buffer.lines == [""])
+  assert(s1.status_message == Some("Can't close the last buffer"))
 }

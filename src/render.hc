@@ -24,15 +24,31 @@ fun take_or_pad(xs: list<string>, n: int, pad: string) : list<string> {
   }
 }
 
+// Display name for a buffer's tab: its path, or "scratch" for an unnamed
+// in-memory buffer (M5.5 `NewBuffer` — see actions.hc).
+fun buffer_tab_name(buf: TextBuffer) : string =>
+  match buf.path { None => "scratch", Some(p) => p }
+
+// One tabline entry per open buffer (active buffer first — see
+// `open_buffers` in model.hc), joined with "|". The active tab is
+// bracketed (`[scratch]`) so it's visually distinct from the rest.
+fun build_tabline(state: EditorState) : string {
+  let active_name = buffer_tab_name(state.buffer)
+  let bg_names    = map(state.background_buffers, buffer_tab_name)
+  join(["[" + active_name + "]"] + bg_names, "|")
+}
+
 // Build a ScreenBuffer from `state`. Reads `state.screen_size` for dimensions.
 pub fun render_editor_to_buffer(state: EditorState) : ScreenBuffer {
   let (w, h)    = state.screen_size
   let buf       = state.buffer
-  let n_content = h - 1
+  let n_content = h - 2
 
   // Each content line truncated to screen width; empty rows filled with "~".
   let text_rows    = map(buf.lines, (l) => fit_to_width(l, w))
   let content_rows = take_or_pad(text_rows, n_content, "~")
+
+  let tabline_row = fit_to_width(build_tabline(state), w)
 
   // Status line: explicit message wins; fallback is path + dirty flag.
   let path_part   = match buf.path { None => "[No Name]", Some(p) => p }
@@ -41,5 +57,5 @@ pub fun render_editor_to_buffer(state: EditorState) : ScreenBuffer {
   let status_msg  = match state.status_message { None => default_msg, Some(m) => m }
   let status_row  = fit_to_width(status_msg, w)
 
-  ScreenBuffer { width: w, height: h, lines: content_rows + [status_row] }
+  ScreenBuffer { width: w, height: h, lines: [tabline_row] + content_rows + [status_row] }
 }

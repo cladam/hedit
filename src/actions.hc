@@ -107,6 +107,53 @@ pub fun paste_text(state: EditorState, text: string) : EditorState {
   EditorState { ...state, buffer: new_buf }
 }
 
+// ------------------- multi-buffer navigation (M5.5) ----------------------
+//
+// `EditorState.buffer` is always the active buffer; `background_buffers`
+// is the rest of the open buffers, held as a rotation ring. Cycling
+// forward/backward just rotates the ring — there is no separate active
+// index to keep in sync (see model.hc's EditorState doc comment).
+
+// Push the current active buffer to a fresh, empty scratch buffer,
+// which becomes the new active buffer. Pure — this only ever creates an
+// in-memory buffer; opening a file from disk needs a path-prompt input
+// widget that doesn't exist yet (see docs/effects-journal.md M5.5
+// non-goals).
+pub fun new_buffer_action(state: EditorState) : EditorState {
+  let bid = state.next_bid
+  EditorState {
+    ...state,
+    buffer: new_buffer(bid, None),
+    background_buffers: state.background_buffers + [state.buffer],
+    next_bid: bid + 1
+  }
+}
+
+// Rotate the ring forward: the first background buffer becomes active,
+// the old active buffer moves to the back. No-op with 0 or 1 open buffers.
+pub fun cycle_next_buffer(state: EditorState) : EditorState =>
+  match state.background_buffers {
+    []          => state,
+    [x, ..rest] => EditorState { ...state, buffer: x, background_buffers: rest + [state.buffer] }
+  }
+
+// Rotate the ring backward: the *last* background buffer becomes active,
+// the old active buffer moves to the front. No-op with 0 or 1 open buffers.
+pub fun cycle_prev_buffer(state: EditorState) : EditorState =>
+  match reverse(state.background_buffers) {
+    []          => state,
+    [x, ..rest] => EditorState { ...state, buffer: x, background_buffers: [state.buffer] + reverse(rest) }
+  }
+
+// Drop the active buffer and promote the first background buffer in its
+// place. Never closes the last remaining buffer — hedit always keeps at
+// least one open buffer, so this is a status-message no-op instead.
+pub fun close_buffer_action(state: EditorState) : EditorState =>
+  match state.background_buffers {
+    []          => set_status_message(state, "Can't close the last buffer"),
+    [x, ..rest] => EditorState { ...state, buffer: x, background_buffers: rest }
+  }
+
 // ------------------- Event → Action resolution ---------------------------
 
 // Turn a raw `Event` into a semantic `Action` using the bindings currently
@@ -140,6 +187,10 @@ pub fun apply_action(state: EditorState, action: Action) : EditorState =>
     Paste        => state, // handled in event_loop; needs <Clipboard>
     Undo         => state, // handled in event_loop; needs <Buffer>
     Redo         => state, // handled in event_loop; needs <Buffer>
+    NewBuffer    => new_buffer_action(state),
+    NextBuffer   => cycle_next_buffer(state),
+    PrevBuffer   => cycle_prev_buffer(state),
+    CloseBuffer  => close_buffer_action(state),
     Ignore       => state
   }
 

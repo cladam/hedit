@@ -28,13 +28,30 @@ test "render height equals screen_size height" {
 
 // ------------------- test 2: content row --------------------------------
 
-test "typed content appears in the first content row" {
+test "typed content appears in the first content row after the tabline" {
   let s0 = EditorState { ...init_editor(None), screen_size: (40, 10) }
   let s1 = handle_action(s0, KeyEvent(KChar('h')))
   let s2 = handle_action(s1, KeyEvent(KChar('i')))
   let buf = render_editor_to_buffer(s2)
-  let first = match buf.lines { [x, .._] => x, [] => "MISSING" }
-  assert(first == "hi")
+  let first_content = match buf.lines { [_tabline, x, .._] => x, _ => "MISSING" }
+  assert(first_content == "hi")
+}
+
+// ------------------- test 2b: tabline row --------------------------------
+
+test "tabline shows a single bracketed scratch tab with one buffer open" {
+  let s0 = EditorState { ...init_editor(None), screen_size: (40, 10) }
+  let buf = render_editor_to_buffer(s0)
+  let tabline = match buf.lines { [x, .._] => x, [] => "MISSING" }
+  assert(tabline == "[scratch]")
+}
+
+test "tabline lists every open buffer, active one bracketed" {
+  let s0 = EditorState { ...init_editor(None), screen_size: (40, 10) }
+  let s1 = apply_action(s0, NewBuffer)
+  let buf = render_editor_to_buffer(s1)
+  let tabline = match buf.lines { [x, .._] => x, [] => "MISSING" }
+  assert(tabline == "[scratch]|scratch")
 }
 
 // ------------------- test 3: status line --------------------------------
