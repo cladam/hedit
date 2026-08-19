@@ -137,6 +137,36 @@ test "current_line returns the head cursor line" {
   assert(current_line(s2) == "hi")
 }
 
+// ------------------- Undo/Redo resolution (Buffer effect lands in M5) --
+
+test "resolve_action maps Ctrl-z to Undo via default_bindings" {
+  let s0 = init_editor(None)
+  let a  = resolve_action(s0, KeyEvent(KShortcut(Ctrl, 'z')))
+  assert(a == Undo)
+}
+
+test "resolve_action maps Ctrl-y to Redo via default_bindings" {
+  let s0 = init_editor(None)
+  let a  = resolve_action(s0, KeyEvent(KShortcut(Ctrl, 'y')))
+  assert(a == Redo)
+}
+
+// Pure `apply_action` no-ops Undo/Redo; the actual history swap lives in
+// event_loop with the spawned Buffer handler installed (see spawn_test.hc).
+test "apply_action leaves state untouched for Undo" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, Undo)
+  assert(s1.buffer.lines == [""])
+  assert(s1.buffer.is_dirty == false)
+}
+
+test "apply_action leaves state untouched for Redo" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, Redo)
+  assert(s1.buffer.lines == [""])
+  assert(s1.buffer.is_dirty == false)
+}
+
 test "custom bindings override defaults — Ctrl-x becomes Quit" {
   // Simulate a HiLisp init.hl that did `(bind "Ctrl-x" 'quit)`.
   let custom: list<(KeyChord, Action)> =

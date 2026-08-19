@@ -134,6 +134,8 @@ fun action_to_string(a: Action) : string =>
     Save      => "save",
     Copy      => "copy",
     Paste     => "paste",
+    Undo      => "undo",
+    Redo      => "redo",
     Ignore    => "ignore",
     Insert(_) => "insert",
     Resize(_, _) => "resize"
@@ -145,6 +147,8 @@ fun string_to_action(s: string) : maybe<Action> =>
     "save"   => Some(Save),
     "copy"   => Some(Copy),
     "paste"  => Some(Paste),
+    "undo"   => Some(Undo),
+    "redo"   => Some(Redo),
     "ignore" => Some(Ignore),
     _        => None
   }

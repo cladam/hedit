@@ -56,6 +56,8 @@ pub type Action {
   Resize(w: int, h: int),
   Copy,
   Paste,
+  Undo,
+  Redo,
   Ignore
 }
 
@@ -84,7 +86,9 @@ pub fun default_bindings() : list<(KeyChord, Action)> =>
     (KeyChord { m: Ctrl, c: 'q' }, Quit),
     (KeyChord { m: Ctrl, c: 's' }, Save),
     (KeyChord { m: Ctrl, c: 'c' }, Copy),
-    (KeyChord { m: Ctrl, c: 'v' }, Paste)
+    (KeyChord { m: Ctrl, c: 'v' }, Paste),
+    (KeyChord { m: Ctrl, c: 'z' }, Undo),
+    (KeyChord { m: Ctrl, c: 'y' }, Redo)
   ]
 
 // Resolve a `KeyChord` against a bindings map. Unbound chords resolve to

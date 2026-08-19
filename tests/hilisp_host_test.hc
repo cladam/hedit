@@ -139,6 +139,13 @@ test "load_config: (bind) preserves defaults not shadowed" {
   assert(lookup_binding(cfg.bindings, ctrl_s) == Save)
 }
 
+test "load_config: (bind) rewires Ctrl-z to undo" {
+  let (cfg, err) = load_config("(bind \"Ctrl-z\" 'undo)", default_config())
+  assert(err == None)
+  let chord = KeyChord { m: Ctrl, c: 'z' }
+  assert(lookup_binding(cfg.bindings, chord) == Undo)
+}
+
 test "load_config: multiple forms compose (set + bind)" {
   let src = "(set \"tabsize\" 2) (bind \"Alt-w\" 'save)"
   let (cfg, err) = load_config(src, default_config())

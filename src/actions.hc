@@ -138,6 +138,8 @@ pub fun apply_action(state: EditorState, action: Action) : EditorState =>
     Save         => state, // handled in event_loop; no-op here for purity
     Copy         => state, // handled in event_loop; needs <Clipboard>
     Paste        => state, // handled in event_loop; needs <Clipboard>
+    Undo         => state, // handled in event_loop; needs <Buffer>
+    Redo         => state, // handled in event_loop; needs <Buffer>
     Ignore       => state
   }
 
