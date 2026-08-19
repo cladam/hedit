@@ -552,3 +552,99 @@ The scripting bridge (§7) can assume:
   let us write `{'tabsize 4}`; deferred unless a hedit API actually needs it.
 - **`{…}` inside quoted forms** — the reader literal always desugars; if we
   ever need literal-map data we'd add a matching quote path.
+
+---
+
+## 9. Per-buffer state via `spawn Buffer` (M5)
+
+### 9.1 Rationale
+
+Undo/redo history has nowhere clean to live in the pure
+`EditorState`/`TextBuffer` shape: it isn't part of the buffer's saved
+content, it must survive across many `apply_action` calls, and it
+should never leak into the pure test surface that `actions_test.hc`
+relies on. hica's **named effects** (`spawn Name { … } as ref`) are
+the mechanism: a `spawn`ed instance owns private mutable state (here,
+two stacks) and is dispatched on by reference (`ref.op(args)`),
+independent of lexical `handle … in { … }` nesting.
+
+### 9.2 The `Buffer` effect
+
+```hica
+pub effect Buffer {
+  fun snapshot(b: TextBuffer)
+  fun undo(current: TextBuffer) : maybe<TextBuffer>
+  fun redo(current: TextBuffer) : maybe<TextBuffer>
+}
+```
+
+Every op takes the *current* `TextBuffer` as an explicit argument
+rather than mirroring it inside handler-local state. This was a
+deliberate fork away from the milestone's original draft (`get()` /
+`put(b)` / stateless `snapshot()`): mirroring the buffer inside the
+handler creates a second source of truth that can drift out of sync
+with `EditorState.buffer`. Passing it explicitly means the handler
+only ever owns the two stacks:
+
+```hica
+spawn Buffer {
+  snapshot(b) => {
+    undo_stack = [b] + undo_stack
+    redo_stack = []
+  },
+  undo(current) => match undo_stack {
+    [] => None,
+    [top, ..rest] => {
+      redo_stack = [current] + redo_stack
+      undo_stack = rest
+      Some(top)
+    }
+  },
+  redo(current) => match redo_stack {
+    [] => None,
+    [top, ..rest] => {
+      undo_stack = [current] + undo_stack
+      redo_stack = rest
+      Some(top)
+    }
+  }
+} with var undo_stack = [], var redo_stack = [] as buf_ref
+```
+
+### 9.3 Why `EditorState.buffer` stays a plain `TextBuffer`
+
+`spawn` is a **statement**, not a pure expression — it installs a
+handler and returns a `ref<Name>` you keep using for the rest of the
+enclosing block. Migrating `EditorState.buffer` to `ref<Buffer>` would
+force `init_editor`, `apply_action`, `insert_char`, `current_line`,
+`paste_text`, and every pure test in `actions_test.hc` to become
+effectful in `<Buffer>` — undoing the M2/M3 invariant that
+`handle_action`/`apply_action` are 100% pure.
+
+Instead, `EditorState.buffer: TextBuffer` is unchanged, and only
+`event_loop` (in `src/runtime.hc`) knows about `Buffer`:
+
+- `event_loop(state)` spawns one `ref<Buffer>` (fresh stacks) and
+  delegates to the tail-recursive `event_loop_step(state, buf_ref)`.
+- `Insert` / `Paste` call `buf_ref.snapshot(sized.buffer)` *before*
+  mutating, so Undo always has a valid history entry.
+- `Undo` / `Redo` call `buf_ref.undo(...)` / `buf_ref.redo(...)` and
+  route the `maybe<TextBuffer>` result through `apply_history`, which
+  restores the buffer on `Some` or sets a "Nothing to undo/redo"
+  status message on `None` (empty history is a no-op, not an error).
+
+This keeps the mechanism's isolation property (proven by
+`tests/spawn_test.hc`, which spawns two independent `Buffer`
+instances in one test and asserts their history doesn't cross-talk)
+without touching the pure core.
+
+### 9.4 Default bindings
+
+`Ctrl-z` → `Undo`, `Ctrl-y` → `Redo` — overridable via HiLisp
+`(bind "Ctrl-z" 'undo)` like every other action.
+
+### 9.5 Non-goals (deferred to M5.5+)
+
+Multi-buffer navigation, a persistent/on-disk undo log, and coalescing
+consecutive `Insert` keystrokes into a single undo step (today every
+keystroke is its own snapshot) are all out of scope for M5.

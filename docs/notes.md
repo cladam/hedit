@@ -15,7 +15,7 @@ actions. Nothing is hard-coded in the dispatcher — the defaults live in
 `src/model.hc::default_bindings()` and can be replaced from HiLisp (M4)
 via `(bind "Ctrl-x" 'save)`.
 
-### Current default bindings (M3)
+### Current default bindings (M5)
 
 | Chord    | Action | Notes |
 |----------|--------|-------|
@@ -23,6 +23,8 @@ via `(bind "Ctrl-x" 'save)`.
 | `Ctrl-s` | `save`  | Writes buffer to disk (needs a named buffer). |
 | `Ctrl-c` | `copy`  | Copies the head cursor's current line into the clipboard. |
 | `Ctrl-v` | `paste` | Appends the clipboard content at the end of the head cursor's line. |
+| `Ctrl-z` | `undo`  | Restores the buffer to its last snapshot. |
+| `Ctrl-y` | `redo`  | Re-applies the most recently undone snapshot. |
 
 Typing any printable character routes to `insert` automatically — you
 don't (and can't) bind `a`, `b`, `c`, … Those aren't chord bindings.
@@ -44,7 +46,7 @@ current `Config`. Three built-ins are exposed:
 |------|--------|
 | `(set "key" value)` | Records a string-typed value; retrieve with `get_config` / `get_config_int` from hedit code. |
 | `(get "key")` | Reads a previously-set value (returns nil when absent, so `(if (get "auto-indent") …)` reads naturally). |
-| `(bind "Ctrl-x" 'action)` | Rebinds a chord to a named action. Modifier prefixes: `Ctrl-`, `Alt-`, `Meta-`, `Shift-`. Supported action symbols (M4): `'quit`, `'save`, `'copy`, `'paste`, `'ignore`. |
+| `(bind "Ctrl-x" 'action)` | Rebinds a chord to a named action. Modifier prefixes: `Ctrl-`, `Alt-`, `Meta-`, `Shift-`. Supported action symbols: `'quit`, `'save`, `'copy`, `'paste`, `'undo`, `'redo`, `'ignore`. |
 
 Bad chord strings or unknown action symbols produce an `LError`
 that surfaces on `EditorState.status_message` as `Config error
@@ -102,6 +104,31 @@ without dragging in a full cursor-model rewrite. Behaviour:
   buffer to grow a `split_line` op first (M5+).
 - No system clipboard integration in the shipped stub — Copy/Paste
   round-trip only inside a single hedit session for now.
+
+---
+
+## Undo / Redo (Ctrl-z / Ctrl-y) semantics
+
+M5 adds undo/redo via a `spawn`ed `Buffer` effect (see
+`docs/hedit-design.md` §9) — one per `event_loop` call, holding two
+stacks of `TextBuffer` snapshots. Behaviour:
+
+- **Every keystroke is its own snapshot.** `Insert` and `Paste`
+  each call `snapshot` on the buffer *before* mutating, so `Ctrl-z`
+  undoes one character (or one paste) at a time — there's no
+  coalescing of a typing run into a single undo step yet.
+- **Undo (Ctrl-z)** restores the most recent snapshot and pushes the
+  buffer you were on onto the redo stack. If there's no history,
+  the status line shows `"Nothing to undo"` — not an error.
+- **Redo (Ctrl-y)** re-applies the most recently undone snapshot.
+  Any new snapshot (from typing after an undo) clears the redo
+  stack, same as most editors — you can't redo past a fresh edit.
+- **Save/Copy don't snapshot.** Only actions that mutate
+  `TextBuffer` content push history.
+- **Scope: single active buffer.** The undo/redo mechanism is proven
+  to scale to multiple independent instances (`tests/spawn_test.hc`
+  spawns two and checks isolation), but hedit itself only ever spawns
+  one per `event_loop` call — multi-buffer wiring is M5.5.
 
 ---
 

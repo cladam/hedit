@@ -112,10 +112,19 @@ hica clean   # remove generated files
       path fix (Issue #7) + the `map_set → foldr` totality fix
       (Issue #6) + HiLisp v0.9.2 (Issue #8: symmetric `apply`
       carve-out).
-- 🚧 **M5 (stretch)** — `spawn Buffer { … }` per open file for
-      per-buffer state (undo/redo). Narrow scope: prove the
-      named-effect mechanism, defer multi-buffer navigation to M5.5.
-      Planned; not yet started.
+- 🚧 **M5** — `pub effect Buffer` (named/spawned via `spawn Buffer { … }
+      as ref`) provides per-buffer undo/redo history. `EditorState.buffer`
+      stays a plain `TextBuffer` (pure core unchanged); only
+      `event_loop` spawns and talks to the `ref<Buffer>`. `Ctrl-z` /
+      `Ctrl-y` default bindings, overridable from `init.hl` like every
+      other action. **60/60 tests green**: 23 actions + 4 render + 9
+      runtime + 20 hilisp_host + 4 spawn (the new `tests/spawn_test.hc`,
+      proving two spawned instances stay isolated). Requires a hica
+      build with the transitive-named-effect fix (`docs/hica-issues.md`
+      Issue #9 — landed same day as a local build, not yet in the
+      published/PATH `hica`). Docs updated
+      (`docs/hedit-design.md` §9, `docs/notes.md` Undo/Redo section);
+      Reflection still pending in `docs/effects-journal.md`.
 - ⏳ Native terminal handler — not yet started
 - ⏳ Real OS clipboard handler (pbcopy / wl-copy / xclip) — not yet
       started
