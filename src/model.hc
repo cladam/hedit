@@ -234,6 +234,17 @@ fun split_lines(content: string) : list<string> =>
   if ends_with(content, "\n") { split(content[0:length(content) - 1], "\n") }
   else { split(content, "\n") }
 
+// Read `p` from disk into a fresh buffer, or fall back to an empty one
+// with an error status. Split out of `load_buffer` so each function
+// only matches once (avoids nested match on maybe/result).
+// Return-type annotation omitted: carries <fsys> (Koka rejects a pure
+// annotation here once the read is behind a helper call).
+fun load_existing_buffer(new_bid: int, p: string) =>
+  match read_file(p) {
+    Ok(content) => (TextBuffer { ...new_buffer(new_bid, Some(p)), lines: split_lines(content) }, None),
+    Err(msg)    => (new_buffer(new_bid, Some(p)), Some("Could not open " + p + ": " + msg))
+  }
+
 // Load a buffer's content from disk. `None` (no file given) and a failed
 // read both fall back to `new_buffer`'s empty-scratch shape — this never
 // crashes. On failure the second element carries a status message the
@@ -241,13 +252,16 @@ fun split_lines(content: string) : list<string> =>
 // `config_loader.hc::load_user_config`'s error-surfacing pattern. The
 // path is kept on the buffer even after a failed read, so a subsequent
 // Save still knows where to write (mirrors opening a new file in vim).
-pub fun load_buffer(new_bid: int, path: maybe<string>) : (TextBuffer, maybe<string>) =>
+// Return-type annotation omitted: carries <fsys>, and Koka misinfers a
+// `total` requirement here when a pub arrow-body function's return type
+// is pinned while it delegates to an effectful helper. Callers that need
+// the buffer's `lines` field pinned against the `hc_lines` prelude
+// collision should annotate their own `let` binding instead (see
+// `tests/model_test.hc`).
+pub fun load_buffer(new_bid: int, path: maybe<string>) =>
   match path {
-    None => (new_buffer(new_bid, None), None),
-    Some(p) => match read_file(p) {
-      Ok(content) => (TextBuffer { ...new_buffer(new_bid, Some(p)), lines: split_lines(content) }, None),
-      Err(msg)    => (new_buffer(new_bid, Some(p)), Some("Could not open " + p + ": " + msg))
-    }
+    None    => (new_buffer(new_bid, None), None),
+    Some(p) => load_existing_buffer(new_bid, p)
   }
 
 // All currently-open buffers, active buffer first — the order a tabline

@@ -713,3 +713,48 @@ status row are unchanged other than shrinking by one row
   only reach zero-argument actions today.
 - Split panes / windows (`PaneNode`, §3) — untouched.
 
+## 11. CLI arg parsing + real file loading (M6)
+
+`src/main.hc` no longer hardcodes `init_editor(None)` — `argv` is
+parsed via `std/cli` and a real file path (if given) is loaded from
+disk before `EditorState` is assembled.
+
+### 11.1 The spec
+
+`src/cli_spec.hc` is a one-function module, mirroring the
+already-shipped `std/cli` usage in `lib/hilisp/src/main.hc`:
+
+```hica
+pub fun make_spec() : CliSpec =>
+  cli("hedit", "0.2.0", "a terminal text editor in hica")
+    |> arg("file", "file to open", false)
+```
+
+A single optional `[file]` positional. `--help`/`--version` are free
+from `std/cli` (`cli_help`/`cli_version_str`) — `main.hc` only needs to
+wire the `Help`/`Version`/`CliError`/`Parsed` arms of `cli_parse`.
+
+### 11.2 Real file loading
+
+`src/model.hc` gains `load_buffer(new_bid, path)`, mirroring
+`config_loader.hc::load_user_config`'s `(value, maybe<string>)` shape
+so a missing/unreadable file never crashes — it falls back to the same
+empty-scratch-buffer shape `new_buffer` has always produced, with the
+error surfaced as a status message instead. `new_buffer` itself is
+untouched; a new `init_editor_with_buffer(buf, cfg)` constructor lets
+`main.hc` assemble `EditorState` from an already-loaded buffer without
+touching `init_editor`/`init_editor_with_config`'s existing pure
+contract (every test written before M6 still calls those unchanged).
+
+`main.hc` merges the config-load status message (M4b) and the
+file-load status message (M6) via a small `combine_status` helper
+before priming `EditorState.status_message` — either, both, or neither
+may be present on a given run.
+
+### 11.3 Non-goals (deferred to M8)
+
+`--config`/`--no-config`, `--tabsize`, `--readonly`, `+LINE:COL`, and
+opening multiple files from argv into `background_buffers` are all out
+of scope — see `docs/effects-journal.md`'s M6 entry.
+
+

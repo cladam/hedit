@@ -34,16 +34,19 @@ import "std/cli"
 // Combine the config-load and file-load status messages (either, both,
 // or neither may be present) into the single message that gets primed
 // onto `EditorState.status_message` for the first render tick.
+fun combine_with(x: string, b: maybe<string>) : maybe<string> =>
+  match b {
+    None => Some(x),
+    Some(y) => {
+      let combined = x + " | " + y
+      Some(combined)
+    }
+  }
+
 fun combine_status(a: maybe<string>, b: maybe<string>) : maybe<string> =>
   match a {
     None => b,
-    Some(x) => match b {
-      None => Some(x),
-      Some(y) => {
-        let combined = x + " | " + y
-        Some(combined)
-      }
-    }
+    Some(x) => combine_with(x, b)
   }
 
 fun run_editor(r: CliResult) {

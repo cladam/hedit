@@ -137,6 +137,16 @@ hica clean   # remove generated files
       + 11 runtime + 22 hilisp_host + 4 spawn. Opening files from disk
       (`OpenFile(path)`) and per-buffer isolated undo/redo are
       deferred — see `docs/effects-journal.md` M5.5 non-goals.
+- ✅ **M6** — CLI arg parsing (`std/cli`) + real file loading.
+      `src/cli_spec.hc` parses a single optional `[file]` positional;
+      `--help`/`--version` exit before any editor state is built.
+      `src/model.hc::load_buffer` reads a real file from disk into
+      `EditorState.buffer`, falling back to an empty scratch buffer
+      with a status message on a missing/unreadable path — never a
+      crash. **80/80 tests green**: 29 actions + 6 render + 11 runtime
+      + 22 hilisp_host + 4 spawn + 4 cli + 4 model. This alone doesn't
+      make hedit interactive yet — the `Terminal` handler is still the
+      M1 stub; that flip is M7.
 - ⏳ Native terminal handler — not yet started
 - ⏳ Real OS clipboard handler (pbcopy / wl-copy / xclip) — not yet
       started
