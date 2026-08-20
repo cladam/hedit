@@ -18,17 +18,39 @@
 //      Unblocked by the hica `hica build` include-path fix (see
 //      docs/hica-issues.md Issue #7) + HiLisp v0.9.1 with the
 //      apply-carve-out shipped upstream.
+// M6: argv now goes through `std/cli` (spec in `src/cli_spec.hc`).
+//     `--help`/`--version` print and exit before any editor state is
+//     built. The optional `[FILE]` positional is loaded for real via
+//     `load_buffer` (model.hc) instead of the old path-only stub.
 
 import "keys"
 import "model"
 import "runtime"
 import "hilisp_host"
 import "config_loader"
+import "cli_spec"
+import "std/cli"
 
-fun main() {
-  let (cfg, status) = load_user_config(default_config())
-  let s0 = init_editor_with_config(None, cfg)
-  let s1 = match status {
+// Combine the config-load and file-load status messages (either, both,
+// or neither may be present) into the single message that gets primed
+// onto `EditorState.status_message` for the first render tick.
+fun combine_status(a: maybe<string>, b: maybe<string>) : maybe<string> =>
+  match a {
+    None => b,
+    Some(x) => match b {
+      None => Some(x),
+      Some(y) => {
+        let combined = x + " | " + y
+        Some(combined)
+      }
+    }
+  }
+
+fun run_editor(r: CliResult) {
+  let (cfg, cfg_status) = load_user_config(default_config())
+  let (loaded_buf, load_status) = load_buffer(0, get_positional(r, 0))
+  let s0 = init_editor_with_buffer(loaded_buf, cfg)
+  let s1 = match combine_status(cfg_status, load_status) {
     None      => s0,
     Some(msg) => set_status_message(s0, msg)
   }
@@ -48,4 +70,14 @@ fun main() {
 
   println("---")
   println("hedit m4b stub run complete.")
+}
+
+fun main() {
+  let spec = make_spec()
+  match cli_parse(spec) {
+    Help          => println(cli_help(spec)),
+    Version       => println(cli_version_str(spec)),
+    CliError(msg) => eprintln("error: {msg}"),
+    Parsed(r)     => run_editor(r)
+  }
 }

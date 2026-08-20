@@ -26,7 +26,8 @@ hica is a statically typed, expression-oriented language that **transpiles to Ko
 
 | vs | Trade-off |
 |----|-----------|
-| Koka | Friendlier syntax and implicit effects; gives up user-defined algebraic effect handlers |
+| Koka | Friendlier syntax and implicit effects; **user-defined algebraic effect handlers** fully supported via `effect` + `handle`, with stateful handlers (`with var …`), effect-row polymorphic function types (`(A) -> <E> R`), an `actor Name { … }` sugar for single-instance actors, and **named effects (v2)** — `spawn Name { … } as ref`, per-instance dispatch (`ref.op(args)`), and the first-class `ref<Name>` type let you have two counters, two actors, or two DB connections in one function without name clashes. See [`docs/effects`](https://www.hica.dev/docs/effects/) |
+
 | Rust | No borrow checker / lifetime annotations; gives up fine-grained manual memory layout |
 | Python | Static types, no exceptions, deterministic memory; gives up dynamic flexibility |
 | Gleam | Brace syntax, loops, mutable `var`; shares the "no null, Result types" philosophy |
@@ -346,6 +347,19 @@ fun tree_sum(t: Tree) : int => match t {
   Leaf          => 0,
   Node(v, l, r) => v + tree_sum(l) + tree_sum(r)
 }
+
+// User-defined structs and enums auto-derive == (structural equality).
+// No need to hand-write `match { Ctrl => true, _ => false }` for identity checks.
+type Modifier { Ctrl, Alt, Meta }
+let m: Modifier = Ctrl
+let is_ctrl = (m == Ctrl)                              // works — auto-derived ==
+if is_ctrl { println("ctrl") } else { println("other") }
+
+// Reserve `match` for destructuring payloads; use `==` for "am I this variant".
+match evt {
+  KeyEvent(KShortcut(m, c)) if m == Ctrl && c == 'q' => quit,   // extracts m, c
+  _                                                  => noop
+}
 ```
 
 | Concept | hica idiom |
@@ -358,6 +372,8 @@ fun tree_sum(t: Tree) : int => match t {
 | Composition | `\|>` pipe operator |
 | Point-free | pass named function directly: `filter(xs, is_even)` |
 | Tree data | recursive `type` + recursive `fun` |
+| Identity check | `x == VariantName` (auto-derived) — parenthesise in `if` conditions |
+| Payload extraction | `match x { Variant(a, b) => ... }` |
 
 ---
 

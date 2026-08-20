@@ -205,16 +205,49 @@ pub fun init_editor(path: maybe<string>) : EditorState =>
 // the merger of `default_config()` + the user's HiLisp init.hl, built
 // by `src/hilisp_host.hc::load_config`). Kept as a separate constructor
 // so `init_editor(None)` stays a one-liner for callers that don't touch
-// scripting (all pure tests).
+// scripting (all pure tests). Builds a content-free buffer — callers
+// that want real file content loaded should go through
+// `init_editor_with_buffer` + `load_buffer` instead (see main.hc, M6).
 pub fun init_editor_with_config(path: maybe<string>, cfg: Config) : EditorState =>
+  init_editor_with_buffer(new_buffer(0, path), cfg)
+
+// Same as init_editor_with_config, but takes an already-built `TextBuffer`
+// (typically the result of `load_buffer`) instead of constructing an
+// empty one from a path. Lets main.hc load real file content before the
+// rest of `EditorState` is assembled, without touching the pure
+// `init_editor` / `init_editor_with_config` surface every test relies on.
+pub fun init_editor_with_buffer(buf: TextBuffer, cfg: Config) : EditorState =>
   EditorState {
-    buffer: new_buffer(0, path),
+    buffer: buf,
     background_buffers: [],
     next_bid: 1,
     status_message: None,
     screen_size: (80, 24),
     should_quit: false,
     config: cfg
+  }
+
+// Split file content into lines, dropping one trailing newline artifact
+// (if present) so this round-trips exactly with `runtime.hc::save_buffer`,
+// which joins lines with "\n" and appends a single trailing "\n".
+fun split_lines(content: string) : list<string> =>
+  if ends_with(content, "\n") { split(content[0:length(content) - 1], "\n") }
+  else { split(content, "\n") }
+
+// Load a buffer's content from disk. `None` (no file given) and a failed
+// read both fall back to `new_buffer`'s empty-scratch shape — this never
+// crashes. On failure the second element carries a status message the
+// caller can hand to `set_status_message`, mirroring
+// `config_loader.hc::load_user_config`'s error-surfacing pattern. The
+// path is kept on the buffer even after a failed read, so a subsequent
+// Save still knows where to write (mirrors opening a new file in vim).
+pub fun load_buffer(new_bid: int, path: maybe<string>) : (TextBuffer, maybe<string>) =>
+  match path {
+    None => (new_buffer(new_bid, None), None),
+    Some(p) => match read_file(p) {
+      Ok(content) => (TextBuffer { ...new_buffer(new_bid, Some(p)), lines: split_lines(content) }, None),
+      Err(msg)    => (new_buffer(new_bid, Some(p)), Some("Could not open " + p + ": " + msg))
+    }
   }
 
 // All currently-open buffers, active buffer first — the order a tabline
