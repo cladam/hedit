@@ -22,6 +22,12 @@
 //     `--help`/`--version` print and exit before any editor state is
 //     built. The optional `[FILE]` positional is loaded for real via
 //     `load_buffer` (model.hc) instead of the old path-only stub.
+// M7: the stub Terminal handler is replaced with a real one backed by
+//     `term_ffi` (raw-mode key reads + terminal size, C FFI — see
+//     src/term_ffi.kk) and `std/term` (ANSI escape helpers). Raw mode
+//     itself is toggled via `stty` through hica's built-in `exec`
+//     (no termios FFI needed) — the same approach hica-ecosystem's
+//     `programs/myeon` reference program uses for the same problem.
 
 import "keys"
 import "model"
@@ -30,6 +36,9 @@ import "hilisp_host"
 import "config_loader"
 import "cli_spec"
 import "std/cli"
+import "std/term"
+
+extern import "term_ffi"
 
 // Combine the config-load and file-load status messages (either, both,
 // or neither may be present) into the single message that gets primed
@@ -49,6 +58,29 @@ fun combine_status(a: maybe<string>, b: maybe<string>) : maybe<string> =>
     Some(x) => combine_with(x, b)
   }
 
+// Raw mode via `stty` (through hica's built-in `exec`) rather than a
+// hand-written termios FFI — `stty sane` on the way out covers the
+// normal-quit path; a crash/SIGINT leaving the shell in raw mode is a
+// known, documented limitation (see M7 exit criteria / manual QA list).
+fun enable_raw_mode() {
+  let _ = exec("stty raw -echo icrnl 2>/dev/null")
+}
+
+fun disable_raw_mode() {
+  let _ = exec("stty sane 2>/dev/null")
+}
+
+// Full-redraw ANSI: clear + home, then the rendered lines. No
+// diffing/partial-redraw optimization in this pass (see M7 scope).
+// Raw mode (`stty raw`) disables output post-processing, so a bare
+// "\n" doesn't return the cursor to column 0 — join with "\r\n"
+// instead of relying on `println`, or every line staircases rightward.
+fun render_native(buf: ScreenBuffer) {
+  let frame = term_esc() + "[2J" + term_esc() + "[H" + join(buf.lines, "\r\n")
+  print(frame)
+  flush_stdout()
+}
+
 fun run_editor(r: CliResult) {
   let (cfg, cfg_status) = load_user_config(default_config())
   let (loaded_buf, load_status) = load_buffer(0, get_positional(r, 0))
@@ -57,22 +89,21 @@ fun run_editor(r: CliResult) {
     None      => s0,
     Some(msg) => set_status_message(s0, msg)
   }
+  enable_raw_mode()
   let final = handle Clipboard {
     get_selection()   => clip,
     set_selection(t)  => clip = t
   } with var clip = "" in {
     handle Terminal {
-      poll_event()         => KeyEvent(KShortcut(Ctrl, 'q')),
-      render_frame(buf)    => foreach(buf.lines, println),
-      get_dimensions()     => (80, 24),
+      poll_event()         => decode_key(read_key()),
+      render_frame(buf)    => render_native(buf),
+      get_dimensions()     => (term_cols(), term_rows()),
       set_cursor_style(_s) => ()
     } in {
       event_loop(s1)
     }
   }
-
-  println("---")
-  println("hedit m4b stub run complete.")
+  disable_raw_mode()
 }
 
 fun main() {

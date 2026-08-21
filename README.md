@@ -77,8 +77,16 @@ git submodule update --remote lib/hilisp
 ## Usage
 
 ```sh
-hica build   # compile to binary
-hica run     # compile and run
+hica build          # compile to ./hedit
+./hedit             # open an empty scratch buffer
+./hedit somefile.txt  # open a real file
+```
+
+Default keybindings (overridable from `init.hl` — see above):
+Ctrl-s save, Ctrl-c/Ctrl-v copy/paste, Ctrl-z/Ctrl-y undo/redo,
+Ctrl-o/n/p/w new/next/prev/close buffer, Ctrl-q quit.
+
+```sh
 hica fmt     # format according to hica style guide
 hica check   # type-check without emitting
 hica clean   # remove generated files
@@ -147,7 +155,21 @@ hica clean   # remove generated files
       + 22 hilisp_host + 4 spawn + 4 cli + 4 model. This alone doesn't
       make hedit interactive yet — the `Terminal` handler is still the
       M1 stub; that flip is M7.
-- ⏳ Native terminal handler — not yet started
+- ✅ **M7** — native `Terminal` handler. `src/term_ffi.kk` (+
+      `src/term_ffi_inline.c`) is a hand-written C FFI module — raw
+      key reads (`read_key`) that assemble arrow-key escape sequences
+      into synthetic codes, and a real `term_cols`/`term_rows` via
+      `ioctl(TIOCGWINSZ)` — following the same pattern as
+      hica-ecosystem's `programs/myeon` reference program. Raw mode
+      itself is toggled with `stty raw -echo icrnl` / `stty sane`
+      through hica's built-in `exec`, no termios FFI needed.
+      `src/keys.hc::decode_key` is the pure, unit-tested seam from a
+      raw key code into hedit's `Event`/`Key` types. **hedit is now
+      usable interactively** — `./hedit [file]` opens a real terminal
+      session; type, save, copy/paste, undo/redo, switch buffers, and
+      quit with the terminal left in a sane state. **86/86 tests
+      green**: 29 actions + 6 render + 11 runtime + 22 hilisp_host + 4
+      spawn + 4 cli + 4 model + 6 keys.
 - ⏳ Real OS clipboard handler (pbcopy / wl-copy / xclip) — not yet
       started
 

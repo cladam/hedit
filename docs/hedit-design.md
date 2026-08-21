@@ -182,12 +182,11 @@ Handlers are hica 0.49 `handle E { arms } in { body }` expressions,
 where each arm body auto-resumes — no explicit `resume(...)` calls in
 user code.
 
-### 4.1 Production Terminal Handler (POSIX / ANSI) — M1 stub, M2 real
+### 4.1 Production Terminal Handler (POSIX / ANSI) — M1 stub, M7 real
 
 In M1 the "native" handler is a **stub** that returns a canned
 `Ctrl-q` so `hica run src/main.hc` exits cleanly and we prove the
-handler shape compiles end-to-end. M2 replaces the arms with real ANSI
-I/O (via `std/term` and a `read` primitive).
+handler shape compiles end-to-end.
 
 ```hica
 // M1 shape (src/main.hc). Deliberately trivial: one hard-coded event,
@@ -207,10 +206,52 @@ fun main() {
 }
 ```
 
-Once the ANSI wiring lands (M2+), the arms grow real bodies —
-`poll_event` decodes a keystroke from stdin, `render_frame` flushes a
-diffed `ScreenBuffer` with ANSI positioning, `get_dimensions` calls
-`tcgetwinsize`, etc. The `event_loop` code above **does not change**.
+M7 replaces the arms with the real handler:
+
+```hica
+// M7 shape (src/main.hc).
+extern import "term_ffi"
+import "std/term"
+
+handle Terminal {
+  poll_event()         => decode_key(read_key()),
+  render_frame(buf)    => render_native(buf),
+  get_dimensions()     => (term_cols(), term_rows()),
+  set_cursor_style(_s) => ()
+} in {
+  event_loop(s1)
+}
+```
+
+- `read_key` / `term_cols` / `term_rows` / `flush_stdout` are a
+  hand-written Koka + C FFI module, `src/term_ffi.kk` +
+  `src/term_ffi_inline.c` (`extern import "term_ffi"` — hica reads the
+  `pub extern` signatures straight from the `.kk` file, no `hica`
+  codegen involved). The C shim reads one raw byte from stdin at a
+  time and — following the exact contract of hica-ecosystem's
+  `programs/myeon/term_raw_ffi.c` reference implementation —
+  assembles `ESC [ A/B/C/D` escape sequences into synthetic key codes
+  `1001..1004` (arrows) with a 100ms `select()` window, so the pure
+  Koka/hica side never has to see raw escape bytes at all.
+- `src/keys.hc::decode_key(code: int) : Event` is the pure, unit-
+  tested (`tests/keys_test.hc`) seam that turns one of those int codes
+  into hedit's own `Event`/`Key` types. It's the one piece of this
+  milestone testable without a real tty.
+- Raw mode on/off is **not** a hand-written termios FFI — `stty raw
+  -echo icrnl` / `stty sane`, shelled out to via hica's built-in
+  `exec`, is enough (same approach `programs/myeon` uses) and avoids
+  ~70 lines of termios save/restore C for no real benefit.
+- `render_frame`'s `render_native` does a full clear + redraw
+  (`ESC[2J` `ESC[H` then the buffer lines) each tick — no
+  diffing/partial-redraw optimization yet. Raw mode disables output
+  post-processing, so lines are joined with `"\r\n"` rather than
+  relying on `println`'s bare `"\n"` (otherwise every line staircases
+  one column to the right of the last).
+- `set_cursor_style` stays a no-op — the ANSI cursor-shape escape is
+  explicitly deferred, not silently skipped.
+
+The `event_loop` code itself **does not change** between M1 and M7 —
+only the handler arms installed around it in `main.hc`.
 
 ### 4.2 Headless / Compiler Test Handler
 
