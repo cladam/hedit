@@ -35,6 +35,16 @@ test "eof/error code quits gracefully" {
   assert(decode_key(-1) == KeyEvent(KShortcut(Ctrl, 'q')))
 }
 
-test "unrecognised code falls back to Esc" {
-  assert(decode_key(9999) == KeyEvent(KSpecial(Esc)))
+test "read timeout produces a Tick, not a key event" {
+  assert(decode_key(-2) == Tick)
+}
+
+test "decoded multi-byte UTF-8 codepoints decode to KChar (åäö)" {
+  assert(decode_key(229) == KeyEvent(KChar('å')))
+  assert(decode_key(228) == KeyEvent(KChar('ä')))
+  assert(decode_key(246) == KeyEvent(KChar('ö')))
+}
+
+test "unrecognised low control code falls back to Esc" {
+  assert(decode_key(0) == KeyEvent(KSpecial(Esc)))
 }

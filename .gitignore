@@ -3,10 +3,10 @@
 .clinerules
 
 docs/hica-issues.md
-docs/effects-journal.md
 
 src/*
 !src/*.hc
+!src/term_ffi*
 
 tests/*
 !tests/*.hc

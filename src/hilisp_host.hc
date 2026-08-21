@@ -142,6 +142,12 @@ fun action_to_string(a: Action) : string =>
     CloseBuffer => "close-buffer",
     Ignore      => "ignore",
     Insert(_)   => "insert",
+    NewLine        => "new-line",
+    DeleteBackward => "backspace",
+    MoveUp         => "move-up",
+    MoveDown    => "move-down",
+    MoveLeft    => "move-left",
+    MoveRight   => "move-right",
     Resize(_, _) => "resize"
   }
 

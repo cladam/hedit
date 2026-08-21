@@ -54,8 +54,11 @@ pub type Event {
 // (`term_ffi.hedit_read_key`'s contract — see src/term_ffi.kk) into an
 // `Event`. Kept pure and unit-tested (tests/keys_test.hc) without
 // needing a real tty: the C FFI already assembles escape sequences into
-// the synthetic 1001-1004 arrow codes, so this is the one seam that
-// needs no I/O to test.
+// the synthetic 1001-1004 arrow codes, decodes multi-byte UTF-8 input
+// (åäö etc.) into a single Unicode codepoint, and returns -2 on a read
+// timeout (no key pressed — lets event_loop re-poll `get_dimensions()`
+// and redraw periodically, e.g. after a terminal resize, without
+// waiting on the next keystroke).
 pub fun decode_key(code: int) : Event {
   if code == 10 { KeyEvent(KSpecial(Enter)) }
   else if code == 127 { KeyEvent(KSpecial(Backspace)) }
@@ -65,8 +68,10 @@ pub fun decode_key(code: int) : Event {
   else if code == 1002 { KeyEvent(KSpecial(ArrowDown)) }
   else if code == 1003 { KeyEvent(KSpecial(ArrowRight)) }
   else if code == 1004 { KeyEvent(KSpecial(ArrowLeft)) }
+  else if code == -2 { Tick } // read timeout — no key, just a redraw tick
   else if code == -1 { KeyEvent(KShortcut(Ctrl, 'q')) } // stdin closed — quit gracefully
   else if code >= 1 && code <= 26 { KeyEvent(KShortcut(Ctrl, chr(code + 96))) }
   else if code >= 32 && code <= 126 { KeyEvent(KChar(chr(code))) }
+  else if code >= 128 { KeyEvent(KChar(chr(code))) } // decoded multi-byte UTF-8 codepoint
   else { KeyEvent(KSpecial(Esc)) }
 }

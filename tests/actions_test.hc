@@ -23,6 +23,69 @@ test "typing appends chars to the active line" {
   assert(s2.buffer.is_dirty == true)
 }
 
+// ------------------- Enter / Backspace / arrow movement (M7 revisit) ----
+
+test "typing inserts at the cursor column, not always at end of line" {
+  let s0 = init_editor(None)
+  let s1 = handle_action(s0, KeyEvent(KChar('h')))
+  let s2 = handle_action(s1, KeyEvent(KChar('i')))    // "hi", cursor at col 2
+  let s3 = handle_action(s2, KeyEvent(KSpecial(ArrowLeft)))
+  let s4 = handle_action(s3, KeyEvent(KChar('X')))    // insert between h and i
+  assert(s4.buffer.lines == ["hXi"])
+}
+
+test "enter splits the line at the cursor and moves to column 0 of the next" {
+  let s0 = init_editor(None)
+  let s1 = handle_action(s0, KeyEvent(KChar('h')))
+  let s2 = handle_action(s1, KeyEvent(KChar('i')))
+  let s3 = handle_action(s2, KeyEvent(KSpecial(Enter)))
+  let s4 = handle_action(s3, KeyEvent(KChar('!')))
+  assert(s4.buffer.lines == ["hi", "!"])
+}
+
+test "backspace deletes the char before the cursor" {
+  let s0 = init_editor(None)
+  let s1 = handle_action(s0, KeyEvent(KChar('h')))
+  let s2 = handle_action(s1, KeyEvent(KChar('i')))
+  let s3 = handle_action(s2, KeyEvent(KSpecial(Backspace)))
+  assert(s3.buffer.lines == ["h"])
+}
+
+test "backspace at column 0 merges the line into the previous one" {
+  let s0 = init_editor(None)
+  let s1 = handle_action(s0, KeyEvent(KChar('h')))
+  let s2 = handle_action(s1, KeyEvent(KSpecial(Enter)))
+  let s3 = handle_action(s2, KeyEvent(KChar('i')))
+  let s4 = handle_action(s3, KeyEvent(KSpecial(ArrowLeft)))  // col 0 of "i" line
+  let s5 = handle_action(s4, KeyEvent(KSpecial(Backspace)))
+  assert(s5.buffer.lines == ["hi"])
+}
+
+test "backspace at the very start of the buffer is a no-op" {
+  let s0 = init_editor(None)
+  let s1 = handle_action(s0, KeyEvent(KSpecial(Backspace)))
+  assert(s1.buffer.lines == [""])
+}
+
+test "arrow keys move the cursor and wrap at line boundaries" {
+  let s0 = init_editor(None)
+  let s1 = handle_action(s0, KeyEvent(KChar('a')))
+  let s2 = handle_action(s1, KeyEvent(KSpecial(Enter)))
+  let s3 = handle_action(s2, KeyEvent(KChar('b')))
+  // Cursor at end of "b" (line 1, col 1). Up moves to line 0, clamped col.
+  let s4 = handle_action(s3, KeyEvent(KSpecial(ArrowUp)))
+  let cur4 = head_cursor_pos(s4)
+  assert(cur4 == Position { line: 0, col: 1 })
+  // Left at col 0 of line 0 is a no-op (nothing before the start).
+  let s5 = handle_action(s4, KeyEvent(KSpecial(ArrowLeft)))
+  let s6 = handle_action(s5, KeyEvent(KSpecial(ArrowLeft)))
+  let cur6 = head_cursor_pos(s6)
+  assert(cur6 == Position { line: 0, col: 0 })
+}
+
+fun head_cursor_pos(s: EditorState) : Position =>
+  match s.buffer.cursors { [] => Position { line: 0, col: 0 }, [x, .._] => x.pos }
+
 test "ctrl-q sets should_quit" {
   let s0 = init_editor(None)
   let s1 = handle_action(s0, KeyEvent(KShortcut(Ctrl, 'q')))

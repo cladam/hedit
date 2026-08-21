@@ -144,6 +144,14 @@ fun event_loop_step(state: EditorState, buf_ref: ref<Buffer>) {
         buf_ref.snapshot(sized.buffer)
         apply_action(sized, action)
       },
+      NewLine        => {
+        buf_ref.snapshot(sized.buffer)
+        apply_action(sized, action)
+      },
+      DeleteBackward => {
+        buf_ref.snapshot(sized.buffer)
+        apply_action(sized, action)
+      },
       Undo      => apply_history(sized, buf_ref.undo(sized.buffer), "undo"),
       Redo      => apply_history(sized, buf_ref.redo(sized.buffer), "redo"),
       _         => apply_action(sized, action)

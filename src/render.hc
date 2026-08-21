@@ -39,6 +39,10 @@ fun build_tabline(state: EditorState) : string {
 }
 
 // Build a ScreenBuffer from `state`. Reads `state.screen_size` for dimensions.
+// `cursor_row`/`cursor_col` are the head cursor's position clamped to the
+// visible viewport (1-indexed, tabline occupies row 1) — there's no
+// scroll-offset tracking yet, so a cursor past the bottom/right edge just
+// renders pinned to the last visible row/column instead of scrolling.
 pub fun render_editor_to_buffer(state: EditorState) : ScreenBuffer {
   let (w, h)    = state.screen_size
   let buf       = state.buffer
@@ -57,5 +61,16 @@ pub fun render_editor_to_buffer(state: EditorState) : ScreenBuffer {
   let status_msg  = match state.status_message { None => default_msg, Some(m) => m }
   let status_row  = fit_to_width(status_msg, w)
 
-  ScreenBuffer { width: w, height: h, lines: [tabline_row] + content_rows + [status_row] }
+  let cur          = match buf.cursors { [] => Position { line: 0, col: 0 }, [x, .._] => x.pos }
+  let visible_line = max(min(cur.line, max(n_content - 1, 0)), 0)
+  let visible_col  = max(min(cur.col, max(w - 1, 0)), 0)
+
+  ScreenBuffer {
+    width: w,
+    height: h,
+    lines: [tabline_row] + content_rows + [status_row],
+    cursor_row: visible_line + 2,
+    cursor_col: visible_col + 1
+  }
 }
+

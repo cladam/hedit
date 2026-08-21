@@ -70,13 +70,17 @@ fun disable_raw_mode() {
   let _ = exec("stty sane 2>/dev/null")
 }
 
-// Full-redraw ANSI: clear + home, then the rendered lines. No
-// diffing/partial-redraw optimization in this pass (see M7 scope).
+// Full-redraw ANSI: clear + home, then the rendered lines, then a final
+// escape moving the real terminal cursor to `buf.cursor_row`/`cursor_col`
+// (1-indexed) so it visibly tracks the edit position instead of sitting
+// wherever the last redraw happened to leave it. No diffing/partial-redraw
+// optimization in this pass (see M7 scope).
 // Raw mode (`stty raw`) disables output post-processing, so a bare
 // "\n" doesn't return the cursor to column 0 — join with "\r\n"
 // instead of relying on `println`, or every line staircases rightward.
 fun render_native(buf: ScreenBuffer) {
-  let frame = term_esc() + "[2J" + term_esc() + "[H" + join(buf.lines, "\r\n")
+  let cursor_esc = term_esc() + "[" + show(buf.cursor_row) + ";" + show(buf.cursor_col) + "H"
+  let frame = term_esc() + "[2J" + term_esc() + "[H" + join(buf.lines, "\r\n") + cursor_esc
   print(frame)
   flush_stdout()
 }

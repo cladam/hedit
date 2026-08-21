@@ -53,6 +53,12 @@ pub type Action {
   Quit,
   Save,
   Insert(c: char),
+  NewLine,
+  DeleteBackward,
+  MoveUp,
+  MoveDown,
+  MoveLeft,
+  MoveRight,
   Resize(w: int, h: int),
   Copy,
   Paste,
@@ -171,10 +177,17 @@ pub struct EditorState {
 
 // The pixel-free "screen buffer" the Terminal handler flushes.
 // Minimal M1/M2 shape: one string per row. M3+ can upgrade to ScreenCell.
+// `cursor_row`/`cursor_col` (1-indexed, M7 revisit) are where the native
+// handler positions the terminal's real cursor after a redraw — clamped
+// to the visible viewport by `render_editor_to_buffer` (no scroll-offset
+// tracking yet, so a cursor below the fold renders at the last visible
+// row rather than scrolling the view).
 pub struct ScreenBuffer {
   width: int,
   height: int,
-  lines: list<string>
+  lines: list<string>,
+  cursor_row: int,
+  cursor_col: int
 }
 
 // Cursor-shape hint forwarded to the Terminal handler.

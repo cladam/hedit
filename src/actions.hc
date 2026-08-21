@@ -36,26 +36,57 @@ fun list_get(xs: list<string>, idx: int, default: string) : string =>
       else { list_get(rest, idx - 1, default) }
   }
 
+// Replace the element at `idx` with two elements `a`, `b` (used to split a
+// line in two on Enter). Out-of-range `idx` is a no-op, matching `list_set`.
+fun list_split_at(xs: list<string>, idx: int, a: string, b: string) : list<string> =>
+  match xs {
+    []          => [],
+    [x, ..rest] =>
+      if idx == 0 { [a, b] + rest }
+      else { [x] + list_split_at(rest, idx - 1, a, b) }
+  }
+
+// Drop the element at `idx` entirely (used to merge a line into the
+// previous one on Backspace-at-column-0).
+fun list_remove_at(xs: list<string>, idx: int) : list<string> =>
+  match xs {
+    []          => [],
+    [x, ..rest] =>
+      if idx == 0 { rest }
+      else { [x] + list_remove_at(rest, idx - 1) }
+  }
+
 // ------------------- cursor + edit helpers -------------------------------
 
-// Move a single cursor one column to the right.
-fun advance_cursor(c: Cursor) : Cursor =>
-  Cursor { ...c, pos: Position { line: c.pos.line, col: c.pos.col + 1 } }
-
-// Append `c` at the end of the active cursor's line. Step-1 simplification:
-// we only support one cursor and only insert at end-of-line. Real per-cursor
-// column-aware insertion comes with the multi-cursor step.
-pub fun insert_char(state: EditorState, c: char) : EditorState {
-  let buf = state.buffer
-  let head_cursor = match buf.cursors {
+// The single cursor hedit currently supports (multi-cursor is future work),
+// or a fresh one at (0, 0) if the buffer somehow has none.
+fun head_cursor(buf: TextBuffer) : Cursor =>
+  match buf.cursors {
     []       => Cursor { cid: 0, pos: Position { line: 0, col: 0 } },
     [x, .._] => x
   }
-  let line_idx    = head_cursor.pos.line
+
+// Clamp `col` into `[0, length(line at line_idx)]`.
+fun clamp_col(lines: list<string>, line_idx: int, col: int) : int {
+  let line_len = length(list_get(lines, line_idx, ""))
+  max(min(col, line_len), 0)
+}
+
+// Insert `c` at the head cursor's column (not just end-of-line — M7
+// revisit). Step-1 simplification: still only one cursor; multi-cursor
+// insertion needs per-cursor line/column bookkeeping that doesn't exist yet.
+pub fun insert_char(state: EditorState, c: char) : EditorState {
+  let buf         = state.buffer
+  let cur         = head_cursor(buf)
+  let line_idx    = cur.pos.line
+  let col         = cur.pos.col
   let current     = list_get(buf.lines, line_idx, "")
-  let updated     = current + char_to_string(c)
+  let before      = current[0:col]
+  let after       = current[col:]
+  let updated     = before + char_to_string(c) + after
   let new_lines   = list_set(buf.lines, line_idx, updated)
-  let new_cursors = map(buf.cursors, advance_cursor)
+  let new_cursors = map(buf.cursors, (cc) =>
+    Cursor { ...cc, pos: Position { line: line_idx, col: col + 1 } })
   let new_buf = TextBuffer {
     ...buf,
     lines: new_lines,
@@ -65,16 +96,116 @@ pub fun insert_char(state: EditorState, c: char) : EditorState {
   EditorState { ...state, buffer: new_buf }
 }
 
+// Enter: split the current line at the cursor column into two lines,
+// cursor moves to column 0 of the new (second) line.
+pub fun insert_newline(state: EditorState) : EditorState {
+  let buf         = state.buffer
+  let cur         = head_cursor(buf)
+  let line_idx    = cur.pos.line
+  let col         = cur.pos.col
+  let current     = list_get(buf.lines, line_idx, "")
+  let before      = current[0:col]
+  let after       = current[col:]
+  let new_lines   = list_split_at(buf.lines, line_idx, before, after)
+  let new_cursors = map(buf.cursors, (cc) =>
+    Cursor { ...cc, pos: Position { line: line_idx + 1, col: 0 } })
+  let new_buf = TextBuffer {
+    ...buf,
+    lines: new_lines,
+    cursors: new_cursors,
+    is_dirty: true
+  }
+  EditorState { ...state, buffer: new_buf }
+}
+
+// Backspace: delete the char before the cursor on the same line, or — at
+// column 0 — merge the current line into the end of the previous one. A
+// no-op at the very start of the buffer (line 0, col 0).
+pub fun delete_backward(state: EditorState) : EditorState {
+  let buf      = state.buffer
+  let cur      = head_cursor(buf)
+  let line_idx = cur.pos.line
+  let col      = cur.pos.col
+  if col > 0 {
+    let current     = list_get(buf.lines, line_idx, "")
+    let updated     = current[0:col - 1] + current[col:]
+    let new_lines   = list_set(buf.lines, line_idx, updated)
+    let new_cursors = map(buf.cursors, (cc) =>
+      Cursor { ...cc, pos: Position { line: line_idx, col: col - 1 } })
+    let new_buf = TextBuffer { ...buf, lines: new_lines, cursors: new_cursors, is_dirty: true }
+    EditorState { ...state, buffer: new_buf }
+  } else if line_idx > 0 {
+    let prev_idx    = line_idx - 1
+    let prev        = list_get(buf.lines, prev_idx, "")
+    let current     = list_get(buf.lines, line_idx, "")
+    let merged      = prev + current
+    let merged_col  = length(prev)
+    let joined      = list_set(buf.lines, prev_idx, merged)
+    let new_lines   = list_remove_at(joined, line_idx)
+    let new_cursors = map(buf.cursors, (cc) =>
+      Cursor { ...cc, pos: Position { line: prev_idx, col: merged_col } })
+    let new_buf = TextBuffer { ...buf, lines: new_lines, cursors: new_cursors, is_dirty: true }
+    EditorState { ...state, buffer: new_buf }
+  } else {
+    state
+  }
+}
+
+// Arrow-key cursor movement. Left/Right wrap onto the previous/next line at
+// a line boundary (standard editor feel); Up/Down keep the column clamped
+// to the target line's length rather than tracking a "sticky" column.
+pub fun move_left(state: EditorState) : EditorState {
+  let buf = state.buffer
+  let cur = head_cursor(buf)
+  let new_pos =
+    if cur.pos.col > 0 { Position { line: cur.pos.line, col: cur.pos.col - 1 } }
+    else if cur.pos.line > 0 {
+      let prev_idx = cur.pos.line - 1
+      Position { line: prev_idx, col: length(list_get(buf.lines, prev_idx, "")) }
+    }
+    else { cur.pos }
+  let new_cursors = map(buf.cursors, (cc) => Cursor { ...cc, pos: new_pos })
+  EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
+}
+
+pub fun move_right(state: EditorState) : EditorState {
+  let buf      = state.buffer
+  let cur      = head_cursor(buf)
+  let line_len = length(list_get(buf.lines, cur.pos.line, ""))
+  let n_lines  = length(buf.lines)
+  let new_pos =
+    if cur.pos.col < line_len { Position { line: cur.pos.line, col: cur.pos.col + 1 } }
+    else if cur.pos.line < n_lines - 1 { Position { line: cur.pos.line + 1, col: 0 } }
+    else { cur.pos }
+  let new_cursors = map(buf.cursors, (cc) => Cursor { ...cc, pos: new_pos })
+  EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
+}
+
+pub fun move_up(state: EditorState) : EditorState {
+  let buf      = state.buffer
+  let cur      = head_cursor(buf)
+  let new_line = max(cur.pos.line - 1, 0)
+  let new_pos  = Position { line: new_line, col: clamp_col(buf.lines, new_line, cur.pos.col) }
+  let new_cursors = map(buf.cursors, (cc) => Cursor { ...cc, pos: new_pos })
+  EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
+}
+
+pub fun move_down(state: EditorState) : EditorState {
+  let buf      = state.buffer
+  let cur      = head_cursor(buf)
+  let n_lines  = length(buf.lines)
+  let new_line = min(cur.pos.line + 1, n_lines - 1)
+  let new_pos  = Position { line: new_line, col: clamp_col(buf.lines, new_line, cur.pos.col) }
+  let new_cursors = map(buf.cursors, (cc) => Cursor { ...cc, pos: new_pos })
+  EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
+}
+
 // Return the content of the head cursor's current line, or "" if the buffer
 // has no cursors / no lines. Pure: used by event_loop's `Copy` arm to compute
 // the string handed to `Clipboard.set_selection`.
 pub fun current_line(state: EditorState) : string {
   let buf = state.buffer
-  let head_cursor = match buf.cursors {
-    []       => Cursor { cid: 0, pos: Position { line: 0, col: 0 } },
-    [x, .._] => x
-  }
-  list_get(buf.lines, head_cursor.pos.line, "")
+  list_get(buf.lines, head_cursor(buf).pos.line, "")
 }
 
 // Append `text` verbatim to the end of the head cursor's line, advancing
@@ -84,11 +215,8 @@ pub fun current_line(state: EditorState) : string {
 // `Clipboard.get_selection()` produces the text.
 pub fun paste_text(state: EditorState, text: string) : EditorState {
   let buf = state.buffer
-  let head_cursor = match buf.cursors {
-    []       => Cursor { cid: 0, pos: Position { line: 0, col: 0 } },
-    [x, .._] => x
-  }
-  let line_idx  = head_cursor.pos.line
+  let cur = head_cursor(buf)
+  let line_idx  = cur.pos.line
   let current   = list_get(buf.lines, line_idx, "")
   let updated   = current + text
   let new_lines = list_set(buf.lines, line_idx, updated)
@@ -159,12 +287,20 @@ pub fun close_buffer_action(state: EditorState) : EditorState =>
 // Turn a raw `Event` into a semantic `Action` using the bindings currently
 // installed on `state.config`. Pure: no I/O, no hardcoded chord names.
 //
-// Priority: KChar always inserts, ResizeEvent always resizes; only
-// KShortcuts pass through the user-configurable binding table. Unbound
-// shortcuts resolve to `Ignore` — event_loop then no-ops.
+// Priority: KChar always inserts, ResizeEvent always resizes; Enter/
+// Backspace/arrows are fixed (not user-remappable — they have no `char`
+// payload to key a binding on); only KShortcuts pass through the
+// user-configurable binding table. Unbound shortcuts resolve to `Ignore`
+// — event_loop then no-ops.
 pub fun resolve_action(state: EditorState, evt: Event) : Action =>
   match evt {
-    KeyEvent(KChar(c))        => Insert(c),
+    KeyEvent(KChar(c))              => Insert(c),
+    KeyEvent(KSpecial(Enter))       => NewLine,
+    KeyEvent(KSpecial(Backspace))   => DeleteBackward,
+    KeyEvent(KSpecial(ArrowUp))     => MoveUp,
+    KeyEvent(KSpecial(ArrowDown))   => MoveDown,
+    KeyEvent(KSpecial(ArrowLeft))   => MoveLeft,
+    KeyEvent(KSpecial(ArrowRight))  => MoveRight,
     KeyEvent(KShortcut(m, c)) =>
       lookup_binding(state.config.bindings, KeyChord { m: m, c: c }),
     ResizeEvent(w, h)         => Resize(w, h),
@@ -181,6 +317,12 @@ pub fun apply_action(state: EditorState, action: Action) : EditorState =>
   match action {
     Quit         => EditorState { ...state, should_quit: true },
     Insert(c)    => insert_char(state, c),
+    NewLine        => insert_newline(state),
+    DeleteBackward => delete_backward(state),
+    MoveUp         => move_up(state),
+    MoveDown     => move_down(state),
+    MoveLeft     => move_left(state),
+    MoveRight    => move_right(state),
     Resize(w, h) => EditorState { ...state, screen_size: (w, h) },
     Save         => state, // handled in event_loop; no-op here for purity
     Copy         => state, // handled in event_loop; needs <Clipboard>
