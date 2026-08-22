@@ -15,12 +15,12 @@ actions. Nothing is hard-coded in the dispatcher — the defaults live in
 `src/model.hc::default_bindings()` and can be replaced from HiLisp (M4)
 via `(bind "Ctrl-x" 'save)`.
 
-### Current default bindings (M5.5)
+### Current default bindings (M9)
 
 | Chord    | Action | Notes |
 |----------|--------|-------|
 | `Ctrl-q` | `quit`  | Sets `should_quit`; event loop terminates. |
-| `Ctrl-s` | `save`  | Writes buffer to disk (needs a named buffer). |
+| `Ctrl-s` | `save`  | Writes buffer to disk, or opens a Save-As prompt for a pathless buffer (M9). |
 | `Ctrl-c` | `copy`  | Copies the head cursor's current line into the clipboard. |
 | `Ctrl-v` | `paste` | Appends the clipboard content at the end of the head cursor's line. |
 | `Ctrl-z` | `undo`  | Restores the buffer to its last snapshot. |
@@ -29,6 +29,7 @@ via `(bind "Ctrl-x" 'save)`.
 | `Ctrl-n` | `next-buffer`  | Cycles to the next open buffer (wraps around). |
 | `Ctrl-p` | `prev-buffer`  | Cycles to the previous open buffer (wraps around). |
 | `Ctrl-w` | `close-buffer` | Closes the active buffer; refuses to close the last one. |
+| `Ctrl-e` | `open-file`    | Opens a prompt to load an existing file into a new buffer (M9). |
 
 Typing any printable character routes to `insert` automatically — you
 don't (and can't) bind `a`, `b`, `c`, … Those aren't chord bindings.
@@ -171,14 +172,47 @@ rest as a rotation ring (see `docs/hedit-design.md` §10 for the shape).
 - Writes `join(buffer.lines, "\n") + "\n"` — POSIX line-oriented tools
   (`wc -l`, `git diff`, most greps) expect a trailing newline, and files
   round-trip cleanly through common editors.
-- Buffers with no path (a "scratch" buffer opened via `init_editor(None)`)
-  set status `"No file — save not possible"` rather than throwing.
+- Buffers with no path (a "scratch" buffer opened via `init_editor(None)`
+  or `Ctrl-o`) open a **Save-As prompt** (M9, see below) instead of a
+  dead-end status message.
 - A session started with `--readonly`/`-R` (M8) sets status
-  `"Read-only — not saved"` and never touches the filesystem — checked
-  before the no-path case, so it applies even to a scratch buffer.
+  `"Read-only — not saved"` and never touches the filesystem, nor opens
+  the Save-As prompt — checked before the no-path case, so it applies
+  even to a scratch buffer.
 - On success: `is_dirty` clears, status becomes `"Saved"`.
 - On I/O error: status becomes `"Save failed: <message>"`; the buffer is
   left dirty.
+
+---
+
+## Save-As / Open prompt (M9)
+
+`Ctrl-s` on a pathless buffer and the new `Ctrl-e` chord both open a
+minimal single-line text-input widget on the status row instead of
+growing hedit into a full command palette.
+
+- **`Ctrl-s` on a scratch buffer** opens `Save as: ` — type a path and
+  press `Enter` to write the buffer there; the buffer's `path` is set
+  on success so subsequent `Ctrl-s` saves go straight to disk. `Esc`
+  cancels, discarding the typed text and leaving the buffer exactly as
+  it was (nothing is written).
+- **`Ctrl-e` (`open-file`)** opens `Open: ` — type a path to an
+  *existing* file and press `Enter` to load it into a **new** buffer,
+  backgrounding the current one (same shape as `Ctrl-o`'s `new-buffer`).
+  A missing/unreadable path surfaces the same `"Could not open …"`
+  status `load_buffer` (M6) already produces for the CLI `[file]`
+  positional.
+- **While a prompt is active**, every keystroke edits the prompt text
+  instead of the buffer — normal Insert/Enter/Backspace/arrow dispatch
+  is suspended. `Ctrl-q` is the one exception: it still quits
+  immediately even mid-prompt, matching the synthetic "stdin closed"
+  event and avoiding a stuck prompt if the terminal session ends.
+- **Rebindable.** `open-file` is a normal `Action` symbol, so
+  `(bind "Ctrl-e" 'open-file)` in `init.hl` moves it like any other
+  chord (see the Keybindings table above).
+- **Non-goals:** filename tab-completion, directory browsing, and
+  overwrite confirmation on an existing path are all deliberately out
+  of scope — plain text entry only.
 
 ---
 
@@ -187,6 +221,7 @@ rest as a rotation ring (see `docs/hedit-design.md` §10 for the shape).
 ```
 $ hedit --help
 hedit 0.2.0 — a terminal text editor in hica
+
 
 USAGE: hedit [OPTIONS] [file]
 

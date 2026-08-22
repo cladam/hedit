@@ -85,7 +85,9 @@ fun apply_write_result(state: EditorState, result: result<(), string>) {
 // Write buffer content to disk. Called from event_loop for the `Save`
 // action. Files are joined with "\n" and get a trailing newline (POSIX
 // convention — `wc -l`, `git diff`, etc. all expect it).
-// `--readonly` (M8) gates this before touching the filesystem at all.
+// `--readonly` (M8) gates this before touching the filesystem at all. A
+// pathless ("scratch") buffer opens the Save-As prompt (M9) instead of
+// the old "not possible" dead end.
 // Return-type annotation omitted: carries <fsys> (Koka rejects pure annotation).
 fun save_buffer(state: EditorState) {
   if state.config.readonly {
@@ -93,12 +95,58 @@ fun save_buffer(state: EditorState) {
   }
   else {
     match state.buffer.path {
-      None    => set_status_message(state, "No file — save not possible"),
+      None    => EditorState { ...state, prompt: SaveAsPrompt("") },
       Some(p) => {
         let body = join(state.buffer.lines, "\n") + "\n"
         apply_write_result(state, write_file(p, body))
       }
     }
+  }
+}
+
+// Write the buffer to a freshly-entered path (Save-As prompt submit,
+// M9), naming the buffer on success so subsequent Ctrl-s saves go
+// straight to disk without re-prompting.
+fun submit_save_as(state: EditorState, path: string) {
+  let body = join(state.buffer.lines, "\n") + "\n"
+  match write_file(path, body) {
+    Ok(_) => {
+      let saved_buf = TextBuffer { ...state.buffer, path: Some(path), is_dirty: false }
+      set_status_message(EditorState { ...state, buffer: saved_buf, prompt: NoPrompt }, "Saved")
+    },
+    Err(msg) => set_status_message(EditorState { ...state, prompt: NoPrompt }, "Save failed: " + msg)
+  }
+}
+
+// Load a path entered in the Open prompt (M9) into a *new* buffer,
+// backgrounding the current one — same shape as `NewBuffer`
+// (`actions.hc::new_buffer_action`). A failed read still surfaces a
+// status message via `load_buffer`'s existing Ok/Err shaping.
+fun submit_open_file(state: EditorState, path: string) {
+  let new_bid = state.next_bid
+  let (new_buf, load_status) = load_buffer(new_bid, Some(path))
+  let opened = EditorState {
+    ...state,
+    buffer: new_buf,
+    background_buffers: state.background_buffers + [state.buffer],
+    next_bid: new_bid + 1,
+    prompt: NoPrompt
+  }
+  match load_status {
+    None      => opened,
+    Some(msg) => set_status_message(opened, msg)
+  }
+}
+
+// Dispatch `PromptSubmit` (Enter while a prompt is active) to the right
+// effectful handler. `NoPrompt` can't happen in practice (resolve_action
+// only emits PromptSubmit while a prompt is active) but falls back to a
+// no-op rather than crashing.
+fun submit_prompt(state: EditorState) {
+  match state.prompt {
+    NoPrompt           => state,
+    SaveAsPrompt(text) => submit_save_as(state, text),
+    OpenPrompt(text)   => submit_open_file(state, text)
   }
 }
 
@@ -160,6 +208,7 @@ fun event_loop_step(state: EditorState, buf_ref: ref<Buffer>) {
       },
       Undo      => apply_history(sized, buf_ref.undo(sized.buffer), "undo"),
       Redo      => apply_history(sized, buf_ref.redo(sized.buffer), "redo"),
+      PromptSubmit => submit_prompt(sized),
       _         => apply_action(sized, action)
     }
     event_loop_step(next, buf_ref)

@@ -2645,30 +2645,30 @@ growing into a full command palette.
 
 ### Plan
 
-- [ ] **`src/model.hc`.** Add the `Prompt` type + `prompt: Prompt`
+- [x] **`src/model.hc`.** Add the `Prompt` type + `prompt: Prompt`
   field on `EditorState`; add `PromptChar`/`PromptBackspace`/
   `PromptSubmit`/`PromptCancel` to `Action`.
-- [ ] **`src/actions.hc`.** `resolve_action` branches on
+- [x] **`src/actions.hc`.** `resolve_action` branches on
   `state.prompt` first (prompt active → route every `KeyEvent` to the
   four prompt actions; otherwise unchanged). Pure prompt-text editing
   helpers (append/backspace on `Prompt`'s `text` field) live here,
   mirroring `insert_char`/`delete_backward`'s shape.
-- [ ] **`src/runtime.hc`.** `event_loop_step` handles `PromptSubmit`
+- [x] **`src/runtime.hc`.** `event_loop_step` handles `PromptSubmit`
   for `SaveAsPrompt`/`OpenPrompt` inline (needs `<fsys>`, same as
   `save_buffer`); `PromptCancel` just clears `state.prompt` via
   `apply_action`.
-- [ ] **`src/render.hc`.** Prompt row rendering on the status line.
-- [ ] **`src/model.hc`.** Bind a new chord for `OpenPrompt` in
+- [x] **`src/render.hc`.** Prompt row rendering on the status line.
+- [x] **`src/model.hc`.** Bind a new chord for `OpenPrompt` in
   `default_bindings` (rebindable via HiLisp `(bind …)` like every
   other chord).
-- [ ] **Tests.** `actions_test.hc` for prompt state transitions
+- [x] **Tests.** `actions_test.hc` for prompt state transitions
   (char/backspace/cancel) and the `resolve_action` routing gate;
   `runtime_test.hc` for the end-to-end `Ctrl-s` → type a name → Enter
   → file written, and `OpenPrompt` → type a path → Enter → new buffer
   with real content, using the scripted `Terminal` handler.
-- [ ] **`hica fmt --check` + `hica analyse` 100/100** on every touched
+- [x] **`hica fmt --check` + `hica analyse` 100/100** on every touched
   file.
-- [ ] **Docs.** `docs/notes.md` Save semantics section updated (no
+- [x] **Docs.** `docs/notes.md` Save semantics section updated (no
   more "not possible" dead end); this section's Log + Reflection.
 
 ### Exit criteria
@@ -2681,7 +2681,122 @@ growing into a full command palette.
 - All pre-existing automated suites stay green; new prompt-specific
   tests are added alongside them.
 
+### Log
+
+- `resolve_action` is now split into `resolve_normal_action` (the
+  pre-M9 body, unchanged) and `resolve_prompt_action`, with a 2-line
+  dispatcher on `state.prompt` picking between them. Kept the two
+  bodies fully separate rather than threading a prompt-active bool
+  through the old function — every prompt keystroke only ever needs to
+  produce one of five `Action`s, so a dedicated match is both clearer
+  and impossible to accidentally fall through to `Insert`.
+- `Action`/`Prompt` share the same "text so far" shape (`SaveAsPrompt`
+  and `OpenPrompt` both carry a bare `text: string`) but the pure
+  editing helpers (`prompt_insert_char`/`prompt_backspace`) go through
+  a small `prompt_text`/`with_prompt_text` get/set pair instead of
+  matching on the variant at every call site — adding a third prompt
+  kind later only touches those two functions.
+- `save_buffer` (already effectful, already had the readonly check)
+  was the natural place to grow the "no path → open the prompt"
+  branch — no new dispatch needed in `event_loop_step` beyond a single
+  `PromptSubmit` arm that fans out to `submit_save_as`/
+  `submit_open_file` based on which `Prompt` variant is active.
+  `submit_open_file` mirrors `new_buffer_action`'s backgrounding shape
+  exactly (`background_buffers: state.background_buffers +
+  [state.buffer]`), so a loaded file behaves identically to `Ctrl-o`'s
+  scratch buffer once it's open.
+- **Found via `hica analyse`/build, not `hica test`:** adding four new
+  `Action` variants (`OpenFile`, `PromptChar`, `PromptBackspace`,
+  `PromptSubmit`, `PromptCancel`) broke `src/hilisp_host.hc`'s
+  `action_to_string`/`string_to_action` — that match was already
+  non-exhaustive by construction (no catch-all arm), so Koka inferred
+  `<exn|_e>` instead of `total` on a function whole-program inference
+  reaches through, and the failure surfaced in an *unrelated* test
+  file (`runtime_test.hc`, which imports `hilisp_host`) rather than
+  at the `model.hc` edit site. `model_test.hc`/`actions_test.hc`
+  (which don't import `hilisp_host`) stayed green throughout, which
+  is what made this easy to miss on a partial test run. **Lesson:**
+  after adding an `Action` variant, grep for `match a { ... }` /
+  `match action { ... }` across the whole `src/` tree before trusting
+  a single test file's pass — `hilisp_host.hc`'s Action↔symbol table
+  is the one place outside `actions.hc` that has to stay exhaustive.
+- **Real bug, not a test artifact:** the first working build
+  segfaulted under scripted-stdin smoke testing whenever `Ctrl-q` was
+  sent while a prompt was open. Root cause: `resolve_prompt_action`'s
+  catch-all (`_ => Ignore`) also swallowed the synthetic
+  `KShortcut(Ctrl, 'q')` that `keys.hc::decode_key` emits for an
+  EOF/closed-stdin read (`code == -1`) — with a prompt open and stdin
+  already closed, `event_loop_step` re-read EOF, got `Ignore`, and
+  looped again indefinitely, blowing the C stack (Koka's recursive
+  `event_loop_step` isn't a hard guarantee of TCO through an effect
+  handler resumption). Fixed by adding an explicit
+  `KeyEvent(KShortcut(Ctrl, 'q')) => Quit` arm to
+  `resolve_prompt_action` — Ctrl-q now force-quits even mid-prompt,
+  which both fixes the EOF spin *and* is arguably better UX (no
+  editor-wide "confirm quit" exists yet, so this matches the
+  no-confirmation philosophy everywhere else). Caught by the same
+  scripted-stdin-bytes technique as M7/M8, not by the pure unit tests
+  — this class of bug (infinite loop / stack blowout on an
+  edge-case Event) is structurally invisible to `hica test`, which
+  never has enter/exit-condition timing like a live event loop does.
+- Confirmed end-to-end against the compiled `./hedit` binary via
+  scripted stdin bytes (same technique as M7/M8): `Ctrl-s` on a
+  pathless buffer + a typed path + `Enter` produced the exact file
+  content on disk and flipped the tabline/status to the new path;
+  `Ctrl-e` + an existing 2-line file's path + `Enter` loaded real
+  content into a new buffer and backgrounded the scratch one. Note:
+  a piped (non-tty) stdin needs a literal `\n` (LF, code 10) to submit
+  a prompt, not `\r` (CR) — a real terminal's `stty icrnl` translates
+  CR→LF before hedit ever sees the byte, but that translation is a
+  no-op on a non-tty pipe (same caveat as M7's raw-mode notes).
+- `hica fmt` reformatted two pre-existing single-argument slice
+  expressions in `actions.hc` (`[col:]` → `[col: ]`) and trimmed a
+  trailing blank line in `render.hc` — unrelated to this milestone's
+  logic, just picked up incidentally by running `fmt --check` on every
+  touched file.
+- Recurring `cli.kki` stale-cache parse error again (twice this
+  session) — same `hica clean --cache && rm -rf .koka` fix as every
+  prior milestone.
+
+### Reflection
+
+**What went well:**
+
+- Splitting `resolve_action` into `resolve_normal_action` +
+  `resolve_prompt_action` behind a one-line `match state.prompt`
+  dispatcher kept the diff to the existing dispatch function at zero
+  — no risk of subtly changing normal-mode keystroke behavior while
+  adding the prompt path.
+- The `prompt_text`/`with_prompt_text` get/set pair over the `Prompt`
+  ADT paid for itself immediately: `prompt_insert_char` and
+  `prompt_backspace` are both one-liners that don't know or care which
+  prompt variant is active.
+
+**What to carry forward:**
+
+- **New standing check for any future `Action` variant:** grep
+  `action_to_string`/`string_to_action` in `hilisp_host.hc` (and any
+  other exhaustive `match action { ... }`) *before* running tests —
+  a non-exhaustive match there fails via a confusing effect-inference
+  error in an unrelated test file, not a clean "missing case" message
+  at the edit site.
+- **New standing check for any new `Action` reachable while another
+  input-consuming mode is active** (prompts today, maybe a future
+  command palette): make sure the synthetic EOF-quit event
+  (`KShortcut(Ctrl, 'q')` from `decode_key(-1)`) can still reach
+  `Quit` from every such mode, or a closed stdin will spin the event
+  loop instead of exiting. Caught by scripted-stdin smoke testing,
+  not unit tests — keep that step mandatory for any milestone that
+  touches `event_loop`/`resolve_action`.
+- Piped-stdin smoke tests need `\n` for Enter, not `\r` — add this to
+  the running "scripted stdin bytes" cheat sheet alongside the
+  Ctrl-chord octal codes from M7/M8.
+
+**Ready for M10** — usability polish: help overlay + theming is next.
+
 ---
+
+
 
 ## Milestone M10 — Usability polish: help overlay + theming
 

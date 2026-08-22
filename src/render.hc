@@ -38,11 +38,23 @@ fun build_tabline(state: EditorState) : string {
   join(["[" + active_name + "]"] + bg_names, "|")
 }
 
+// Status-row label for an active Save-As/Open prompt (M9), replacing the
+// normal path/dirty-flag or status-message row while typing.
+fun prompt_label(p: Prompt) : string =>
+  match p {
+    NoPrompt        => "",
+    SaveAsPrompt(t) => "Save as: " + t,
+    OpenPrompt(t)   => "Open: " + t
+  }
+
 // Build a ScreenBuffer from `state`. Reads `state.screen_size` for dimensions.
 // `cursor_row`/`cursor_col` are the head cursor's position clamped to the
 // visible viewport (1-indexed, tabline occupies row 1) — there's no
 // scroll-offset tracking yet, so a cursor past the bottom/right edge just
 // renders pinned to the last visible row/column instead of scrolling.
+// While a Save-As/Open prompt (M9) is active, the status row shows the
+// prompt label instead and the real cursor tracks the end of the typed
+// text rather than the buffer's cursor.
 pub fun render_editor_to_buffer(state: EditorState) : ScreenBuffer {
   let (w, h)    = state.screen_size
   let buf       = state.buffer
@@ -54,23 +66,31 @@ pub fun render_editor_to_buffer(state: EditorState) : ScreenBuffer {
 
   let tabline_row = fit_to_width(build_tabline(state), w)
 
-  // Status line: explicit message wins; fallback is path + dirty flag.
+  // Status line: an active prompt wins; otherwise an explicit message,
+  // falling back to path + dirty flag.
   let path_part   = match buf.path { None => "[No Name]", Some(p) => p }
   let dirty_str   = if buf.is_dirty { " [+]" } else { "" }
   let default_msg = path_part + dirty_str
   let status_msg  = match state.status_message { None => default_msg, Some(m) => m }
-  let status_row  = fit_to_width(status_msg, w)
+  let status_row  = match state.prompt {
+    NoPrompt => fit_to_width(status_msg, w),
+    _        => fit_to_width(prompt_label(state.prompt), w)
+  }
 
   let cur          = match buf.cursors { [] => Position { line: 0, col: 0 }, [x, .._] => x.pos }
   let visible_line = max(min(cur.line, max(n_content - 1, 0)), 0)
   let visible_col  = max(min(cur.col, max(w - 1, 0)), 0)
 
+  let (crow, ccol) = match state.prompt {
+    NoPrompt => (visible_line + 2, visible_col + 1)
+    _        => (h, min(length(prompt_label(state.prompt)) + 1, w))
+  }
+
   ScreenBuffer {
     width: w,
     height: h,
     lines: [tabline_row] + content_rows + [status_row],
-    cursor_row: visible_line + 2,
-    cursor_col: visible_col + 1
+    cursor_row: crow,
+    cursor_col: ccol
   }
 }
-

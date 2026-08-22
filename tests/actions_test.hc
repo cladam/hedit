@@ -313,3 +313,82 @@ test "CloseBuffer on the last remaining buffer is a no-op with a status message"
   assert(s1.buffer.lines == [""])
   assert(s1.status_message == Some("Can't close the last buffer"))
 }
+
+// ------------------- Save-As / Open prompt (M9) --------------------------
+
+test "resolve_action maps Ctrl-e to OpenFile via default_bindings" {
+  let s0 = init_editor(None)
+  let a  = resolve_action(s0, KeyEvent(KShortcut(Ctrl, 'e')))
+  assert(a == OpenFile)
+}
+
+test "OpenFile opens an Open prompt with empty text" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, OpenFile)
+  assert(s1.prompt == OpenPrompt(""))
+}
+
+test "while a prompt is active, typing resolves to PromptChar not Insert" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, OpenFile)
+  assert(resolve_action(s1, KeyEvent(KChar('a'))) == PromptChar('a'))
+}
+
+test "while a prompt is active, Enter/Backspace/Esc resolve to prompt actions" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, OpenFile)
+  assert(resolve_action(s1, KeyEvent(KSpecial(Enter))) == PromptSubmit)
+  assert(resolve_action(s1, KeyEvent(KSpecial(Backspace))) == PromptBackspace)
+  assert(resolve_action(s1, KeyEvent(KSpecial(Esc))) == PromptCancel)
+}
+
+test "a resize event still resolves to Resize while a prompt is active" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, OpenFile)
+  assert(resolve_action(s1, ResizeEvent(100, 40)) == Resize(100, 40))
+}
+
+// A closed/EOF'd stdin decodes to the same synthetic Ctrl-q event as a
+// real keypress (see keys.hc::decode_key) — without this, a prompt left
+// open when input ends would spin `event_loop` forever instead of
+// exiting (this reproduced as a real segfault via scripted stdin, see
+// docs/effects-journal.md M9 Log).
+test "Ctrl-q still resolves to Quit even while a prompt is active" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, OpenFile)
+  assert(resolve_action(s1, KeyEvent(KShortcut(Ctrl, 'q'))) == Quit)
+}
+
+test "PromptChar/PromptBackspace edit the prompt text without touching the buffer" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, OpenFile)
+  let s2 = apply_action(s1, PromptChar('a'))
+  let s3 = apply_action(s2, PromptChar('b'))
+  assert(s3.prompt == OpenPrompt("ab"))
+  let s4 = apply_action(s3, PromptBackspace)
+  assert(s4.prompt == OpenPrompt("a"))
+  assert(s4.buffer.lines == [""])
+}
+
+test "PromptBackspace on empty prompt text is a no-op" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, OpenFile)
+  let s2 = apply_action(s1, PromptBackspace)
+  assert(s2.prompt == OpenPrompt(""))
+}
+
+test "PromptCancel clears the prompt back to NoPrompt, discarding typed text" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, OpenFile)
+  let s2 = apply_action(s1, PromptChar('x'))
+  let s3 = apply_action(s2, PromptCancel)
+  assert(s3.prompt == NoPrompt)
+}
+
+test "apply_action leaves state untouched for PromptSubmit (handled in event_loop)" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, OpenFile)
+  let s2 = apply_action(s1, PromptChar('x'))
+  let s3 = apply_action(s2, PromptSubmit)
+  assert(s3.prompt == OpenPrompt("x"))
+}

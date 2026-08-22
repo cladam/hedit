@@ -82,7 +82,7 @@ pub fun insert_char(state: EditorState, c: char) : EditorState {
   let col         = cur.pos.col
   let current     = list_get(buf.lines, line_idx, "")
   let before      = current[0:col]
-  let after       = current[col:]
+  let after       = current[col: ]
   let updated     = before + char_to_string(c) + after
   let new_lines   = list_set(buf.lines, line_idx, updated)
   let new_cursors = map(buf.cursors, (cc) =>
@@ -105,7 +105,7 @@ pub fun insert_newline(state: EditorState) : EditorState {
   let col         = cur.pos.col
   let current     = list_get(buf.lines, line_idx, "")
   let before      = current[0:col]
-  let after       = current[col:]
+  let after       = current[col: ]
   let new_lines   = list_split_at(buf.lines, line_idx, before, after)
   let new_cursors = map(buf.cursors, (cc) =>
     Cursor { ...cc, pos: Position { line: line_idx + 1, col: 0 } })
@@ -128,7 +128,7 @@ pub fun delete_backward(state: EditorState) : EditorState {
   let col      = cur.pos.col
   if col > 0 {
     let current     = list_get(buf.lines, line_idx, "")
-    let updated     = current[0:col - 1] + current[col:]
+    let updated     = current[0:col - 1] + current[col: ]
     let new_lines   = list_set(buf.lines, line_idx, updated)
     let new_cursors = map(buf.cursors, (cc) =>
       Cursor { ...cc, pos: Position { line: line_idx, col: col - 1 } })
@@ -282,17 +282,77 @@ pub fun close_buffer_action(state: EditorState) : EditorState =>
     [x, ..rest] => EditorState { ...state, buffer: x, background_buffers: rest }
   }
 
+// ------------------- Save-As / Open prompt (M9) --------------------------
+//
+// A minimal single-line input widget. Only one prompt is ever active at a
+// time (`EditorState.prompt`); `resolve_action` routes every `KeyEvent` to
+// the four Prompt* actions below while a prompt is active, instead of the
+// normal Insert/Enter/Backspace dispatch. Submitting (`PromptSubmit`) needs
+// `<fsys>`, so it stays a no-op here and is handled in `runtime.hc`.
+
+// The text typed so far, regardless of which prompt variant is active.
+fun prompt_text(p: Prompt) : string =>
+  match p {
+    NoPrompt        => "",
+    SaveAsPrompt(t) => t,
+    OpenPrompt(t)   => t
+  }
+
+// Rebuild `p` with new text, preserving its variant. A `NoPrompt` stays
+// `NoPrompt` — there's nothing to type into.
+fun with_prompt_text(p: Prompt, t: string) : Prompt =>
+  match p {
+    NoPrompt        => NoPrompt,
+    SaveAsPrompt(_) => SaveAsPrompt(t),
+    OpenPrompt(_)   => OpenPrompt(t)
+  }
+
+pub fun prompt_insert_char(state: EditorState, c: char) : EditorState =>
+  EditorState { ...state, prompt: with_prompt_text(state.prompt, prompt_text(state.prompt) + char_to_string(c)) }
+
+pub fun prompt_backspace(state: EditorState) : EditorState {
+  let t     = prompt_text(state.prompt)
+  let new_t = if length(t) > 0 { t[0:length(t) - 1] } else { t }
+  EditorState { ...state, prompt: with_prompt_text(state.prompt, new_t) }
+}
+
+pub fun prompt_cancel(state: EditorState) : EditorState =>
+  EditorState { ...state, prompt: NoPrompt }
+
+// `Ctrl-e` (default binding): open the "open file" prompt with empty text.
+pub fun open_file_prompt(state: EditorState) : EditorState =>
+  EditorState { ...state, prompt: OpenPrompt("") }
+
 // ------------------- Event → Action resolution ---------------------------
 
 // Turn a raw `Event` into a semantic `Action` using the bindings currently
 // installed on `state.config`. Pure: no I/O, no hardcoded chord names.
 //
+// While a prompt is active every `KeyEvent` routes to one of the four
+// Prompt* actions instead of the normal Insert/Enter/Backspace dispatch —
+// `Esc` cancels, `Enter` submits, everything else edits the prompt text.
+// `Ctrl-q` still quits even mid-prompt: it's the same synthetic event a
+// closed/EOF'd stdin decodes to (see `keys.hc::decode_key`), so treating
+// it as an ordinary ignored shortcut would spin `event_loop` forever
+// re-reading EOF instead of exiting. `ResizeEvent` still resizes so a
+// terminal resize while typing a filename doesn't get swallowed.
+fun resolve_prompt_action(evt: Event) : Action =>
+  match evt {
+    KeyEvent(KChar(c))            => PromptChar(c),
+    KeyEvent(KSpecial(Enter))     => PromptSubmit,
+    KeyEvent(KSpecial(Backspace)) => PromptBackspace,
+    KeyEvent(KSpecial(Esc))       => PromptCancel,
+    KeyEvent(KShortcut(Ctrl, 'q')) => Quit,
+    ResizeEvent(w, h)             => Resize(w, h),
+    _                             => Ignore
+  }
+
 // Priority: KChar always inserts, ResizeEvent always resizes; Enter/
 // Backspace/arrows are fixed (not user-remappable — they have no `char`
 // payload to key a binding on); only KShortcuts pass through the
 // user-configurable binding table. Unbound shortcuts resolve to `Ignore`
 // — event_loop then no-ops.
-pub fun resolve_action(state: EditorState, evt: Event) : Action =>
+fun resolve_normal_action(state: EditorState, evt: Event) : Action =>
   match evt {
     KeyEvent(KChar(c))              => Insert(c),
     KeyEvent(KSpecial(Enter))       => NewLine,
@@ -305,6 +365,15 @@ pub fun resolve_action(state: EditorState, evt: Event) : Action =>
       lookup_binding(state.config.bindings, KeyChord { m: m, c: c }),
     ResizeEvent(w, h)         => Resize(w, h),
     _                         => Ignore
+  }
+
+// Turn a raw `Event` into a semantic `Action`. Checks `state.prompt` first
+// (M9) — a `SaveAsPrompt`/`OpenPrompt` in progress takes over every
+// keystroke until it's submitted or cancelled.
+pub fun resolve_action(state: EditorState, evt: Event) : Action =>
+  match state.prompt {
+    NoPrompt => resolve_normal_action(state, evt),
+    _        => resolve_prompt_action(evt)
   }
 
 // ------------------- Action → EditorState apply -------------------------
@@ -333,6 +402,11 @@ pub fun apply_action(state: EditorState, action: Action) : EditorState =>
     NextBuffer   => cycle_next_buffer(state),
     PrevBuffer   => cycle_prev_buffer(state),
     CloseBuffer  => close_buffer_action(state),
+    OpenFile     => open_file_prompt(state),
+    PromptChar(c)   => prompt_insert_char(state, c),
+    PromptBackspace => prompt_backspace(state),
+    PromptCancel    => prompt_cancel(state),
+    PromptSubmit    => state, // handled in event_loop; needs <fsys>
     Ignore       => state
   }
 

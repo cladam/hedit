@@ -140,6 +140,7 @@ fun action_to_string(a: Action) : string =>
     NextBuffer  => "next-buffer",
     PrevBuffer  => "prev-buffer",
     CloseBuffer => "close-buffer",
+    OpenFile    => "open-file",
     Ignore      => "ignore",
     Insert(_)   => "insert",
     NewLine        => "new-line",
@@ -148,7 +149,11 @@ fun action_to_string(a: Action) : string =>
     MoveDown    => "move-down",
     MoveLeft    => "move-left",
     MoveRight   => "move-right",
-    Resize(_, _) => "resize"
+    Resize(_, _) => "resize",
+    PromptChar(_)   => "prompt-char",
+    PromptBackspace => "prompt-backspace",
+    PromptSubmit    => "prompt-submit",
+    PromptCancel    => "prompt-cancel"
   }
 
 fun string_to_action(s: string) : maybe<Action> =>
@@ -163,6 +168,7 @@ fun string_to_action(s: string) : maybe<Action> =>
     "next-buffer"  => Some(NextBuffer),
     "prev-buffer"  => Some(PrevBuffer),
     "close-buffer" => Some(CloseBuffer),
+    "open-file"    => Some(OpenFile),
     "ignore"       => Some(Ignore),
     _              => None
   }

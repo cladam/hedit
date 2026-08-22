@@ -22,6 +22,11 @@ import "../src/model"
 import "../src/runtime"
 import "../src/hilisp_host"
 
+// Small named helper (instead of an inline lambda) so the `TextBuffer`
+// receiver type is pinned — avoids the cross-module `hc_lines` collision
+// with the prelude's string `lines` function (see repo memory notes).
+fun buf_lines(b: TextBuffer) : list<string> => b.lines
+
 // ------------------- test 1: quit terminates immediately ----------------
 
 test "scripted Ctrl-q terminates the loop after one tick" {
@@ -168,6 +173,31 @@ test "ctrl-s on a readonly buffer does not write and sets a status message" {
     Err(_) => false
   }
   assert(!was_written)
+}
+
+// A pathless buffer under --readonly must not open the Save-As prompt
+// either — the readonly gate is checked before the "no path" branch in
+// `runtime.hc::save_buffer` (M9).
+test "ctrl-s on a readonly scratch buffer does not open a Save-As prompt" {
+  let ro_cfg = Config { ...default_config(), readonly: true }
+  let s0 = init_editor_with_config(None, ro_cfg)
+  let final: EditorState = handle Terminal {
+    poll_event() => match events {
+      []          => KeyEvent(KShortcut(Ctrl, 'q')),
+      [e, ..rest] => { events = rest; e }
+    },
+    render_frame(_buf)   => (),
+    get_dimensions()     => (80, 24),
+    set_cursor_style(_s) => ()
+  } with var events = [
+    KeyEvent(KChar('h')),
+    KeyEvent(KShortcut(Ctrl, 's')),
+    KeyEvent(KShortcut(Ctrl, 'q'))
+  ] in {
+    event_loop(s0)
+  }
+  assert(final.status_message == Some("Read-only — not saved"))
+  assert(final.prompt == NoPrompt)
 }
 
 // ------------------- Clipboard integration tests (M3) ------------------
@@ -355,4 +385,102 @@ test "Ctrl-w closes the active buffer and promotes the other one" {
   }
   assert(final.buffer.lines == ["a"])
   assert(length(final.background_buffers) == 0)
+}
+
+// ------------------- M9: Save-As / Open prompt through event_loop -------
+
+// Ctrl-s on a pathless ("scratch") buffer opens a Save-As prompt instead
+// of the old "not possible" dead end; typing a path and pressing Enter
+// writes the file and names the buffer.
+test "ctrl-s on a scratch buffer opens Save-As prompt; typing a path + Enter saves it" {
+  let tmp_path = "/tmp/hedit_test_m9_save_as.txt"
+  let path_events = map(chars(tmp_path), (c) => KeyEvent(KChar(c)))
+  let events = [
+    KeyEvent(KChar('h')),
+    KeyEvent(KChar('i')),
+    KeyEvent(KShortcut(Ctrl, 's')) // opens SaveAsPrompt("")
+  ] + path_events + [
+    KeyEvent(KSpecial(Enter)), // submits — writes the file
+    KeyEvent(KShortcut(Ctrl, 'q'))
+  ]
+  let final: EditorState = handle Terminal {
+    poll_event() => match ev {
+      []          => KeyEvent(KShortcut(Ctrl, 'q')),
+      [e, ..rest] => { ev = rest; e }
+    },
+    render_frame(_buf)   => (),
+    get_dimensions()     => (80, 24),
+    set_cursor_style(_s) => ()
+  } with var ev = events in {
+    event_loop(init_editor(None))
+  }
+  assert(final.prompt == NoPrompt)
+  assert(final.buffer.path == Some(tmp_path))
+  assert(final.buffer.is_dirty == false)
+  assert(final.status_message == Some("Saved"))
+  let content = read_file(tmp_path)
+  assert(content == Ok("hi\n"))
+}
+
+// Esc cancels a Save-As prompt without ever touching the filesystem;
+// the typed text is discarded.
+test "Esc cancels a Save-As prompt without writing anything" {
+  let tmp_path = "/tmp/hedit_test_m9_save_as_cancel.txt"
+  let path_events = map(chars(tmp_path), (c) => KeyEvent(KChar(c)))
+  let events = [
+    KeyEvent(KShortcut(Ctrl, 's'))
+  ] + path_events + [
+    KeyEvent(KSpecial(Esc)),
+    KeyEvent(KShortcut(Ctrl, 'q'))
+  ]
+  let final: EditorState = handle Terminal {
+    poll_event() => match ev {
+      []          => KeyEvent(KShortcut(Ctrl, 'q')),
+      [e, ..rest] => { ev = rest; e }
+    },
+    render_frame(_buf)   => (),
+    get_dimensions()     => (80, 24),
+    set_cursor_style(_s) => ()
+  } with var ev = events in {
+    event_loop(init_editor(None))
+  }
+  assert(final.prompt == NoPrompt)
+  assert(final.buffer.path == None)
+  let content = read_file(tmp_path)
+  let was_written = match content { Ok(_) => true, Err(_) => false }
+  assert(!was_written)
+}
+
+// Ctrl-e opens an Open prompt; typing an existing path and Enter loads
+// its real content into a new buffer, backgrounding the current one —
+// same shape as Ctrl-o's NewBuffer.
+test "ctrl-e opens an Open prompt; typing a path + Enter loads a new buffer" {
+  let src_path = "/tmp/hedit_test_m9_open_src.txt"
+  let write_result = write_file(src_path, "line1\nline2\n")
+  assert(write_result == Ok(()))
+  let path_events = map(chars(src_path), (c) => KeyEvent(KChar(c)))
+  let events = [
+    KeyEvent(KChar('a')), // original scratch buffer has content
+    KeyEvent(KShortcut(Ctrl, 'e'))       // opens OpenPrompt("")
+  ] + path_events + [
+    KeyEvent(KSpecial(Enter)), // submits — loads the file
+    KeyEvent(KShortcut(Ctrl, 'q'))
+  ]
+  let final: EditorState = handle Terminal {
+    poll_event() => match ev {
+      []          => KeyEvent(KShortcut(Ctrl, 'q')),
+      [e, ..rest] => { ev = rest; e }
+    },
+    render_frame(_buf)   => (),
+    get_dimensions()     => (80, 24),
+    set_cursor_style(_s) => ()
+  } with var ev = events in {
+    event_loop(init_editor(None))
+  }
+  assert(final.prompt == NoPrompt)
+  assert(final.buffer.path == Some(src_path))
+  assert(final.buffer.lines == ["line1", "line2"])
+  assert(length(final.background_buffers) == 1)
+  let bg_lines = map(final.background_buffers, buf_lines)
+  assert(bg_lines == [["a"]])
 }

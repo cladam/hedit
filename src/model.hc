@@ -68,6 +68,11 @@ pub type Action {
   NextBuffer,
   PrevBuffer,
   CloseBuffer,
+  OpenFile,
+  PromptChar(c: char),
+  PromptBackspace,
+  PromptSubmit,
+  PromptCancel,
   Ignore
 }
 
@@ -102,7 +107,8 @@ pub fun default_bindings() : list<(KeyChord, Action)> =>
     (KeyChord { m: Ctrl, c: 'o' }, NewBuffer),
     (KeyChord { m: Ctrl, c: 'n' }, NextBuffer),
     (KeyChord { m: Ctrl, c: 'p' }, PrevBuffer),
-    (KeyChord { m: Ctrl, c: 'w' }, CloseBuffer)
+    (KeyChord { m: Ctrl, c: 'w' }, CloseBuffer),
+    (KeyChord { m: Ctrl, c: 'e' }, OpenFile)
   ]
 
 // Resolve a `KeyChord` against a bindings map. Unbound chords resolve to
@@ -182,7 +188,8 @@ pub struct EditorState {
   status_message: maybe<string>,
   screen_size: (int, int),
   should_quit: bool,
-  config: Config
+  config: Config,
+  prompt: Prompt
 }
 
 // The pixel-free "screen buffer" the Terminal handler flushes.
@@ -205,6 +212,17 @@ pub type CursorStyle {
   Block,
   Bar,
   Underscore
+}
+
+// A minimal single-line input widget (M9). `NoPrompt` is the normal-editing
+// state; `SaveAsPrompt`/`OpenPrompt` carry the text typed so far. Only one
+// prompt can be active at a time — `resolve_action` checks `state.prompt`
+// before falling back to the normal Insert/Enter/Backspace dispatch, so
+// prompt text entry and buffer editing never race.
+pub type Prompt {
+  NoPrompt,
+  SaveAsPrompt(text: string),
+  OpenPrompt(text: string)
 }
 
 // --- constructors ---------------------------------------------------------
@@ -279,7 +297,8 @@ pub fun init_editor_with_buffer(buf: TextBuffer, cfg: Config) : EditorState =>
     status_message: None,
     screen_size: (80, 24),
     should_quit: false,
-    config: cfg
+    config: cfg,
+    prompt: NoPrompt
   }
 
 // Split file content into lines, dropping one trailing newline artifact
