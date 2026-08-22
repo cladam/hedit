@@ -173,9 +173,59 @@ rest as a rotation ring (see `docs/hedit-design.md` §10 for the shape).
   round-trip cleanly through common editors.
 - Buffers with no path (a "scratch" buffer opened via `init_editor(None)`)
   set status `"No file — save not possible"` rather than throwing.
+- A session started with `--readonly`/`-R` (M8) sets status
+  `"Read-only — not saved"` and never touches the filesystem — checked
+  before the no-path case, so it applies even to a scratch buffer.
 - On success: `is_dirty` clears, status becomes `"Saved"`.
 - On I/O error: status becomes `"Save failed: <message>"`; the buffer is
   left dirty.
+
+---
+
+## Command-line usage (M8)
+
+```
+$ hedit --help
+hedit 0.2.0 — a terminal text editor in hica
+
+USAGE: hedit [OPTIONS] [file]
+
+OPTIONS:
+    --no-config         skip loading the user's init.hl entirely
+  -R, --readonly        open the file in read-only mode (Save is disabled)
+  -c, --config VALUE    load config from this path instead of the default search
+    --tabsize VALUE     override the tabsize config value
+  -h, --help            Show this help
+      --version         Show version
+
+ARGS:
+  <file>                file to open
+```
+
+- **`hedit [file]`** — the only positional; a missing/unreadable path
+  falls back to an empty scratch buffer with a status message (M6),
+  never a crash.
+- **`--config <path>` / `-c`** — bypasses the normal
+  `$XDG_CONFIG_HOME`/`$HOME` search (`config_loader.hc::candidate_paths`)
+  and loads exactly this file. A missing/unreadable explicit path is a
+  status message (`"Could not open …"`), not a silent fallback — you
+  asked for this file by name.
+- **`--no-config`** — skips loading `init.hl` entirely (useful for
+  reproducing a bug without a user's config in the loop). Wins over
+  `--config` if both are given.
+- **`--tabsize <n>`** — applied to `Config.values` *after* `init.hl`
+  has loaded, so it always overrides a `(set "tabsize" …)` in the
+  config file — CLI flags win, matching `micro`'s session-override
+  precedence.
+- **`--readonly` / `-R`** — gates `Save` (see above); nothing else about
+  the session changes (you can still edit in-memory, just not write).
+- **`+LINE[:COL]`** — a special positional (not a `std/cli`
+  flag/option — matches `micro`'s own syntax), order-independent
+  relative to `[file]`. 1-indexed on the command line, converted to
+  hedit's internal 0-indexed `Position` and clamped into the opened
+  buffer's actual bounds (`model.hc::clamp_position`) — an
+  out-of-range line/column never crashes, it just lands on the nearest
+  valid spot.
 
 ---
 

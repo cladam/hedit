@@ -48,8 +48,8 @@ Inherited (and lightly adapted) from the named-effects journal:
    - `hica analyse <file>` → clean report, no warnings/penalties beyond
      any sanctioned ones we've explicitly noted here.
 5. **Clean the workspace.** `hica clean` will remove all generated .kk 
-   files and binaries, use `hica clean --cashe` to remove ~/.hica/stdlib.
-   `hica clean --full` will also remove the .koka directory, the build cashe and it will be needed as the std/cli .kki files will get out of sync. 
+   files and binaries, use `hica clean --cache` to remove ~/.hica/stdlib.
+   `hica clean --full` will also remove the .koka directory, the build cache and it will be needed as the std/cli .kki files will get out of sync. 
 6. **Reflection is mandatory.** Before starting Mn+1 we write a
    Reflection section for Mn. If we skip it, we lose the pattern.
 7. **Context-window discipline.** hica compiler internals are large — do
@@ -132,8 +132,10 @@ Track their state here so we know what still needs backfilling.
 | **M6** | CLI arg parsing (`std/cli`) + wire `[FILE]` positional into a *real* `read_file` load — buffers stop being path-only stubs | (none — `<fsys>` only) |
 | **M7** | Native `Terminal` handler: raw-mode tty, real keyboard decode, real ANSI render — replaces the M1 stub. **This is the milestone that makes hedit usable by an end user.** | `Terminal` (real handler) |
 | **M8** | CLI polish for end users: `--config`/`--no-config`, `--tabsize`, `--readonly`, `+LINE:COL`; docs/README updated with a real quick-start | (none) |
+| **M9** | "Save As" / `OpenFile` prompt: a minimal single-line input widget so a scratch buffer (`path: None`) can be saved for the first time, and an existing file can be opened without restarting hedit | (none — reuses `Terminal`/`<fsys>`) |
+| **M10** | Usability polish: a discoverable help/keybindings overlay + a small theming system (configurable chrome colors via HiLisp `(set …)`) | (none — reuses `Terminal`) |
 
-M6-M8 are kept in this same journal (the M5 note above about opening a
+M6-M9 are kept in this same journal (the M5 note above about opening a
 new journal never happened in practice — M5.5 landed here too, so we
 keep one running journal rather than fragment the log).
 
@@ -2454,27 +2456,27 @@ end-user quick-start (not just "run the synthetic stub").
 
 ### Plan
 
-- [ ] **`src/cli_spec.hc`.** Add `flag("readonly", "R", …)`,
+- [x] **`src/cli_spec.hc`.** Add `flag("readonly", "R", …)`,
   `flag("no-config", "", …)`, `option("config", "c", …)`,
   `option("tabsize", "", …)`.
-- [ ] **`src/config_loader.hc`.** `load_user_config` grows an
+- [x] **`src/config_loader.hc`.** `load_user_config` grows an
   optional explicit-path parameter and a skip bool (or a small wrapper
   function so the existing signature/tests stay intact).
-- [ ] **`src/main.hc`.** Thread the new flags: build `cfg0` from
+- [x] **`src/main.hc`.** Thread the new flags: build `cfg0` from
   `default_config()`, conditionally skip/override the HiLisp load,
   then apply `--tabsize` as a post-load `Config.values` override
   before `init_editor_with_config`.
-- [ ] **`src/model.hc` / `src/actions.hc`.** `readonly: bool` on
+- [x] **`src/model.hc` / `src/actions.hc`.** `readonly: bool` on
   `Config` (or `EditorState`); `Save` action checks it first.
   `+LINE:COL` parsing feeds directly into `Cursor.pos` at buffer
   construction.
-- [ ] **Tests.** One test per new flag's plumbing in `cli_test.hc` +
+- [x] **Tests.** One test per new flag's plumbing in `cli_test.hc` +
   a `config_loader_test`/`actions_test` case each for the readonly
   gate, the tabsize override precedence, and `+LINE:COL` clamping
   (negative/out-of-bounds values don't crash).
-- [ ] **`hica fmt --check` + `hica analyse` 100/100** on every touched
+- [x] **`hica fmt --check` + `hica analyse` 100/100** on every touched
   file.
-- [ ] **Docs.** `docs/notes.md` gains a "Command-line usage" section
+- [x] **Docs.** `docs/notes.md` gains a "Command-line usage" section
   (paste real `hedit --help` output); README quick-start becomes
   `hedit path/to/file.txt`; this section's Log + Reflection.
 
@@ -2486,6 +2488,89 @@ end-user quick-start (not just "run the synthetic stub").
 - `docs/notes.md` and `README.md` describe a real end-user quick-start
   (install → `hedit somefile.txt` → edit → `Ctrl-s` → `Ctrl-q`) with no
   caveats about synthetic/stub behavior remaining.
+
+### Log
+
+- Went with a plain `readonly: bool` field on `Config` rather than
+  `EditorState` — every other CLI-derived setting already lives on
+  `Config`, and it meant `save_buffer`'s existing `state.config.…`
+  access pattern needed no new plumbing. Adding the field meant
+  updating all 3 `Config { … }` construction sites in the codebase
+  (`model.hc::default_config`, `hilisp_host.hc::config_from_env`,
+  `tests/actions_test.hc`) — a quick `grep` for `Config \{` up front
+  found all of them in one pass.
+- `load_user_config_opts` deliberately does *not* replace
+  `load_user_config` — it's a thin wrapper that dispatches to either
+  the existing (untouched, still independently tested) XDG/HOME
+  search or a new `load_config_from_path` helper, sharing the
+  Ok/Err→status-message shaping via an extracted `apply_config_src`
+  helper. Kept `load_user_config`'s own tests passing unmodified.
+- `+LINE:COL` parsing (`cli_spec.hc::parse_position_arg`) isn't part
+  of the `std/cli` spec at all — `std/cli` has no notion of a
+  `+`-prefixed positional, and trying to shoehorn it in as a regular
+  `arg()` would've meant `+42` and a real filename fighting over the
+  same `[file]` positional slot. Instead `extract_position_arg` pulls
+  the first `+…` token out of `get_args()` by hand *before*
+  `cli_parse_args` ever sees the rest — order-independent (`hedit +10
+  f.txt` and `hedit f.txt +10` both work), pure, and easy to unit-test
+  without touching `CliSpec` at all.
+- Hit the `hica analyse` "nested match on maybe/result" HIGH-severity
+  rule again on the first draft of `parse_line_col` (parsing
+  `LINE:COL`'s two `parse_int` calls as one nested match) — same fix
+  as every previous time (see repo memory / M6 note): extract the
+  inner match into its own single-match helper
+  (`with_parsed_line`). Back to 100/100 immediately.
+- Found a new Koka reserved-word collision: a test-local variable
+  named `exists` fails with a parse error ("unexpected exists") —
+  add to the running list alongside `val`/`raw`/`prefix`/`now`.
+  Renamed to `was_written`.
+- Verified all four flags end-to-end against the real `./hedit`
+  binary (not just the pure `cli_test.hc` plumbing tests), since
+  `std/cli` parsing being correct doesn't guarantee the CLI→Config→
+  EditorState wiring in `main.hc` is: `--readonly` + scripted
+  `Ctrl-s` bytes confirmed the target file was never created;
+  `+2 file.txt` + a scripted insert-then-save confirmed the char
+  landed on line 2 of the saved file; `--config <path>` and
+  `--config <path> --tabsize <n>` both surfaced the expected
+  `"Loaded config from …"` status text in the rendered frame;
+  `--no-config` confirmed no status text appears at all. Same
+  scripted-stdin-bytes technique as M7 (this tool can't send raw
+  control bytes to an interactive pty).
+- No stale-`cli.kki` cache corruption this session, but did the
+  precautionary `hica clean --cache && rm -rf .koka` before the first
+  build anyway per the recurring repo-memory note — worth doing
+  reflexively whenever a build touches `main.hc`/`cli_spec.hc`.
+
+### Reflection
+
+**What went well:**
+
+- Splitting `load_user_config_opts` out as a thin dispatcher over the
+  *existing* `load_user_config` (rather than growing its parameter
+  list) meant zero risk to already-green tests — the diff to
+  `config_loader.hc` is purely additive.
+- The `+LINE:COL` "not part of the CLI spec, hand-parsed out of argv
+  first" design avoided a whole class of `std/cli` positional-arity
+  conflicts and made the parsing itself trivially pure/testable in
+  isolation — no `CliResult` plumbing needed for it at all.
+- Smoke-testing all four flags against the compiled binary (not just
+  `cli_test.hc`'s pure parsing tests) caught the class of bug that
+  parsing-only tests structurally can't: whether `main.hc` actually
+  *does* anything with the parsed value. Worth keeping as a standard
+  last step for any CLI-surfaced milestone, not just this one.
+
+**What to carry forward:**
+
+- The "extract to a helper to satisfy `hica analyse`'s nested-match
+  rule" fix is now common enough (M6, M7 revisit, M8) that it's
+  basically reflexive — reach for it on sight rather than debugging
+  the rule each time.
+- New reserved word discovered this session: `exists`. Keep growing
+  this list (`val`, `raw`, `prefix`, `now`, `exists` so far) — it's
+  cheap insurance against a confusing "unexpected X" parse error deep
+  in a generated `.kk` file.
+
+**Ready for M9** — "Save As" / `OpenFile` prompt is next.
 
 ---
 
@@ -2509,5 +2594,174 @@ hica test tests/runtime_test.hc      # created in M1
 # Formatting + linting (must pass on any file we touch)
 hica fmt --check src/runtime.hc
 hica analyse src/runtime.hc
+
+# Cleanup
+hica clean          # Remove .kk files and binaries in src folder
+hica clean --cache  # remove ~/.hica/stdlib.
+hica clean --full.  # Remove generated files, ~/.hica/stdlib. and the .koka directory
 ```
+
+---
+
+## Milestone M9 — "Save As" / `OpenFile` prompt
+
+### Goal
+
+Today `Ctrl-s` on a scratch buffer (`buffer.path == None` — the
+default when hedit is started with no `[FILE]` argument, or via
+`Ctrl-o`'s `NewBuffer`) just sets the status message to `"No file —
+save not possible"` (see `docs/notes.md`'s Save semantics section)
+and there is no way to open an existing file once hedit is already
+running (`OpenFile(path)` has been a called-out non-goal since M5.5).
+Both gaps have the same root cause: hedit has no way to ask the user
+for a filename mid-session. This milestone adds the smallest widget
+that closes both gaps — a single-line text-input prompt — without
+growing into a full command palette.
+
+**Scope:**
+
+- A minimal `Prompt` state on `EditorState` (e.g.
+  `pub type Prompt { NoPrompt, SaveAsPrompt(text: string), OpenPrompt(text: string) }`)
+  and a small set of new `Action`s (`PromptChar(c)`, `PromptBackspace`,
+  `PromptSubmit`, `PromptCancel`) that only apply while a prompt is
+  active — `resolve_action` checks `state.prompt` before falling back
+  to the normal Insert/Enter/Backspace dispatch.
+- `Ctrl-s` on a pathless buffer opens `SaveAsPrompt("")` instead of
+  the "not possible" status message; `Enter` submits and writes the
+  file (`<fsys>`, same `write_file` path `save_buffer` already uses),
+  setting `buffer.path = Some(entered_path)` on success.
+- A new chord (not yet bound in `default_bindings` — pick one that
+  doesn't collide, e.g. `Ctrl-e`) opens `OpenPrompt("")`; `Enter`
+  loads the path via the existing `load_buffer` (M6) into a *new*
+  buffer, backgrounding the current one (same shape as `NewBuffer`).
+- `Esc` cancels either prompt, discarding the typed text and
+  returning to normal editing with no state change.
+- `render_editor_to_buffer` draws the prompt (e.g. `"Save as: " +
+  text`) on the status row while active, replacing the normal
+  path/dirty or status-message line.
+- **Non-goals:** filename tab-completion, directory browsing/listing,
+  overwrite confirmation on an existing path — plain text entry only,
+  matching the "smallest widget that closes the gap" framing above.
+
+### Plan
+
+- [ ] **`src/model.hc`.** Add the `Prompt` type + `prompt: Prompt`
+  field on `EditorState`; add `PromptChar`/`PromptBackspace`/
+  `PromptSubmit`/`PromptCancel` to `Action`.
+- [ ] **`src/actions.hc`.** `resolve_action` branches on
+  `state.prompt` first (prompt active → route every `KeyEvent` to the
+  four prompt actions; otherwise unchanged). Pure prompt-text editing
+  helpers (append/backspace on `Prompt`'s `text` field) live here,
+  mirroring `insert_char`/`delete_backward`'s shape.
+- [ ] **`src/runtime.hc`.** `event_loop_step` handles `PromptSubmit`
+  for `SaveAsPrompt`/`OpenPrompt` inline (needs `<fsys>`, same as
+  `save_buffer`); `PromptCancel` just clears `state.prompt` via
+  `apply_action`.
+- [ ] **`src/render.hc`.** Prompt row rendering on the status line.
+- [ ] **`src/model.hc`.** Bind a new chord for `OpenPrompt` in
+  `default_bindings` (rebindable via HiLisp `(bind …)` like every
+  other chord).
+- [ ] **Tests.** `actions_test.hc` for prompt state transitions
+  (char/backspace/cancel) and the `resolve_action` routing gate;
+  `runtime_test.hc` for the end-to-end `Ctrl-s` → type a name → Enter
+  → file written, and `OpenPrompt` → type a path → Enter → new buffer
+  with real content, using the scripted `Terminal` handler.
+- [ ] **`hica fmt --check` + `hica analyse` 100/100** on every touched
+  file.
+- [ ] **Docs.** `docs/notes.md` Save semantics section updated (no
+  more "not possible" dead end); this section's Log + Reflection.
+
+### Exit criteria
+
+- Starting `hedit` with no file, typing content, `Ctrl-s`, entering a
+  filename, and `Ctrl-q` leaves that content saved on disk under the
+  entered name — closing the exact gap this milestone was scoped for.
+- Opening a second, different existing file from inside a running
+  hedit session works without restarting the process.
+- All pre-existing automated suites stay green; new prompt-specific
+  tests are added alongside them.
+
+---
+
+## Milestone M10 — Usability polish: help overlay + theming
+
+### Goal
+
+Everything through M7 makes hedit *functional*; nothing so far makes
+it *discoverable* or *pleasant to look at*. A first-time user has no
+in-editor way to learn the keybindings (they'd have to read
+`docs/notes.md`), and the whole UI renders in the terminal's default
+foreground/background — no visual distinction between the tabline,
+status line, and content. This milestone closes both gaps with the
+smallest reasonable widgets: a static help overlay and a small
+configurable color theme for hedit's own chrome (tabline/status
+line/cursor line) — **not** a syntax-highlighting engine, which is a
+much bigger, separate feature.
+
+**Scope:**
+
+- **Help overlay.** A chord (e.g. `Ctrl-g`, or `F1` if `term_ffi`'s
+  key decode grows function-key support) toggles a full-screen
+  overlay listing every chord in `state.config.bindings` next to its
+  action name — generated from the live bindings table, not a
+  hardcoded string, so a user's HiLisp `(bind …)` remaps show up
+  correctly. Any key closes the overlay and returns to the buffer
+  underneath unchanged.
+- **Theming.** A `Theme` struct (tabline fg/bg, status-line fg/bg,
+  active-tab fg/bg, cursor-line bg) with a built-in default, applied
+  in `render_native` (`main.hc`) via `std/term`'s existing
+  `term_ansi`/`term_rgb` helpers when building the frame string.
+  Configurable from HiLisp via `(set "theme.status-fg" "...")`-style
+  keys read through the existing `Config.values` alist — no new
+  config-loading machinery, just new well-known keys.
+- One or two built-in named presets (e.g. `"default"`, `"ilseon"` —
+  reusing the palette already defined in `std/term`) selectable via
+  `(set "theme" "ilseon")`, resolved to concrete colors before
+  `render_native` needs them.
+- **Non-goals:** per-token syntax highlighting (needs a lexer per
+  filetype — a separate, much larger milestone), a live theme editor/
+  picker UI, true-color detection/fallback (assume the terminal
+  supports what the user's theme requests, same trust level as
+  `std/term`'s existing `term_rgb`).
+
+### Plan
+
+- [ ] **`src/model.hc`.** Add `Theme` struct + `default_theme()`;
+  add `HelpOverlay` to a small UI-mode enum on `EditorState` (or a
+  bare `bool show_help`, whichever stays simpler); add a `ToggleHelp`
+  `Action`.
+- [ ] **`src/actions.hc`.** `resolve_action`/`apply_action` wiring for
+  `ToggleHelp`; while help is showing, route every other key back to
+  `ToggleHelp`-off ("any key closes it") ahead of normal dispatch,
+  same pattern M9's prompt-mode gate would use.
+- [ ] **`src/render.hc`.** `render_help_buffer(state) : ScreenBuffer`
+  — one row per binding, generated from `state.config.bindings` +
+  the existing `action_to_string`/`chord_to_str` naming helpers in
+  `hilisp_host.hc` (may need to make those `pub` if reused across
+  modules). `render_editor_to_buffer` gains theme-aware coloring for
+  the tabline/status rows.
+- [ ] **`src/main.hc`.** `render_native` applies the active `Theme`'s
+  ANSI codes when emitting the tabline/status rows.
+- [ ] **`src/config_loader.hc` / `src/hilisp_host.hc`.** Recognise
+  `theme.*` and `theme` keys from `(set …)`, resolving named presets
+  to a concrete `Theme` after `init.hl` loads.
+- [ ] **Tests.** `render_test.hc` cases for help-overlay content
+  (reflects custom bindings, not just defaults) and theme color
+  codes appearing in the rendered tabline/status rows;
+  `hilisp_host_test.hc` cases for `(set "theme" …)` resolution.
+- [ ] **`hica fmt --check` + `hica analyse` 100/100** on every touched
+  file.
+- [ ] **Docs.** `docs/notes.md` gains "Help overlay" and "Theming"
+  sections; this section's Log + Reflection.
+
+### Exit criteria
+
+- A new user can press the help chord, see every currently-bound
+  chord (including any custom `(bind …)` from their `init.hl`), and
+  return to editing without losing buffer state.
+- `(set "theme" "ilseon")` in `init.hl` visibly recolors the
+  tabline/status line on the next render, with no crash on an unknown
+  theme name (falls back to the default theme with a status message).
+- All pre-existing automated suites stay green; new help/theme tests
+  are added alongside them.
 

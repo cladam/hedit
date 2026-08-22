@@ -119,13 +119,17 @@ pub fun lookup_binding(kb: list<(KeyChord, Action)>, chord: KeyChord) : Action =
 // and values round-trip through the HiLisp bridge without an extra ADT.
 // Booleans/ints are stringified at the boundary; helpers below decode
 // them back on the hedit side.
+// `readonly` (M8) gates the `Save` action in `runtime.hc::save_buffer`
+// — it's a plain struct field rather than a `values` entry because
+// it's only ever set from `--readonly` on the CLI, never from HiLisp.
 pub struct Config {
   bindings: list<(KeyChord, Action)>,
-  values: list<(string, string)>
+  values: list<(string, string)>,
+  readonly: bool
 }
 
 pub fun default_config() : Config =>
-  Config { bindings: default_bindings(), values: [] }
+  Config { bindings: default_bindings(), values: [], readonly: false }
 
 // Look up a `(set key value)` value from the config, or `default` if
 // absent. Config values are stringly typed at the HiLisp boundary;
@@ -153,6 +157,12 @@ pub fun get_config_int(cfg: Config, key: string, default: int) : int =>
     Some(v) => parse_or(v, default),
     None    => default
   }
+
+// Set (or override) a single `(key, value)` entry — used by `--tabsize`
+// (main.hc, M8) to apply a CLI override after `init.hl` has already run,
+// matching micro's session-override precedence (CLI wins over config).
+pub fun set_config_value(cfg: Config, key: string, value: string) : Config =>
+  Config { ...cfg, values: map_set(cfg.values, key, value) }
 
 // ---------------------------------------------------------------------------
 // Editor state
@@ -207,6 +217,38 @@ pub fun new_buffer(bid: int, path: maybe<string>) : TextBuffer =>
     lines: [""],
     cursors: [Cursor { cid: 0, pos: Position { line: 0, col: 0 } }],
     is_dirty: false
+  }
+
+// `line`-th element of `lines`, or `""` past the end. Small recursive
+// helper local to this file (actions.hc has its own `list_get` — not
+// exported, so we don't share it).
+fun nth_line(lines: list<string>, idx: int) : string =>
+  match lines {
+    []          => "",
+    [x, ..rest] => if idx <= 0 { x } else { nth_line(rest, idx - 1) }
+  }
+
+// Clamp a `+LINE:COL`-derived `Position` into a buffer's actual bounds
+// so an out-of-range startup position (negative, or past EOF) can
+// never crash — it just lands on the nearest valid line/column.
+pub fun clamp_position(lines: list<string>, pos: Position) : Position {
+  let line     = max(min(pos.line, max(length(lines) - 1, 0)), 0)
+  let line_len = length(nth_line(lines, line))
+  let col      = max(min(pos.col, line_len), 0)
+  Position { line: line, col: col }
+}
+
+// Apply an optional `+LINE:COL` startup position (already clamped) to
+// every cursor on a freshly loaded buffer. `None` (no `+…` argument
+// given) leaves the buffer untouched.
+pub fun set_initial_position(buf: TextBuffer, pos: maybe<Position>) : TextBuffer =>
+  match pos {
+    None => buf,
+    Some(p) => {
+      let clamped     = clamp_position(buf.lines, p)
+      let new_cursors = map(buf.cursors, (c) => Cursor { ...c, pos: clamped })
+      TextBuffer { ...buf, cursors: new_cursors }
+    }
   }
 
 // Initial editor state. `path` is optional — `None` means an unnamed scratch

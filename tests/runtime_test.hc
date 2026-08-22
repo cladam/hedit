@@ -139,6 +139,37 @@ test "ctrl-s on a named buffer writes content to disk" {
   assert(content == Ok("hi\n"))
 }
 
+// ------------------- M8: --readonly gates Save --------------------------
+
+test "ctrl-s on a readonly buffer does not write and sets a status message" {
+  let tmp_path = "/tmp/hedit_test_m8_readonly_save.txt"
+  let ro_cfg = Config { ...default_config(), readonly: true }
+  let s0 = init_editor_with_config(Some(tmp_path), ro_cfg)
+  let final = handle Terminal {
+    poll_event() => match events {
+      []          => KeyEvent(KShortcut(Ctrl, 'q')),
+      [e, ..rest] => { events = rest; e }
+    },
+    render_frame(_buf)   => (),
+    get_dimensions()     => (80, 24),
+    set_cursor_style(_s) => ()
+  } with var events = [
+    KeyEvent(KChar('h')),
+    KeyEvent(KShortcut(Ctrl, 's')),
+    KeyEvent(KShortcut(Ctrl, 'q'))
+  ] in {
+    event_loop(s0)
+  }
+  assert(final.status_message == Some("Read-only — not saved"))
+  // The file must never have been created/written.
+  let content = read_file(tmp_path)
+  let was_written = match content {
+    Ok(_)  => true,
+    Err(_) => false
+  }
+  assert(!was_written)
+}
+
 // ------------------- Clipboard integration tests (M3) ------------------
 //
 // Nested Terminal+Clipboard handlers around `event_loop`. Previously

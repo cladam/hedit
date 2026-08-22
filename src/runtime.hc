@@ -85,13 +85,19 @@ fun apply_write_result(state: EditorState, result: result<(), string>) {
 // Write buffer content to disk. Called from event_loop for the `Save`
 // action. Files are joined with "\n" and get a trailing newline (POSIX
 // convention — `wc -l`, `git diff`, etc. all expect it).
+// `--readonly` (M8) gates this before touching the filesystem at all.
 // Return-type annotation omitted: carries <fsys> (Koka rejects pure annotation).
 fun save_buffer(state: EditorState) {
-  match state.buffer.path {
-    None    => set_status_message(state, "No file — save not possible"),
-    Some(p) => {
-      let body = join(state.buffer.lines, "\n") + "\n"
-      apply_write_result(state, write_file(p, body))
+  if state.config.readonly {
+    set_status_message(state, "Read-only — not saved")
+  }
+  else {
+    match state.buffer.path {
+      None    => set_status_message(state, "No file — save not possible"),
+      Some(p) => {
+        let body = join(state.buffer.lines, "\n") + "\n"
+        apply_write_result(state, write_file(p, body))
+      }
     }
   }
 }

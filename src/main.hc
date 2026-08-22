@@ -28,6 +28,12 @@
 //     itself is toggled via `stty` through hica's built-in `exec`
 //     (no termios FFI needed) — the same approach hica-ecosystem's
 //     `programs/myeon` reference program uses for the same problem.
+// M8: CLI polish — `--config`/`--no-config` (config_loader.hc's
+//     load_user_config_opts), `--tabsize` (a post-load Config.values
+//     override, CLI wins over init.hl), `--readonly` (gates Save in
+//     runtime.hc), and `+LINE:COL` (a hand-parsed positional, stripped
+//     out of argv before `cli_parse_args` ever sees it — `std/cli` has
+//     no concept of a `+`-prefixed arg).
 
 import "keys"
 import "model"
@@ -85,9 +91,30 @@ fun render_native(buf: ScreenBuffer) {
   flush_stdout()
 }
 
-fun run_editor(r: CliResult) {
-  let (cfg, cfg_status) = load_user_config(default_config())
-  let (loaded_buf, load_status) = load_buffer(0, get_positional(r, 0))
+// `--tabsize <n>` (M8): applied to Config.values *after* init.hl has
+// loaded, so it always wins over a config-file setting.
+fun apply_tabsize_override(cfg: Config, tabsize: maybe<string>) : Config =>
+  match tabsize {
+    None    => cfg,
+    Some(v) => set_config_value(cfg, "tabsize", v)
+  }
+
+// `--readonly` (M8): can only turn the flag on (there's no "un-readonly"
+// CLI flag — omit it and the default `false` stands).
+fun apply_readonly_override(cfg: Config, ro: bool) : Config =>
+  if ro { Config { ...cfg, readonly: true } } else { cfg }
+
+fun run_editor(r: CliResult, pos_arg: maybe<string>) {
+  let cfg0             = default_config()
+  let (cfg1, cfg_status) = load_user_config_opts(cfg0, get_opt(r, "config"), has_flag(r, "no-config"))
+  let cfg2             = apply_tabsize_override(cfg1, get_opt(r, "tabsize"))
+  let cfg              = apply_readonly_override(cfg2, has_flag(r, "readonly"))
+  let (loaded_buf0, load_status) = load_buffer(0, get_positional(r, 0))
+  let start_pos        = match pos_arg {
+    None    => None,
+    Some(a) => parse_position_arg(a)
+  }
+  let loaded_buf = set_initial_position(loaded_buf0, start_pos)
   let s0 = init_editor_with_buffer(loaded_buf, cfg)
   let s1 = match combine_status(cfg_status, load_status) {
     None      => s0,
@@ -112,10 +139,11 @@ fun run_editor(r: CliResult) {
 
 fun main() {
   let spec = make_spec()
-  match cli_parse(spec) {
+  let (pos_arg, args) = extract_position_arg(get_args())
+  match cli_parse_args(spec, args) {
     Help          => println(cli_help(spec)),
     Version       => println(cli_version_str(spec)),
     CliError(msg) => eprintln("error: {msg}"),
-    Parsed(r)     => run_editor(r)
+    Parsed(r)     => run_editor(r, pos_arg)
   }
 }

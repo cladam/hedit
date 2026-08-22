@@ -77,14 +77,31 @@ git submodule update --remote lib/hilisp
 ## Usage
 
 ```sh
-hica build          # compile to ./hedit
-./hedit             # open an empty scratch buffer
+hica build            # compile to ./hedit
+./hedit               # open an empty scratch buffer
 ./hedit somefile.txt  # open a real file
 ```
 
 Default keybindings (overridable from `init.hl` — see above):
 Ctrl-s save, Ctrl-c/Ctrl-v copy/paste, Ctrl-z/Ctrl-y undo/redo,
 Ctrl-o/n/p/w new/next/prev/close buffer, Ctrl-q quit.
+
+### Command-line flags (M8)
+
+```sh
+./hedit somefile.txt              # open a file
+./hedit +42 somefile.txt          # open at line 42
+./hedit +42:8 somefile.txt        # open at line 42, column 8
+./hedit --readonly somefile.txt   # open read-only (Ctrl-s is a no-op)
+./hedit --tabsize 2 somefile.txt  # override tabsize for this session
+./hedit --config ~/my-init.hl somefile.txt  # load a specific init.hl
+./hedit --no-config somefile.txt  # skip init.hl entirely
+./hedit --help                    # full flag reference
+```
+
+CLI flags always win over `init.hl` — e.g. `--tabsize` overrides a
+`(set "tabsize" …)` in the loaded config, matching `micro`'s
+session-override precedence.
 
 ```sh
 hica fmt     # format according to hica style guide
@@ -170,8 +187,28 @@ hica clean   # remove generated files
       quit with the terminal left in a sane state. **86/86 tests
       green**: 29 actions + 6 render + 11 runtime + 22 hilisp_host + 4
       spawn + 4 cli + 4 model + 6 keys.
+- ✅ **M8** — CLI polish for end users. `--config <path>`/`--no-config`
+      (`src/config_loader.hc::load_user_config_opts`) override/skip
+      `init.hl` discovery; `--tabsize <n>` overrides `Config.values`
+      after `init.hl` loads (CLI wins, matching `micro`'s
+      session-override precedence); `--readonly`/`-R` gates `Save` in
+      `runtime.hc::save_buffer` with a status message instead of
+      writing; `+LINE[:COL]` is hand-parsed out of argv (`std/cli` has
+      no concept of a `+`-prefixed positional) and clamped into the
+      opened buffer's bounds before the first render. **115/115 tests
+      green**: 35 actions + 6 render + 12 runtime + 22 hilisp_host + 4
+      spawn + 19 cli + 13 model + 4 config_loader.
 - ⏳ Real OS clipboard handler (pbcopy / wl-copy / xclip) — not yet
       started
+- ⏳ **M9 (planned)** — "Save As" / `OpenFile` prompt: a minimal
+      single-line input widget so a scratch buffer can be saved for
+      the first time, and an existing file opened without restarting
+      hedit. See `docs/effects-journal.md`'s Milestone M9 section.
+- ⏳ **M10 (planned)** — Usability polish: a discoverable help/
+      keybindings overlay and a small configurable theming system for
+      hedit's own chrome (tabline/status line/cursor line — not
+      syntax highlighting). See `docs/effects-journal.md`'s Milestone
+      M10 section.
 
 
 

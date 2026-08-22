@@ -10,6 +10,12 @@
 // a status of `None` — running with no init.hl is a supported, silent
 // mode of operation.
 //
+// M8 adds two CLI-driven overrides of this search, both routed through
+// `load_user_config_opts`: `--config <path>` loads exactly that file
+// (bypassing the search above) and `--no-config` skips loading
+// entirely. `load_user_config` itself (the plain XDG/HOME search) is
+// unchanged so it stays usable/testable on its own.
+//
 // This module is deliberately thin. All the interesting work
 // (mutating a hedit-side `Config` from user-supplied HiLisp) lives in
 // `src/hilisp_host.hc::load_config`. This file just decides *which*
@@ -75,19 +81,48 @@ pub fun read_first(paths: list<string>) : (string, maybe<string>) =>
 // `EditorState.status_message` so the first render tick surfaces
 // exactly one line of feedback about the config load — mirroring how
 // vim/emacs behave on `.vimrc` / `init.el` errors.
+// Shared by both the XDG/HOME search below and `--config`'s explicit
+// path: evaluate `src` (already read from `p`) and shape the status
+// message the same way in both cases.
+fun apply_config_src(cfg0:Config, src: string, p: string) : (Config, maybe<string>) {
+  let (cfg, err) = load_config(src, cfg0)
+  match err {
+    None      => (cfg, Some("Loaded config from " + p)),
+    Some(msg) => (cfg, Some("Config error (" + p + "): " + msg))
+  }
+}
+
 pub fun load_user_config(cfg0:Config) : (Config, maybe<string>) {
   let xdg    = get_env("XDG_CONFIG_HOME")
   let home   = get_env("HOME")
   let paths  = candidate_paths(xdg, home)
   let (src, path) = read_first(paths)
   match path {
-    None => (cfg0, None),
-    Some(p) => {
-      let (cfg, err) = load_config(src, cfg0)
-      match err {
-        None      => (cfg, Some("Loaded config from " + p)),
-        Some(msg) => (cfg, Some("Config error (" + p + "): " + msg))
-      }
+    None    => (cfg0, None),
+    Some(p) => apply_config_src(cfg0, src, p)
+  }
+}
+
+// `--config <path>` variant: load exactly that file instead of walking
+// `candidate_paths`. A missing/unreadable explicit path is a status
+// message, not a silent fallback — the user asked for this file by
+// name, so staying quiet about a typo would be surprising.
+pub fun load_config_from_path(cfg0:Config, p: string) : (Config, maybe<string>) =>
+  match read_file(p) {
+    Ok(content) => apply_config_src(cfg0, content, p),
+    Err(msg)    => (cfg0, Some("Could not open " + p + ": " + msg))
+  }
+
+// CLI-aware entry point used by `main.hc`: `--no-config` skips loading
+// entirely (status `None`, same as "no init.hl found"); `--config
+// <path>` loads exactly that file; absent both, falls back to the
+// normal XDG/HOME search.
+pub fun load_user_config_opts(cfg0:Config, explicit_path: maybe<string>, skip: bool) : (Config, maybe<string>) {
+  if skip { (cfg0, None) }
+  else {
+    match explicit_path {
+      Some(p) => load_config_from_path(cfg0, p),
+      None    => load_user_config(cfg0)
     }
   }
 }

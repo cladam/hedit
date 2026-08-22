@@ -214,7 +214,7 @@ pub fun config_from_env(env: Env, fallback: Config) : Config {
     LHash(entries) => entries_to_values(entries),
     _              => fallback.values
   }
-  Config { bindings: kb, values: vs }
+  Config { bindings: kb, values: vs, readonly: fallback.readonly }
 }
 
 fun entries_to_bindings(entries: list<(string, LVal)>) : list<(KeyChord, Action)> =>
