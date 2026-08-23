@@ -1,138 +1,165 @@
 # Default Keys
 
-Below are simple charts of the default hotkeys and their functions. 
+Below are the hotkeys hedit actually binds today, sourced from
+`src/model.hc::default_bindings()` and `src/actions.hc`'s fixed
+(non-rebindable) key handling — not aspirational. This list is also
+generated live inside the editor: press `Ctrl-g` to open the
+keybindings overlay, which renders straight from `state.config.bindings`
+so it never drifts out of sync with what's actually installed.
 
-Please remember that *all* keys here are rebindable using init.hl.
+All chords below except arrows/Enter/Backspace/Esc are rebindable from
+`init.hl` with `(bind "Ctrl-x" 'action-name)` — see
+[../examples/init.hl](../examples/init.hl) for every bindable action
+name and a commented-out copy of each default. `'ignore` is a valid
+target if you want to silence a default without replacing it.
 
-### Power user
+hedit is modelled after [micro](https://github.com/micro-editor/micro)'s
+"everything is a rebindable named action" philosophy (see
+[micro-defaultkeys.md](micro-defaultkeys.md) for micro's own chart), but
+today only implements a small, deliberately narrow subset — see
+[What's not there yet](#whats-not-there-yet) below.
 
-| Key       | Description of function                                                                           |
-|---------- |-------------------------------------------------------------------------------------------------- |
-| Ctrl-e    | Open a command prompt for running commands (see `> help commands` for a list of valid commands).  |
-| Tab       | In command prompt, it will autocomplete if possible.                                              |
-| Ctrl-b    | Run a shell command (this will close micro while your command executes).                          |
+### File operations
 
-### Navigation
+| Key     | Action        | Description                                                                                     |
+|-------- |-------------- |------------------------------------------------------------------------------------------------ |
+| Ctrl-s  | `save`        | Save the current buffer. If it has no path yet (a new/scratch buffer), opens the Save-As prompt. |
+| Ctrl-e  | `open-file`   | Open the "open file" prompt (type a path, Enter to load it into a new buffer).                   |
+| Ctrl-q  | `quit`        | Quit hedit.                                                                                       |
 
-| Key                         | Description of function                                                                   |
-|---------------------------- |------------------------------------------------------------------------------------------ |
-| Arrows                      | Move the cursor around                                                                    |
-| Shift-arrows                | Move and select text                                                                      |
-| Alt(Ctrl on Mac)-LeftArrow  | Move to the beginning of the current line                                                 |
-| Alt(Ctrl on Mac)-RightArrow | Move to the end of the current line                                                       |
-| Home                        | Move to the beginning of text on the current line                                         |
-| End                         | Move to the end of the current line                                                       |
-| Ctrl(Alt on Mac)-LeftArrow  | Move cursor one word left                                                                 |
-| Ctrl(Alt on Mac)-RightArrow | Move cursor one word right                                                                |
-| Alt-{                       | Move cursor to previous empty line, or beginning of document                              |
-| Alt-}                       | Move cursor to next empty line, or end of document                                        |
-| PageUp                      | Move cursor up one page                                                                   |
-| PageDown                    | Move cursor down one page                                                                 |
-| Ctrl-Home or Ctrl-UpArrow   | Move cursor to start of document                                                          |
-| Ctrl-End or Ctrl-DownArrow  | Move cursor to end of document                                                            |
-| Ctrl-l                      | Jump to a line in the file (prompts with #)                                               |
-| Ctrl-w                      | Cycle between splits in the current tab (use `> vsplit` or `> hsplit` to create a split)  |
+### Buffers
 
-### Tabs
+hedit has no tabs in the GUI sense — open buffers form a ring; `next`/
+`prev` rotate it. There's no "close tab, keep others" gap: closing the
+last buffer is refused with a status message instead of exiting.
 
-| Key     | Description of function   |
-|-------- |-------------------------- |
-| Ctrl-t  | Open a new tab            |
-| Alt-,   | Previous tab              |
-| Alt-.   | Next tab                  |
+| Key     | Action         | Description                                                    |
+|-------- |--------------- |----------------------------------------------------------------|
+| Ctrl-o  | `new-buffer`   | Push the current buffer to the ring and open a fresh scratch buffer. |
+| Ctrl-n  | `next-buffer`  | Cycle to the next buffer in the ring.                          |
+| Ctrl-p  | `prev-buffer`  | Cycle to the previous buffer in the ring.                      |
+| Ctrl-w  | `close-buffer` | Close the active buffer, promoting the next one in the ring.   |
 
-### Find Operations
+### Clipboard & history
 
-| Key       | Description of function                   |
-|---------- |------------------------------------------ |
-| Ctrl-f    | Find (opens prompt)                       |
-| Ctrl-n    | Find next instance of current search      |
-| Ctrl-p    | Find previous instance of current search  |
+| Key     | Action   | Description                                  |
+|-------- |--------- |---------------------------------------------- |
+| Ctrl-c  | `copy`   | Copy the current line to the clipboard.       |
+| Ctrl-v  | `paste`  | Paste clipboard contents at the cursor.       |
+| Ctrl-z  | `undo`   | Undo the last edit.                           |
+| Ctrl-y  | `redo`   | Redo the last undone edit.                    |
 
-Note: `Ctrl-n` and `Ctrl-p` should be used from the main buffer, not from inside
-the search prompt. After `Ctrl-f`, press enter to complete the search and then
-you can use `Ctrl-n` and `Ctrl-p` to cycle through matches.
+### Navigation & editing (fixed, not user-remappable)
 
-### File Operations
+These have no `char` payload to key a rebinding on, so they're handled
+directly in `resolve_normal_action` rather than going through
+`state.config.bindings`.
 
-| Key       | Description of function                                           |
-|---------- |------------------------------------------------------------------ |
-| Ctrl-q    | Close current file (quits micro if this is the last file open)    |
-| Ctrl-o    | Open a file (prompts for filename)                                |
-| Ctrl-s    | Save current file                                                 |
-
-### Text operations
-
-| Key                                 | Description of function                   |
-|------------------------------------ |------------------------------------------ |
-| Ctrl(Alt on Mac)-Shift-RightArrow   | Select word right                         |
-| Ctrl(Alt on Mac)-Shift-LeftArrow    | Select word left                          |
-| Alt(Ctrl on Mac)-Shift-LeftArrow    | Select to start of current line           |
-| Alt(Ctrl on Mac)-Shift-RightArrow   | Select to end of current line             |
-| Shift-Home                          | Select to start of current line           |
-| Shift-End                           | Select to end of current line             |
-| Ctrl-Shift-UpArrow                  | Select to start of file                   |
-| Ctrl-Shift-DownArrow                | Select to end of file                     |
-| Ctrl-x                              | Cut selected text                         |
-| Ctrl-c                              | Copy selected text                        |
-| Ctrl-v                              | Paste                                     |
-| Ctrl-k                              | Cut current line                          |
-| Ctrl-d                              | Duplicate current line                    |
-| Ctrl-z                              | Undo                                      |
-| Ctrl-y                              | Redo                                      |
-| Alt-UpArrow                         | Move current line or selected lines up    |
-| Alt-DownArrow                       | Move current line or selected lines down  |
-| Alt-Backspace or Alt-Ctrl-h         | Delete word left                          |
-| Ctrl-a                              | Select all                                |
-| Tab                                 | Indent selected text                      |
-| Shift-Tab                           | Unindent selected text                    |
-
-### Macros
-
-| Key       | Description of function                                                           |
-|---------- |---------------------------------------------------------------------------------- |
-| Ctrl-u    | Toggle macro recording (press Ctrl-u to start recording and press again to stop)  |
-| Ctrl-j    | Run latest recorded macro                                                         |
-
-### Multiple cursors
-
-| Key               | Description of function                                                                       |
-|------------------ |---------------------------------------------------------------------------------------------- |
-| Alt-n             | Create new multiple cursor from selection (will select current word if no current selection)  |
-| Alt-Shift-Up      | Spawn a new cursor on the line above the current one                                          |
-| Alt-Shift-Down    | Spawn a new cursor on the line below the current one                                          |
-| Alt-p             | Remove latest multiple cursor                                                                 |
-| Alt-c             | Remove all multiple cursors (cancel)                                                          |
-| Alt-x             | Skip multiple cursor selection                                                                |
-| Alt-m             | Spawn a new cursor at the beginning of every line in the current selection                    |
-| Ctrl-MouseLeft    | Place a multiple cursor at any location                                                       |
+| Key         | Description                                             |
+|------------ |--------------------------------------------------------- |
+| Arrow keys  | Move the cursor up/down/left/right (wraps at line ends). |
+| Enter       | Split the line at the cursor.                             |
+| Backspace   | Delete the char before the cursor, or merge with the previous line at column 0. |
+| Any printable char | Insert at the cursor.                              |
 
 ### Other
 
-| Key       | Description of function                                                               |
-|---------- |-------------------------------------------------------------------------------------- |
-| Ctrl-g    | Open help file                                                                        |
-| Ctrl-h    | Backspace (old terminals do not support the backspace key and use Ctrl+H instead)     |
-| Ctrl-r    | Toggle the line number ruler                                                          |
+| Key     | Action        | Description                                                        |
+|-------- |-------------- |--------------------------------------------------------------------- |
+| Ctrl-g  | `toggle-help` | Open/close the keybindings overlay (any key closes it once it's up). |
 
-### Emacs style actions
+### Save-As / Open prompts
 
-| Key       | Description of function   |
-|---------- |-------------------------- |
-| Alt-f     | Next word                 |
-| Alt-b     | Previous word             |
-| Alt-a     | Move to start of line     |
-| Alt-e     | Move to end of line       |
+Active when `Ctrl-s` triggers a save on a pathless buffer, or after
+`Ctrl-e`. Not user-remappable (fixed like navigation above), and
+`Ctrl-q` still quits even mid-prompt.
 
-### Function keys.
+| Key       | Description                        |
+|---------- |------------------------------------ |
+| Any char  | Type into the path field.           |
+| Backspace | Delete the last typed char.         |
+| Enter     | Submit (save-as / open the path).   |
+| Esc       | Cancel, returning to the buffer.    |
 
-Warning! The function keys may not work in all terminals!
+---
 
-| Key   | Description of function   |
-|------ |-------------------------- |
-| F1    | Open help                 |
-| F2    | Save                      |
-| F3    | Find                      |
-| F4    | Quit                      |
-| F7    | Find                      |
-| F10   | Quit                      |
+## What's not there yet
+
+Compare this chart against [micro-defaultkeys.md](micro-defaultkeys.md)
+— everything below is a gap, not a design decision. Recording it here
+because it's the natural next milestone (a candidate "M11 — extended
+key input" in `docs/effects-journal.md`'s numbering) rather than a
+separate speculative document.
+
+- **No Alt/Meta/Shift-modified chords.** `Modifier` (`src/keys.hc`)
+  already has `Alt`, `Meta`, `Shift` variants, but nothing in
+  `term_ffi_inline.c` or `keys.hc::decode_key` produces them — only
+  `Ctrl-<letter>` is decoded (raw control-byte codes 1-26). `Alt-f`
+  (next word), `Shift-Home` (select to line start), etc. are all
+  unreachable today.
+- **No Home/End/PageUp/PageDown/Delete/F-keys.** `SpecialKey` only has
+  `Enter`, `Backspace`, `Tab`, `Esc`, and the four arrows. The C FFI's
+  escape-sequence decoder only recognizes plain `ESC [ A/B/C/D`; it
+  doesn't try `~`-terminated sequences (`ESC[5~` PageUp, `ESC[3~`
+  Delete, ...) or SS3 sequences (`ESC O P` = F1).
+  Tab (code 9) is decoded but currently unused by `resolve_normal_action`.
+- **No modifier-parameterised arrows** (`Ctrl-Right`, `Shift-Left`,
+  `Ctrl-Shift-Down`, ...). Terminals encode these as `ESC[1;<n>C`
+  where `<n>` is a modifier bitmask (2=Shift, 3=Alt, 4=Alt+Shift,
+  5=Ctrl, 6=Ctrl+Shift, 7=Ctrl+Alt, 8=Ctrl+Alt+Shift) — the FFI's
+  fixed 3-byte lookahead (`ESC [ X`) can't see the extra `;<n>`
+  parameter at all.
+- **No mouse.** `Event.MouseEvent` already exists as a variant, but
+  nothing enables mouse reporting mode or parses `ESC[M...`/SGR mouse
+  sequences — it's dead code waiting for a producer.
+- **No multi-cursor, macros, splits, or find/replace.** These aren't
+  input-decoding gaps — they're whole features `Action`/`EditorState`
+  don't model yet (no selection range, no macro recording state, no
+  pane tree, no search state).
+- **`KeyChord` only models one modifier + one char.** Even once the
+  decoder above exists, `KeyChord { m: Modifier, c: char }`
+  (`src/model.hc`) can't represent `Ctrl-Shift-Right` (two modifiers,
+  a special key, not a char) — the struct itself needs to grow before
+  a binding table entry could exist for it.
+
+### A sketch of the work, in order
+
+1. **Widen `SpecialKey`** (`src/keys.hc`) with `Home`, `End`,
+   `PageUp`, `PageDown`, `Delete`, `F1`..`F12`.
+2. **Teach the C FFI** (`term_ffi_inline.c`) to parse `~`-terminated
+   and SS3 escape sequences into new synthetic codes (following the
+   existing 1001-1004 arrow convention, e.g. 1005=Home, 1006=End, ...),
+   and to parse the `;<n>` modifier parameter on both arrow and `~`
+   sequences into a separate return value (or a packed code) rather
+   than throwing it away.
+3. **Detect bare Alt.** Most terminals send `Alt-x` as `ESC` followed
+   immediately by `x` (no `[`) — the FFI's existing "peek after ESC"
+   logic can special-case a non-`[` byte as an Alt-modified char
+   instead of falling through to plain `Esc`.
+4. **Generalize `KeyChord`** to carry a *set* of modifiers plus either
+   a `char` or a `SpecialKey` payload, e.g.
+   `KeyChord { mods: list<Modifier>, key: KeyPayload }` with
+   `KeyPayload = PChar(char) | PSpecial(SpecialKey)`. This is the
+   breaking change everything else hangs off — `default_bindings()`,
+   `lookup_binding`, and the HiLisp `parse_chord`/`chord_to_str` round
+   trip in `src/hilisp_host.hc` all need updating together, ideally
+   keeping today's `"Ctrl-s"` strings valid (single modifier + char is
+   just the one-element case of the new shape).
+5. **Extend the HiLisp chord grammar** so `.hl` files can spell
+   `"Alt-Left"`, `"Ctrl-Shift-Right"`, `"Alt-Backspace"` — parse on
+   `-`, treat all-but-the-last segment as modifiers, the last as either
+   a single char or a `SpecialKey` name.
+6. **Mouse** is a separate track: enable reporting (`ESC[?1000h` or
+   SGR `ESC[?1006h`) once on startup/raw-mode-enter, parse the report
+   sequences in the FFI or `keys.hc`, and populate the already-defined
+   `MouseEvent`.
+7. **Multi-key sequences** (a pending-prefix chord, vim/emacs-style)
+   would need a small state machine — a `pending_chord` field on
+   `EditorState` that `resolve_action` checks before consulting
+   `state.config.bindings` — but nothing today requires this, so it's
+   lowest priority.
+
+None of this needs new hica language features — it's ordinary ADT
+growth plus more C FFI parsing, so it can land incrementally (e.g.
+Home/End/PageUp first, modifiers later) rather than as one big-bang
+milestone.

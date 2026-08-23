@@ -6,6 +6,8 @@ docs/hica-issues.md
 docs/effects-journal.md
 docs/micro-defaultkeys.md
 docs/learning-map.md
+docs/bash-navigation.md
+docs/micro-cheatsheet.md
 
 src/*
 !src/*.hc
