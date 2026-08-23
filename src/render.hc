@@ -25,6 +25,24 @@ fun take_or_pad(xs: list<string>, n: int, pad: string) : list<string> {
   }
 }
 
+// Drop the first `n` elements of `xs` (no-op past the end).
+fun drop_n(xs: list<string>, n: int) : list<string> =>
+  if n <= 0 { xs } else {
+    match xs {
+      []          => [],
+      [_, ..rest] => drop_n(rest, n - 1)
+    }
+  }
+
+// Vertical scroll offset (first visible buffer line). Stays a pure
+// function of the cursor line + viewport height with no extra
+// `EditorState` field to keep in sync: once the cursor moves past the
+// last row of the first page, the offset grows one line at a time so
+// the cursor's line is always the last visible row — smooth per-line
+// scrolling rather than a jump to the next full page.
+fun scroll_offset(n_content: int, line: int) : int =>
+  if n_content <= 0 { 0 } else { max(0, line - n_content + 1) }
+
 // Display name for a buffer's tab: its path, or "scratch" for an unnamed
 // in-memory buffer (M5.5 `NewBuffer` — see actions.hc).
 fun buffer_tab_name(buf: TextBuffer) : string =>
@@ -50,9 +68,11 @@ fun prompt_label(p: Prompt) : string =>
 
 // Build a ScreenBuffer from `state`. Reads `state.screen_size` for dimensions.
 // `cursor_row`/`cursor_col` are the head cursor's position clamped to the
-// visible viewport (1-indexed, tabline occupies row 1) — there's no
-// scroll-offset tracking yet, so a cursor past the bottom/right edge just
-// renders pinned to the last visible row/column instead of scrolling.
+// visible viewport (1-indexed, tabline occupies row 1). Vertical scrolling
+// (see `scroll_offset` below) follows the cursor line by line once it goes
+// past the first page, computed fresh each frame from the cursor position
+// alone (no persisted scroll state). A cursor past the right edge still
+// pins to the last visible column rather than scrolling horizontally.
 // While a Save-As/Open prompt (M9) is active, the status row shows the
 // prompt label instead and the real cursor tracks the end of the typed
 // text rather than the buffer's cursor.
@@ -61,8 +81,11 @@ fun render_normal_buffer(state: EditorState) : ScreenBuffer {
   let buf       = state.buffer
   let n_content = h - 2
 
+  let cur    = match buf.cursors { [] => Position { line: 0, col: 0 }, [x, .._] => x.pos }
+  let offset = scroll_offset(n_content, cur.line)
+
   // Each content line truncated to screen width; empty rows filled with "~".
-  let text_rows    = map(buf.lines, (l) => fit_to_width(l, w))
+  let text_rows    = map(drop_n(buf.lines, offset), (l) => fit_to_width(l, w))
   let content_rows = take_or_pad(text_rows, n_content, "~")
 
   let tabline_row = fit_to_width(build_tabline(state), w)
@@ -78,8 +101,7 @@ fun render_normal_buffer(state: EditorState) : ScreenBuffer {
     _        => fit_to_width(prompt_label(state.prompt), w)
   }
 
-  let cur          = match buf.cursors { [] => Position { line: 0, col: 0 }, [x, .._] => x.pos }
-  let visible_line = max(min(cur.line, max(n_content - 1, 0)), 0)
+  let visible_line = max(min(cur.line - offset, max(n_content - 1, 0)), 0)
   let visible_col  = max(min(cur.col, max(w - 1, 0)), 0)
 
   let (crow, ccol) = match state.prompt {

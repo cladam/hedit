@@ -174,13 +174,24 @@ fun apply_history(state: EditorState, result: maybe<TextBuffer>, verb: string) :
 // has a valid history entry to restore.
 //
 // Returns final EditorState when should_quit flips true.
-fun event_loop_step(state: EditorState, buf_ref: ref<Buffer>) {
+//
+// `last_frame` is the previously-drawn `ScreenBuffer` (or `None` before
+// the first frame). A Tick with nothing to redraw would otherwise still
+// repaint an identical frame every ~200ms (the poll timeout in
+// `term_ffi_inline.c`) — visible on real terminals as a flicker on the
+// styled rows (tabline/status/cursor-line, see main.hc). Skipping the
+// `render_frame` call when the freshly-built buffer structurally equals
+// the last one drawn removes that redundant write entirely.
+fun event_loop_step(state: EditorState, buf_ref: ref<Buffer>, last_frame: maybe<ScreenBuffer>) {
   if state.should_quit {
     state
   } else {
     let dims  = get_dimensions()
     let sized = EditorState { ...state, screen_size: dims }
-    render_frame(render_editor_to_buffer(sized))
+    let frame = render_editor_to_buffer(sized)
+    let changed = match last_frame { Some(prev) => !(prev == frame), None => true }
+    if changed { render_frame(frame) }
+    let next_frame = if changed { Some(frame) } else { last_frame }
     let evt    = poll_event()
     let action = resolve_action(sized, evt)
     let next   = match action {
@@ -211,7 +222,7 @@ fun event_loop_step(state: EditorState, buf_ref: ref<Buffer>) {
       PromptSubmit => submit_prompt(sized),
       _         => apply_action(sized, action)
     }
-    event_loop_step(next, buf_ref)
+    event_loop_step(next, buf_ref, next_frame)
   }
 }
 
@@ -243,7 +254,7 @@ pub fun event_loop(state: EditorState) {
       }
     }
   } with var undo_stack = [], var redo_stack = [] as buf_ref
-  event_loop_step(state, buf_ref)
+  event_loop_step(state, buf_ref, None)
 }
 
 // ------------------- scripted harness (removed pending Issue #5) --------

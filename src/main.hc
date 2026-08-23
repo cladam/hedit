@@ -142,18 +142,29 @@ fun style_frame_lines_go(theme: Theme, lines: list<string>, idx: int, total: int
     }
   }
 
-// Full-redraw ANSI: clear + home, then the rendered lines, then a final
-// escape moving the real terminal cursor to `buf.cursor_row`/`buf.cursor_col`
-// (1-indexed) so it visibly tracks the edit position instead of sitting
-// wherever the last redraw happened to leave it. No diffing/partial-redraw
-// optimization in this pass (see M7 scope).
+// Full-redraw ANSI: home, then the rendered lines (each followed by an
+// erase-to-end-of-line), then an erase-to-end-of-screen (handles a frame
+// with fewer rows than the last one, e.g. after a resize) and a final
+// escape moving the real terminal cursor to `buf.cursor_row`/
+// `buf.cursor_col` (1-indexed) so it visibly tracks the edit position.
+// No diffing/partial-redraw optimization in this pass (see M7 scope).
+// Deliberately does NOT clear the whole screen (`ESC[2J`) before
+// redrawing — that blanks the terminal for a frame before the new
+// content lands, which reads as flicker on every keystroke. Overwriting
+// in place from the home position is flicker-free, but every row must
+// clear its own leftover tail (`ESC[K`): scrolling changes which buffer
+// line lands on a given screen row, and a shorter new line only
+// overwrites part of what a longer previous line left there — without
+// the per-line erase the untouched trailing characters from the old
+// frame stay on screen, reading as scrambled/overlapping text.
 // Raw mode (`stty raw`) disables output post-processing, so a bare
 // "\n" doesn't return the cursor to column 0 — join with "\r\n"
 // instead of relying on `println`, or every line staircases rightward.
 fun render_native(theme: Theme, buf: ScreenBuffer) {
   let styled     = style_frame_lines(theme, buf.lines, buf.cursor_row)
+  let cleared    = map(styled, (l) => l + term_esc() + "[K")
   let cursor_esc = term_esc() + "[" + show(buf.cursor_row) + ";" + show(buf.cursor_col) + "H"
-  let frame = term_esc() + "[2J" + term_esc() + "[H" + join(styled, "\r\n") + cursor_esc
+  let frame = term_esc() + "[H" + join(cleared, "\r\n") + term_esc() + "[J" + cursor_esc
   print(frame)
   flush_stdout()
 }
