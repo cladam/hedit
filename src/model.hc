@@ -73,6 +73,7 @@ pub type Action {
   PromptBackspace,
   PromptSubmit,
   PromptCancel,
+  ToggleHelp,
   Ignore
 }
 
@@ -108,7 +109,8 @@ pub fun default_bindings() : list<(KeyChord, Action)> =>
     (KeyChord { m: Ctrl, c: 'n' }, NextBuffer),
     (KeyChord { m: Ctrl, c: 'p' }, PrevBuffer),
     (KeyChord { m: Ctrl, c: 'w' }, CloseBuffer),
-    (KeyChord { m: Ctrl, c: 'e' }, OpenFile)
+    (KeyChord { m: Ctrl, c: 'e' }, OpenFile),
+    (KeyChord { m: Ctrl, c: 'g' }, ToggleHelp)
   ]
 
 // Resolve a `KeyChord` against a bindings map. Unbound chords resolve to
@@ -171,6 +173,103 @@ pub fun set_config_value(cfg: Config, key: string, value: string) : Config =>
   Config { ...cfg, values: map_set(cfg.values, key, value) }
 
 // ---------------------------------------------------------------------------
+// Theming (M10) — hedit's own chrome colors (tabline/status line/cursor
+// line), NOT syntax highlighting. Every color is a true-color (r, g, b)
+// triple applied via std/term's ANSI helpers in main.hc's render_native.
+// Configurable from HiLisp with well-known `(set …)` keys read straight
+// out of the existing `Config.values` alist — no new config-loading
+// machinery: `(set "theme" "ilseon")` picks a built-in preset, and
+// `(set "theme.status-fg" "R,G,B")`-style keys override individual slots
+// on top of whichever preset is active.
+// ---------------------------------------------------------------------------
+pub struct Theme {
+  tabline_fg: (int, int, int),
+  tabline_bg: (int, int, int),
+  status_fg: (int, int, int),
+  status_bg: (int, int, int),
+  active_tab_fg: (int, int, int),
+  active_tab_bg: (int, int, int),
+  cursor_line_bg: (int, int, int)
+}
+
+pub fun default_theme() : Theme =>
+  Theme {
+    tabline_fg: (255, 255, 255),
+    tabline_bg: (33, 33, 33),
+    status_fg: (0, 0, 0),
+    status_bg: (200, 200, 200),
+    active_tab_fg: (255, 215, 0),
+    active_tab_bg: (60, 60, 60),
+    cursor_line_bg: (45, 45, 45)
+  }
+
+// A dark, low-sensory preset using the same RGB values as std/term's
+// ilseon palette (github.com/cladam/ilseon) — picked by `(set "theme"
+// "ilseon")`.
+pub fun ilseon_theme() : Theme =>
+  Theme {
+    tabline_fg: (163, 169, 145),
+    tabline_bg: (20, 20, 20),
+    status_fg: (0, 191, 165),
+    status_bg: (20, 20, 20),
+    active_tab_fg: (226, 176, 94),
+    active_tab_bg: (40, 40, 40),
+    cursor_line_bg: (30, 30, 30)
+  }
+
+fun theme_preset(name: string) : maybe<Theme> =>
+  match name {
+    "default" => Some(default_theme()),
+    "ilseon"  => Some(ilseon_theme()),
+    _         => None
+  }
+
+// Parse a "R,G,B" override string into a color triple, falling back to
+// `fallback` on any malformed or missing component (reuses `parse_or`
+// above rather than duplicating int-parsing fallback logic).
+fun parse_rgb(s: string, fallback: (int, int, int)) : (int, int, int) =>
+  match split(s, ",") {
+    [r_str, g_str, b_str] =>
+      (parse_or(r_str, fallback.0), parse_or(g_str, fallback.1), parse_or(b_str, fallback.2)),
+    _ => fallback
+  }
+
+fun get_rgb_override(cfg: Config, key: string, fallback: (int, int, int)) : (int, int, int) =>
+  match map_get(cfg.values, key) {
+    Some(v) => parse_rgb(v, fallback),
+    None    => fallback
+  }
+
+// Apply every `theme.<slot>` override on top of a resolved preset. One
+// sequential struct-update per slot — kept flat (no nested match) so
+// `hica analyse` stays clean.
+fun apply_theme_overrides(cfg: Config, base: Theme) : Theme {
+  let t1 = Theme { ...base, tabline_fg: get_rgb_override(cfg, "theme.tabline-fg", base.tabline_fg) }
+  let t2 = Theme { ...t1, tabline_bg: get_rgb_override(cfg, "theme.tabline-bg", t1.tabline_bg) }
+  let t3 = Theme { ...t2, status_fg: get_rgb_override(cfg, "theme.status-fg", t2.status_fg) }
+  let t4 = Theme { ...t3, status_bg: get_rgb_override(cfg, "theme.status-bg", t3.status_bg) }
+  let t5 = Theme { ...t4, active_tab_fg: get_rgb_override(cfg, "theme.active-tab-fg", t4.active_tab_fg) }
+  let t6 = Theme { ...t5, active_tab_bg: get_rgb_override(cfg, "theme.active-tab-bg", t5.active_tab_bg) }
+  Theme { ...t6, cursor_line_bg: get_rgb_override(cfg, "theme.cursor-line-bg", t6.cursor_line_bg) }
+}
+
+// Resolve `Config.values` into a concrete `Theme` plus an optional status
+// message — the only failure mode is an unrecognised `theme` preset name,
+// which falls back to `default_theme()` rather than crashing or silently
+// picking a random theme.
+pub fun resolve_theme_with_status(cfg: Config) : (Theme, maybe<string>) {
+  let preset_name = get_config(cfg, "theme", "default")
+  let (base, warn) = match theme_preset(preset_name) {
+    Some(t) => (t, None),
+    None    => (default_theme(), Some("Unknown theme \"" + preset_name + "\", using default"))
+  }
+  (apply_theme_overrides(cfg, base), warn)
+}
+
+pub fun resolve_theme(cfg: Config) : Theme =>
+  resolve_theme_with_status(cfg).0
+
+// ---------------------------------------------------------------------------
 // Editor state
 // ---------------------------------------------------------------------------
 
@@ -189,7 +288,8 @@ pub struct EditorState {
   screen_size: (int, int),
   should_quit: bool,
   config: Config,
-  prompt: Prompt
+  prompt: Prompt,
+  show_help: bool
 }
 
 // The pixel-free "screen buffer" the Terminal handler flushes.
@@ -298,7 +398,8 @@ pub fun init_editor_with_buffer(buf: TextBuffer, cfg: Config) : EditorState =>
     screen_size: (80, 24),
     should_quit: false,
     config: cfg,
-    prompt: NoPrompt
+    prompt: NoPrompt,
+    show_help: false
   }
 
 // Split file content into lines, dropping one trailing newline artifact

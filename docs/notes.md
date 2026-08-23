@@ -15,7 +15,7 @@ actions. Nothing is hard-coded in the dispatcher — the defaults live in
 `src/model.hc::default_bindings()` and can be replaced from HiLisp (M4)
 via `(bind "Ctrl-x" 'save)`.
 
-### Current default bindings (M9)
+### Current default bindings (M10)
 
 | Chord    | Action | Notes |
 |----------|--------|-------|
@@ -30,6 +30,7 @@ via `(bind "Ctrl-x" 'save)`.
 | `Ctrl-p` | `prev-buffer`  | Cycles to the previous open buffer (wraps around). |
 | `Ctrl-w` | `close-buffer` | Closes the active buffer; refuses to close the last one. |
 | `Ctrl-e` | `open-file`    | Opens a prompt to load an existing file into a new buffer (M9). |
+| `Ctrl-g` | `toggle-help`  | Shows/hides the full-screen keybindings overlay (M10). |
 
 Typing any printable character routes to `insert` automatically — you
 don't (and can't) bind `a`, `b`, `c`, … Those aren't chord bindings.
@@ -213,6 +214,50 @@ growing hedit into a full command palette.
 - **Non-goals:** filename tab-completion, directory browsing, and
   overwrite confirmation on an existing path are all deliberately out
   of scope — plain text entry only.
+
+---
+
+## Help overlay (M10)
+
+`Ctrl-g` (`toggle-help`) shows a full-screen listing of every currently
+bound chord — generated live from `state.config.bindings`
+(`render.hc::render_help_buffer`), so a custom `(bind …)` remap from
+your `init.hl` shows up correctly instead of a hardcoded cheat sheet.
+
+- **Any key closes it** and returns to the buffer underneath, unchanged
+  — the overlay never touches buffer state, it only flips
+  `EditorState.show_help`.
+- **`Ctrl-q` still quits** and a terminal resize still resizes even
+  while the overlay is showing (same carve-outs as the M9 Save-As/Open
+  prompt).
+- The overlay ignores the periodic idle-poll `Tick` event (not a
+  keypress) — otherwise it would close itself ~200ms after opening.
+
+## Theming (M10)
+
+hedit's own chrome (tabline, status line, the row the cursor is on) is
+colored via a `Theme` (7 true-color `(r, g, b)` slots — tabline/status/
+active-tab fg+bg, cursor-line bg), resolved once at startup in
+`main.hc::run_editor` and applied as ANSI SGR codes when the frame is
+printed (`render_native`). This is **not** syntax highlighting — buffer
+content itself is never colored.
+
+- **`(set "theme" "ilseon")`** in `init.hl` (or any `(set …)` call)
+  switches the whole preset. Built-in presets: `"default"` and
+  `"ilseon"` (a dark, low-sensory palette, same RGB values as
+  `std/term`'s `ilseon_*` helpers). An unrecognised name falls back to
+  `"default"` with a status message on the first render — it never
+  crashes.
+- **`(set "theme.<slot>" "R,G,B")`** overrides a single color on top of
+  whichever preset is active. Slots: `theme.tabline-fg`,
+  `theme.tabline-bg`, `theme.status-fg`, `theme.status-bg`,
+  `theme.active-tab-fg`, `theme.active-tab-bg`, `theme.cursor-line-bg`.
+- No new config-loading machinery was needed — `(set k v)` already
+  wrote any string key/value into `Config.values`, so these are just
+  new well-known keys read by `model.hc::resolve_theme_with_status`.
+- **Non-goals:** per-token syntax highlighting, a live theme editor/
+  picker UI, and true-color capability detection (hedit trusts the
+  terminal supports 24-bit color, same as `std/term`'s `term_rgb`).
 
 ---
 

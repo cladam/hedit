@@ -347,6 +347,20 @@ fun resolve_prompt_action(evt: Event) : Action =>
     _                             => Ignore
   }
 
+// While the help overlay (M10, `ToggleHelp`) is showing, every key closes
+// it again — same defensive carve-outs as `resolve_prompt_action`:
+// `Ctrl-q` still quits (synthetic EOF-quit event) and resize still resizes.
+// The catch-all only matches `KeyEvent` — the periodic `Tick` (idle-poll
+// timeout, see keys.hc) must resolve to `Ignore`, or the help overlay
+// closes itself on the very next tick, before the user can read it.
+fun resolve_help_action(evt: Event) : Action =>
+  match evt {
+    KeyEvent(KShortcut(Ctrl, 'q')) => Quit,
+    ResizeEvent(w, h)              => Resize(w, h),
+    KeyEvent(_)                    => ToggleHelp,
+    _                              => Ignore
+  }
+
 // Priority: KChar always inserts, ResizeEvent always resizes; Enter/
 // Backspace/arrows are fixed (not user-remappable — they have no `char`
 // payload to key a binding on); only KShortcuts pass through the
@@ -370,11 +384,16 @@ fun resolve_normal_action(state: EditorState, evt: Event) : Action =>
 // Turn a raw `Event` into a semantic `Action`. Checks `state.prompt` first
 // (M9) — a `SaveAsPrompt`/`OpenPrompt` in progress takes over every
 // keystroke until it's submitted or cancelled.
-pub fun resolve_action(state: EditorState, evt: Event) : Action =>
-  match state.prompt {
-    NoPrompt => resolve_normal_action(state, evt),
-    _        => resolve_prompt_action(evt)
+pub fun resolve_action(state: EditorState, evt: Event) : Action {
+  if state.show_help {
+    resolve_help_action(evt)
+  } else {
+    match state.prompt {
+      NoPrompt => resolve_normal_action(state, evt),
+      _        => resolve_prompt_action(evt)
+    }
   }
+}
 
 // ------------------- Action → EditorState apply -------------------------
 
@@ -407,6 +426,7 @@ pub fun apply_action(state: EditorState, action: Action) : EditorState =>
     PromptBackspace => prompt_backspace(state),
     PromptCancel    => prompt_cancel(state),
     PromptSubmit    => state, // handled in event_loop; needs <fsys>
+    ToggleHelp      => EditorState { ...state, show_help: !state.show_help },
     Ignore       => state
   }
 

@@ -123,12 +123,14 @@ pub fun parse_chord(s: string) : maybe<KeyChord> {
 // Inverse of `parse_chord`. Used when we seed defaults into the env
 // (so a user's `(bind …)` can either replace or coexist with them) and
 // when the round-tripped Config picks bindings back out for hedit.
-fun chord_to_str(chord: KeyChord) : string =>
+// `pub` (M10): reused by `render.hc`'s help overlay to label each row.
+pub fun chord_to_str(chord: KeyChord) : string =>
   mod_to_string(chord.m) + "-" + char_to_string(chord.c)
 
 // ------------------- Action <-> symbol name ----------------------------
 
-fun action_to_string(a: Action) : string =>
+// `pub` (M10): reused by `render.hc`'s help overlay to label each row.
+pub fun action_to_string(a: Action) : string =>
   match a {
     Quit        => "quit",
     Save        => "save",
@@ -153,7 +155,8 @@ fun action_to_string(a: Action) : string =>
     PromptChar(_)   => "prompt-char",
     PromptBackspace => "prompt-backspace",
     PromptSubmit    => "prompt-submit",
-    PromptCancel    => "prompt-cancel"
+    PromptCancel    => "prompt-cancel",
+    ToggleHelp      => "toggle-help"
   }
 
 fun string_to_action(s: string) : maybe<Action> =>
@@ -169,6 +172,7 @@ fun string_to_action(s: string) : maybe<Action> =>
     "prev-buffer"  => Some(PrevBuffer),
     "close-buffer" => Some(CloseBuffer),
     "open-file"    => Some(OpenFile),
+    "toggle-help"  => Some(ToggleHelp),
     "ignore"       => Some(Ignore),
     _              => None
   }

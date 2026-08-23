@@ -200,15 +200,20 @@ hica clean   # remove generated files
       spawn + 19 cli + 13 model + 4 config_loader.
 - ⏳ Real OS clipboard handler (pbcopy / wl-copy / xclip) — not yet
       started
-- ⏳ **M9 (planned)** — "Save As" / `OpenFile` prompt: a minimal
-      single-line input widget so a scratch buffer can be saved for
-      the first time, and an existing file opened without restarting
-      hedit. See `docs/effects-journal.md`'s Milestone M9 section.
-- ⏳ **M10 (planned)** — Usability polish: a discoverable help/
-      keybindings overlay and a small configurable theming system for
-      hedit's own chrome (tabline/status line/cursor line — not
-      syntax highlighting). See `docs/effects-journal.md`'s Milestone
-      M10 section.
+- ✅ **M9** — "Save As" / `OpenFile` prompt: a minimal single-line
+      input widget so a scratch buffer can be saved for the first
+      time, and an existing file opened without restarting hedit.
+- ✅ **M10** — Usability polish. `Ctrl-g` (`toggle-help`) toggles a
+      full-screen keybindings overlay generated live from
+      `state.config.bindings` (custom `(bind …)` remaps show up
+      correctly). A small `Theme` system colors hedit's own chrome
+      (tabline/status line/cursor line, not syntax highlighting) —
+      built-in `"default"`/`"ilseon"` presets and per-slot RGB
+      overrides selectable from `init.hl` via `(set "theme" …)` /
+      `(set "theme.<slot>" "R,G,B")`. **143/143 tests green**: 51
+      actions + 6 render + 22 hilisp_host + 13 model + 16 runtime + 4
+      config_loader + 8 keys + 19 cli + 4 spawn. See
+      `docs/effects-journal.md`'s Milestone M10 section.
 
 
 

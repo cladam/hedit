@@ -34,6 +34,11 @@
 //     runtime.hc), and `+LINE:COL` (a hand-parsed positional, stripped
 //     out of argv before `cli_parse_args` ever sees it — `std/cli` has
 //     no concept of a `+`-prefixed arg).
+// M10: theming. `resolve_theme_with_status` (model.hc) turns `Config.values`
+//     into a concrete `Theme` once at startup (a session never changes it
+//     live — HiLisp only runs once, before the event loop starts), which
+//     `render_native` then applies as true-color ANSI codes to the
+//     tabline/status/cursor-line rows of every rendered frame.
 
 import "keys"
 import "model"
@@ -76,17 +81,79 @@ fun disable_raw_mode() {
   let _ = exec("stty sane 2>/dev/null")
 }
 
+// ------------------- Theming (M10) ----------------------------------------
+//
+// `Theme` (model.hc) holds true-color (r, g, b) triples; these helpers turn
+// one into raw ANSI SGR codes wrapping a single already-width-fitted row.
+// Applied here (not in render.hc) so `render.hc`'s ScreenBuffer stays plain
+// text — the existing render tests assert on exact row content, and the
+// real terminal is the only place that needs to see escape sequences.
+fun rgb_fg_code(c: (int, int, int)) : string =>
+  "38;2;" + show(c.0) + ";" + show(c.1) + ";" + show(c.2)
+
+fun rgb_bg_code(c: (int, int, int)) : string =>
+  "48;2;" + show(c.0) + ";" + show(c.1) + ";" + show(c.2)
+
+fun wrap_fg_bg(fg: (int, int, int), bg: (int, int, int), s: string) : string =>
+  term_esc() + "[" + rgb_fg_code(fg) + ";" + rgb_bg_code(bg) + "m" + s + term_esc() + "[0m"
+
+fun wrap_bg(bg: (int, int, int), s: string) : string =>
+  term_esc() + "[" + rgb_bg_code(bg) + "m" + s + term_esc() + "[0m"
+
+// The tabline's active tab is the leading "[name]" segment (see
+// `render.hc::build_tabline`) — split on the first "]" so it gets
+// `active_tab_fg`/`active_tab_bg` while the rest of the row (other open
+// buffers) gets the plain `tabline_fg`/`tabline_bg` pair.
+fun colorize_tabline_row(theme: Theme, row: string) : string =>
+  match index_of(row, "]") {
+    Some(i) => {
+      let active_part = row[0:i + 1]
+      let rest_part   = row[i + 1:]
+      wrap_fg_bg(theme.active_tab_fg, theme.active_tab_bg, active_part) +
+        wrap_fg_bg(theme.tabline_fg, theme.tabline_bg, rest_part)
+    },
+    None => wrap_fg_bg(theme.tabline_fg, theme.tabline_bg, row)
+  }
+
+fun colorize_status_row(theme: Theme, row: string) : string =>
+  wrap_fg_bg(theme.status_fg, theme.status_bg, row)
+
+fun colorize_cursor_row(theme: Theme, row: string) : string =>
+  wrap_bg(theme.cursor_line_bg, row)
+
+// Style the tabline (first row), status line (last row), and the row the
+// cursor currently sits on (everything else, plain). `cursor_row` is
+// 1-indexed and already clamped to the visible viewport by render.hc.
+fun style_frame_lines(theme: Theme, lines: list<string>, cursor_row: int) : list<string> {
+  let total = length(lines)
+  style_frame_lines_go(theme, lines, 0, total, cursor_row)
+}
+
+fun style_frame_lines_go(theme: Theme, lines: list<string>, idx: int, total: int, cursor_row: int) : list<string> =>
+  match lines {
+    [] => [],
+    [x, ..rest] => {
+      let styled =
+        if idx == 0 { colorize_tabline_row(theme, x) }
+        else if idx == total - 1 { colorize_status_row(theme, x) }
+        else if idx + 1 == cursor_row { colorize_cursor_row(theme, x) }
+        else { x }
+      [styled] + style_frame_lines_go(theme, rest, idx + 1, total, cursor_row)
+    }
+  }
+
 // Full-redraw ANSI: clear + home, then the rendered lines, then a final
-// escape moving the real terminal cursor to `buf.cursor_row`/`cursor_col`
+// escape moving the real terminal cursor to `buf.cursor_row`/`buf.cursor_col`
 // (1-indexed) so it visibly tracks the edit position instead of sitting
 // wherever the last redraw happened to leave it. No diffing/partial-redraw
 // optimization in this pass (see M7 scope).
 // Raw mode (`stty raw`) disables output post-processing, so a bare
 // "\n" doesn't return the cursor to column 0 — join with "\r\n"
 // instead of relying on `println`, or every line staircases rightward.
-fun render_native(buf: ScreenBuffer) {
+fun render_native(theme: Theme, buf: ScreenBuffer) {
+  let styled     = style_frame_lines(theme, buf.lines, buf.cursor_row)
   let cursor_esc = term_esc() + "[" + show(buf.cursor_row) + ";" + show(buf.cursor_col) + "H"
-  let frame = term_esc() + "[2J" + term_esc() + "[H" + join(buf.lines, "\r\n") + cursor_esc
+  let frame = term_esc() + "[2J" + term_esc() + "[H" + join(styled, "\r\n") + cursor_esc
   print(frame)
   flush_stdout()
 }
@@ -109,6 +176,7 @@ fun run_editor(r: CliResult, pos_arg: maybe<string>) {
   let (cfg1, cfg_status) = load_user_config_opts(cfg0, get_opt(r, "config"), has_flag(r, "no-config"))
   let cfg2             = apply_tabsize_override(cfg1, get_opt(r, "tabsize"))
   let cfg              = apply_readonly_override(cfg2, has_flag(r, "readonly"))
+  let (theme, theme_status) = resolve_theme_with_status(cfg)
   let (loaded_buf0, load_status) = load_buffer(0, get_positional(r, 0))
   let start_pos        = match pos_arg {
     None    => None,
@@ -116,7 +184,7 @@ fun run_editor(r: CliResult, pos_arg: maybe<string>) {
   }
   let loaded_buf = set_initial_position(loaded_buf0, start_pos)
   let s0 = init_editor_with_buffer(loaded_buf, cfg)
-  let s1 = match combine_status(cfg_status, load_status) {
+  let s1 = match combine_status(combine_status(cfg_status, load_status), theme_status) {
     None      => s0,
     Some(msg) => set_status_message(s0, msg)
   }
@@ -127,7 +195,7 @@ fun run_editor(r: CliResult, pos_arg: maybe<string>) {
   } with var clip = "" in {
     handle Terminal {
       poll_event()         => decode_key(read_key()),
-      render_frame(buf)    => render_native(buf),
+      render_frame(buf)    => render_native(theme, buf),
       get_dimensions()     => (term_cols(), term_rows()),
       set_cursor_style(_s) => ()
     } in {

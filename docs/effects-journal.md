@@ -2755,7 +2755,7 @@ growing into a full command palette.
   logic, just picked up incidentally by running `fmt --check` on every
   touched file.
 - Recurring `cli.kki` stale-cache parse error again (twice this
-  session) — same `hica clean --cache && rm -rf .koka` fix as every
+  session) — same `hica clean --full` fix as every
   prior milestone.
 
 ### Reflection
@@ -2841,32 +2841,32 @@ much bigger, separate feature.
 
 ### Plan
 
-- [ ] **`src/model.hc`.** Add `Theme` struct + `default_theme()`;
+- [x] **`src/model.hc`.** Add `Theme` struct + `default_theme()`;
   add `HelpOverlay` to a small UI-mode enum on `EditorState` (or a
   bare `bool show_help`, whichever stays simpler); add a `ToggleHelp`
   `Action`.
-- [ ] **`src/actions.hc`.** `resolve_action`/`apply_action` wiring for
+- [x] **`src/actions.hc`.** `resolve_action`/`apply_action` wiring for
   `ToggleHelp`; while help is showing, route every other key back to
   `ToggleHelp`-off ("any key closes it") ahead of normal dispatch,
   same pattern M9's prompt-mode gate would use.
-- [ ] **`src/render.hc`.** `render_help_buffer(state) : ScreenBuffer`
+- [x] **`src/render.hc`.** `render_help_buffer(state) : ScreenBuffer`
   — one row per binding, generated from `state.config.bindings` +
   the existing `action_to_string`/`chord_to_str` naming helpers in
   `hilisp_host.hc` (may need to make those `pub` if reused across
   modules). `render_editor_to_buffer` gains theme-aware coloring for
   the tabline/status rows.
-- [ ] **`src/main.hc`.** `render_native` applies the active `Theme`'s
+- [x] **`src/main.hc`.** `render_native` applies the active `Theme`'s
   ANSI codes when emitting the tabline/status rows.
-- [ ] **`src/config_loader.hc` / `src/hilisp_host.hc`.** Recognise
+- [x] **`src/config_loader.hc` / `src/hilisp_host.hc`.** Recognise
   `theme.*` and `theme` keys from `(set …)`, resolving named presets
   to a concrete `Theme` after `init.hl` loads.
-- [ ] **Tests.** `render_test.hc` cases for help-overlay content
+- [x] **Tests.** `render_test.hc` cases for help-overlay content
   (reflects custom bindings, not just defaults) and theme color
   codes appearing in the rendered tabline/status rows;
   `hilisp_host_test.hc` cases for `(set "theme" …)` resolution.
-- [ ] **`hica fmt --check` + `hica analyse` 100/100** on every touched
+- [x] **`hica fmt --check` + `hica analyse` 100/100** on every touched
   file.
-- [ ] **Docs.** `docs/notes.md` gains "Help overlay" and "Theming"
+- [x] **Docs.** `docs/notes.md` gains "Help overlay" and "Theming"
   sections; this section's Log + Reflection.
 
 ### Exit criteria
@@ -2879,4 +2879,95 @@ much bigger, separate feature.
   theme name (falls back to the default theme with a status message).
 - All pre-existing automated suites stay green; new help/theme tests
   are added alongside them.
+
+### Log
+
+1. Added `Action.ToggleHelp` + `EditorState.show_help` (model.hc),
+   bound to `Ctrl-g` by default. `resolve_action` gates on
+   `show_help` before the prompt check — while it's true every
+   `KeyEvent` resolves back to `ToggleHelp` (closing it), with the
+   same `Ctrl-q`-still-quits / resize-still-resizes carve-outs M9's
+   `resolve_prompt_action` uses.
+2. `render.hc::render_help_buffer` lists every live binding as
+   `"Ctrl-x  ->  action-name"`, generated from `state.config.bindings`
+   — reflects a user's `(bind …)` remaps, not a hardcoded string.
+   Reused `hilisp_host.hc`'s `chord_to_str`/`action_to_string` (made
+   `pub`) instead of duplicating the naming logic.
+3. **Theming stayed almost entirely in `model.hc`.** Since `(set …)`
+   was already fully generic (any string key/value lands in
+   `Config.values`), `(set "theme" "ilseon")` and per-slot overrides
+   like `(set "theme.status-fg" "0,191,165")` work with **zero**
+   changes to `hilisp_host.hc`/`config_loader.hc` — the plan's
+   "no new config-loading machinery" bullet turned out to mean
+   *no config-loading changes at all*, not just no new plumbing.
+   `resolve_theme_with_status(cfg)` resolves a preset
+   (`"default"`/`"ilseon"`, falling back to default + a status
+   message on an unrecognised name) then layers 7 possible
+   `theme.<slot>` RGB overrides on top.
+4. Colorizing happens in `main.hc`, not `render.hc`. `ScreenBuffer`
+   stays plain text — `render_test.hc`'s existing exact-string
+   assertions on the tabline/status rows would otherwise all break —
+   and `render_native` (the only place already building the raw ANSI
+   frame string) wraps the first row (tabline, bracket-splitting the
+   active tab so it gets `active_tab_fg/bg` while the rest gets
+   `tabline_fg/bg`), the last row (status), and whichever content row
+   the cursor sits on (`cursor_line_bg`) with true-color SGR codes
+   just before printing. `Theme` is resolved once in `run_editor`
+   (HiLisp only runs once, before the event loop starts) and closed
+   over by the `render_frame` handler arm — no per-frame recompute.
+5. **Real bug, only caught by manual interactive testing, not the
+   scripted-stdin smoke test:** `resolve_help_action`'s catch-all
+   (`_ => ToggleHelp`, "any key closes it") also matched the periodic
+   `Tick` event (`keys.hc`'s ~200ms idle-poll timeout) — so the help
+   overlay closed itself on the very next idle tick, ~200ms after
+   opening, before a user could read it ("opens for a split second
+   then disappears"). The earlier piped-stdin smoke test (all bytes
+   written at once, no gap) never hit a `Tick` between the open and
+   close keystrokes, so it looked correct. Fix: narrow the catch-all
+   to `KeyEvent(_) => ToggleHelp` with an explicit `_ => Ignore` tail,
+   same shape as `resolve_prompt_action`'s `_ => Ignore` fallback
+   (which never had this bug for exactly that reason). Reproduced
+   after the fix with a *delayed* scripted-stdin test
+   (`printf '\007'; sleep 0.4; printf '\007\021'`) to force a real
+   `Tick` in between — added as a permanent unit test
+   (`actions_test.hc`: "while help is showing, a Tick event does not
+   close it") since it's invisible to a same-tick smoke test.
+6. **115 → 143 tests green**: 51 actions (+6) + 6 render + 22
+   hilisp_host + 13 model + 16 runtime + 4 config_loader + 8 keys +
+   19 cli + 4 spawn. `hica fmt --check` + `hica analyse` 100/100 on
+   every touched file (`model.hc` needed one `hica fmt` pass).
+
+### Reflection
+
+**What went well:**
+
+- The generic `(set k v)` → `Config.values` plumbing built back in
+  M4 paid for itself completely here — theming needed zero new
+  config-loading code, just a reader (`resolve_theme_with_status`)
+  for a handful of well-known keys.
+- Keeping `ScreenBuffer` plain text and pushing all ANSI styling into
+  `main.hc::render_native` (the one place already assembling the raw
+  frame string) meant the M2-era `render_test.hc` assertions on exact
+  tabline/status row content needed zero changes.
+
+**What to carry forward:**
+
+- **New standing rule for any "steals all keystrokes" mode's
+  catch-all action** (prompts, help overlay, a future command
+  palette): the catch-all must match `KeyEvent(_)` specifically, not
+  a bare `_`, or it silently also consumes `Tick`/`ResizeEvent`/
+  `MouseEvent`. This is invisible to same-tick scripted-stdin smoke
+  tests (all bytes arrive before the first `Tick` fires) — the only
+  way to catch it is either a *delayed* scripted-stdin test (a `sleep`
+  between printed bytes, forcing a real idle poll) or real interactive
+  use. Add a delayed-smoke-test pass to the mandatory checklist
+  alongside the existing same-tick one whenever a new such mode is
+  added.
+- `hica analyse`'s nested-match HIGH flag steered the `Theme`
+  override plumbing (`apply_theme_overrides`) into 7 flat sequential
+  struct updates instead of a folded/recursive version — more
+  verbose, but avoids re-litigating the tuple-match `exn`-inference
+  gotcha from earlier milestones for no real benefit here.
+
+**Ready for M11.**
 

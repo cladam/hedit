@@ -392,3 +392,44 @@ test "apply_action leaves state untouched for PromptSubmit (handled in event_loo
   let s3 = apply_action(s2, PromptSubmit)
   assert(s3.prompt == OpenPrompt("x"))
 }
+
+// ------------------- Help overlay (M10) -----------------------------------
+
+test "resolve_action maps Ctrl-g to ToggleHelp via default_bindings" {
+  let s0 = init_editor(None)
+  assert(resolve_action(s0, KeyEvent(KShortcut(Ctrl, 'g'))) == ToggleHelp)
+}
+
+test "ToggleHelp flips show_help on and back off" {
+  let s0 = init_editor(None)
+  assert(s0.show_help == false)
+  let s1 = apply_action(s0, ToggleHelp)
+  assert(s1.show_help == true)
+  let s2 = apply_action(s1, ToggleHelp)
+  assert(s2.show_help == false)
+}
+
+test "while help is showing, any keypress resolves to ToggleHelp (closes it)" {
+  let s0 = apply_action(init_editor(None), ToggleHelp)
+  assert(resolve_action(s0, KeyEvent(KChar('x'))) == ToggleHelp)
+  assert(resolve_action(s0, KeyEvent(KSpecial(Enter))) == ToggleHelp)
+}
+
+// Regression: the periodic idle-poll `Tick` (see keys.hc) must NOT close
+// the help overlay — it isn't a keypress. Without this, the overlay
+// closed itself ~200ms after opening, before a user could read it.
+test "while help is showing, a Tick event does not close it" {
+  let s0 = apply_action(init_editor(None), ToggleHelp)
+  assert(resolve_action(s0, Tick) == Ignore)
+}
+
+test "Ctrl-q still resolves to Quit even while help is showing" {
+  let s0 = apply_action(init_editor(None), ToggleHelp)
+  assert(resolve_action(s0, KeyEvent(KShortcut(Ctrl, 'q'))) == Quit)
+}
+
+test "a resize event still resolves to Resize while help is showing" {
+  let s0 = apply_action(init_editor(None), ToggleHelp)
+  assert(resolve_action(s0, ResizeEvent(100, 40)) == Resize(100, 40))
+}
+

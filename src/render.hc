@@ -7,6 +7,7 @@
 
 import "keys"
 import "model"
+import "hilisp_host"
 
 // Truncate `s` to at most `w` characters (no-op if already shorter).
 fun fit_to_width(s: string, w: int) : string =>
@@ -55,7 +56,7 @@ fun prompt_label(p: Prompt) : string =>
 // While a Save-As/Open prompt (M9) is active, the status row shows the
 // prompt label instead and the real cursor tracks the end of the typed
 // text rather than the buffer's cursor.
-pub fun render_editor_to_buffer(state: EditorState) : ScreenBuffer {
+fun render_normal_buffer(state: EditorState) : ScreenBuffer {
   let (w, h)    = state.screen_size
   let buf       = state.buffer
   let n_content = h - 2
@@ -94,3 +95,36 @@ pub fun render_editor_to_buffer(state: EditorState) : ScreenBuffer {
     cursor_col: ccol
   }
 }
+
+// ------------------- Help overlay (M10) -----------------------------------
+//
+// A full-screen listing of every currently-bound chord, generated from the
+// live `state.config.bindings` (not a hardcoded string) so a user's HiLisp
+// `(bind …)` remaps show up correctly. Any key closes it — see
+// `actions.hc::resolve_help_action`.
+
+// One row: "Ctrl-s  ->  save", reusing hilisp_host.hc's chord/action name
+// helpers so the label matches exactly what `(bind …)`/`(get …)` see.
+fun format_binding(b: (KeyChord, Action)) : string =>
+  chord_to_str(b.0) + "  ->  " + action_to_string(b.1)
+
+pub fun render_help_buffer(state: EditorState) : ScreenBuffer {
+  let (w, h)       = state.screen_size
+  let n_content    = h - 2
+  let title_row    = fit_to_width("Keybindings — press any key to close", w)
+  let binding_rows = map(state.config.bindings, (b) => fit_to_width(format_binding(b), w))
+  let content_rows = take_or_pad(binding_rows, n_content, "")
+  let footer_row   = fit_to_width("hedit", w)
+  ScreenBuffer {
+    width: w,
+    height: h,
+    lines: [title_row] + content_rows + [footer_row],
+    cursor_row: 1,
+    cursor_col: 1
+  }
+}
+
+// Dispatch on `state.show_help` (M10) ahead of the normal render pass —
+// mirrors `resolve_action`'s prompt-mode check in actions.hc.
+pub fun render_editor_to_buffer(state: EditorState) : ScreenBuffer =>
+  if state.show_help { render_help_buffer(state) } else { render_normal_buffer(state) }
