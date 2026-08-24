@@ -25,6 +25,8 @@ hedit --help / --version
 | Key         | Does                              |
 |------------ |----------------------------------- |
 | Arrow keys  | Move up/down/left/right (wraps at line ends) |
+| Ctrl-b / Ctrl-f | Move left/right (same as ArrowLeft/ArrowRight) |
+| Ctrl-a / Ctrl-e | Move to start/end of the current line |
 
 **Not yet:** Page Up/Down, Home/End, word-wise movement (`Ctrl-Left/Right`),
 jump-to-line. See [hedit-defaultkeys.md § What's not there yet](hedit-defaultkeys.md#whats-not-there-yet).
@@ -36,25 +38,31 @@ jump-to-line. See [hedit-defaultkeys.md § What's not there yet](hedit-defaultke
 | Any char | Insert at the cursor                                 |
 | Enter    | Split the line at the cursor                         |
 | Backspace| Delete before the cursor (merges into previous line at column 0) |
+| Ctrl-d   | Delete the char under the cursor (forward-delete)    |
+| Ctrl-k   | Kill from the cursor to the end of the line, into the clipboard |
+| Ctrl-w   | Kill the word before the cursor, into the clipboard  |
 | Ctrl-c   | Copy the current line                                |
 | Ctrl-v   | Paste                                                |
+| Ctrl-y   | Yank — same as Ctrl-v (one shared clipboard slot)    |
 | Ctrl-z   | Undo                                                 |
-| Ctrl-y   | Redo                                                 |
+| Ctrl-r   | Redo                                                 |
 
 **Not yet:** selections (so cut/copy is whole-line only, not
-arbitrary ranges), search, replace, cut-to-end-of-line, delete-line
-(`dd`-style).
+arbitrary ranges), search, replace, delete-line (`dd`-style).
 
 ## File operations
 
 | Key    | Does                                                                 |
 |------- |----------------------------------------------------------------------|
 | Ctrl-s | Save. On a pathless (scratch) buffer, opens the Save-As prompt instead |
-| Ctrl-e | Open the "open file" prompt                                          |
+| Ctrl-o | Open the "open file" prompt                                          |
 | Ctrl-q | Quit                                                                 |
 
-Prompt controls (Save-As / Open): type to edit the path, **Enter**
-submits, **Esc** cancels, **Backspace** edits.
+Prompt controls (Save-As / Open): type to edit the path (inserts at
+the cursor, not just append), **Enter** submits, **Esc** cancels. The
+same readline chords as the main buffer also work here: **Ctrl-a/e**
+(start/end), **Ctrl-b/f** (left/right), **Ctrl-d** (delete forward),
+**Ctrl-k** (kill to end), **Backspace**.
 
 ## Buffers
 
@@ -62,10 +70,16 @@ hedit keeps open buffers in a ring:
 
 | Key    | Does                                                        |
 |------- |--------------------------------------------------------------|
-| Ctrl-o | New scratch buffer (pushes the current one onto the ring)    |
-| Ctrl-n | Next buffer in the ring                                      |
-| Ctrl-p | Previous buffer in the ring                                  |
-| Ctrl-w | Close the active buffer (refuses on the last one)            |
+| Meta-o | New scratch buffer (pushes the current one onto the ring)    |
+| Meta-n | Next buffer in the ring                                      |
+| Meta-p | Previous buffer in the ring                                  |
+| Meta-w | Close the active buffer (refuses on the last one)            |
+
+**Meta chords aren't reachable from a real terminal yet** — hedit
+doesn't decode Alt/Meta byte sequences today (see
+[hedit-defaultkeys.md § What's not there yet](hedit-defaultkeys.md#whats-not-there-yet)).
+Rebind one to a free `Ctrl-` chord in `init.hl` if you need buffer
+navigation now, e.g. `(bind "Ctrl-x" 'new-buffer)`.
 
 The tabline (row 0) lists every open buffer, active one bracketed —
 e.g. `[scratch] | notes.txt`.
@@ -100,7 +114,7 @@ default without replacing it:
 ```hilisp
 (bind "Ctrl-s" 'save)
 (bind "Ctrl-q" 'quit)
-(bind "Ctrl-w" 'ignore)   ; silence the default close-buffer binding
+(bind "Meta-w" 'ignore)   ; silence the default close-buffer binding
 ```
 
 A broken form in `init.hl` doesn't lock you out: hedit evaluates top

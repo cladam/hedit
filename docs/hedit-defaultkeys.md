@@ -24,8 +24,24 @@ today only implements a small, deliberately narrow subset — see
 | Key     | Action        | Description                                                                                     |
 |-------- |-------------- |------------------------------------------------------------------------------------------------ |
 | Ctrl-s  | `save`        | Save the current buffer. If it has no path yet (a new/scratch buffer), opens the Save-As prompt. |
-| Ctrl-e  | `open-file`   | Open the "open file" prompt (type a path, Enter to load it into a new buffer).                   |
+| Ctrl-o  | `open-file`   | Open the "open file" prompt (type a path, Enter to load it into a new buffer).                   |
 | Ctrl-q  | `quit`        | Quit hedit.                                                                                       |
+
+### Cursor & line editing (readline-style)
+
+Bash/readline-style chords for moving and editing without leaving the
+home row — the same bindings work inside the Save-As/Open prompt too
+(routed to `Prompt*` actions, see below).
+
+| Key     | Action           | Description                                                          |
+|-------- |----------------- |------------------------------------------------------------------------ |
+| Ctrl-a  | `move-line-start`| Move to the start of the current line.                              |
+| Ctrl-e  | `move-line-end`  | Move to the end of the current line.                                |
+| Ctrl-b  | `move-left`      | Move left one char (same action as ArrowLeft).                      |
+| Ctrl-f  | `move-right`     | Move right one char (same action as ArrowRight).                    |
+| Ctrl-d  | `delete-forward`| Delete the char under the cursor (or merge the next line up at end of line). |
+| Ctrl-k  | `kill-line`      | Kill from the cursor to the end of the line, into the clipboard.     |
+| Ctrl-w  | `kill-word-back` | Kill the whitespace-delimited word before the cursor, into the clipboard. |
 
 ### Buffers
 
@@ -33,21 +49,34 @@ hedit has no tabs in the GUI sense — open buffers form a ring; `next`/
 `prev` rotate it. There's no "close tab, keep others" gap: closing the
 last buffer is refused with a status message instead of exiting.
 
+`new-buffer`/`next-buffer`/`prev-buffer`/`close-buffer` are bound to
+`Meta-o`/`Meta-n`/`Meta-p`/`Meta-w` by default. **These are currently
+unreachable from a real terminal** — nothing decodes a bare Alt/Meta
+byte sequence into `KShortcut(Meta, _)` yet (see
+[What's not there yet](#whats-not-there-yet)). Rebind them to a free
+`Ctrl-` chord in `init.hl` if you need buffer navigation today, e.g.
+`(bind "Ctrl-x" 'new-buffer)`.
+
 | Key     | Action         | Description                                                    |
 |-------- |--------------- |----------------------------------------------------------------|
-| Ctrl-o  | `new-buffer`   | Push the current buffer to the ring and open a fresh scratch buffer. |
-| Ctrl-n  | `next-buffer`  | Cycle to the next buffer in the ring.                          |
-| Ctrl-p  | `prev-buffer`  | Cycle to the previous buffer in the ring.                      |
-| Ctrl-w  | `close-buffer` | Close the active buffer, promoting the next one in the ring.   |
+| Meta-o  | `new-buffer`   | Push the current buffer to the ring and open a fresh scratch buffer. |
+| Meta-n  | `next-buffer`  | Cycle to the next buffer in the ring.                          |
+| Meta-p  | `prev-buffer`  | Cycle to the previous buffer in the ring.                      |
+| Meta-w  | `close-buffer` | Close the active buffer, promoting the next one in the ring.   |
 
 ### Clipboard & history
+
+hedit has a single clipboard slot shared by `copy`/`paste` and the
+kill commands above — `Ctrl-y` (yank) is bound to the same `paste`
+action as `Ctrl-v`, not a separate kill-ring.
 
 | Key     | Action   | Description                                  |
 |-------- |--------- |---------------------------------------------- |
 | Ctrl-c  | `copy`   | Copy the current line to the clipboard.       |
 | Ctrl-v  | `paste`  | Paste clipboard contents at the cursor.       |
+| Ctrl-y  | `paste`  | Yank — same as Ctrl-v (see above).            |
 | Ctrl-z  | `undo`   | Undo the last edit.                           |
-| Ctrl-y  | `redo`   | Redo the last undone edit.                    |
+| Ctrl-r  | `redo`   | Redo the last undone edit.                    |
 
 ### Navigation & editing (fixed, not user-remappable)
 
@@ -71,15 +100,23 @@ directly in `resolve_normal_action` rather than going through
 ### Save-As / Open prompts
 
 Active when `Ctrl-s` triggers a save on a pathless buffer, or after
-`Ctrl-e`. Not user-remappable (fixed like navigation above), and
-`Ctrl-q` still quits even mid-prompt.
+`Ctrl-o`. Not user-remappable (fixed like navigation above), and
+`Ctrl-q` still quits even mid-prompt. The same readline chords as the
+main buffer work here too, editing/killing the typed path instead of
+buffer text.
 
-| Key       | Description                        |
-|---------- |------------------------------------ |
-| Any char  | Type into the path field.           |
-| Backspace | Delete the last typed char.         |
-| Enter     | Submit (save-as / open the path).   |
-| Esc       | Cancel, returning to the buffer.    |
+| Key       | Description                                    |
+|---------- |------------------------------------------------- |
+| Any char  | Insert at the cursor (not just append).          |
+| Backspace | Delete the char before the cursor.               |
+| Ctrl-a    | Move to the start of the typed text.             |
+| Ctrl-e    | Move to the end of the typed text.               |
+| Ctrl-b    | Move left one column.                            |
+| Ctrl-f    | Move right one column.                           |
+| Ctrl-d    | Delete the char under the cursor.                |
+| Ctrl-k    | Kill from the cursor to the end, into the clipboard. |
+| Enter     | Submit (save-as / open the path).                |
+| Esc       | Cancel, returning to the buffer.                 |
 
 ---
 
@@ -92,11 +129,12 @@ key input" in `docs/effects-journal.md`'s numbering) rather than a
 separate speculative document.
 
 - **No Alt/Meta/Shift-modified chords.** `Modifier` (`src/keys.hc`)
-  already has `Alt`, `Meta`, `Shift` variants, but nothing in
-  `term_ffi_inline.c` or `keys.hc::decode_key` produces them — only
-  `Ctrl-<letter>` is decoded (raw control-byte codes 1-26). `Alt-f`
-  (next word), `Shift-Home` (select to line start), etc. are all
-  unreachable today.
+  already has `Alt`, `Meta`, `Shift` variants, and `default_bindings()`
+  already registers `Meta-o`/`Meta-n`/`Meta-p`/`Meta-w` (buffer ring)
+  for when this lands, but nothing in `term_ffi_inline.c` or
+  `keys.hc::decode_key` produces them today — only `Ctrl-<letter>` is
+  decoded (raw control-byte codes 1-26). `Alt-f` (next word),
+  `Shift-Home` (select to line start), etc. are all unreachable today.
 - **No Home/End/PageUp/PageDown/Delete/F-keys.** `SpecialKey` only has
   `Enter`, `Backspace`, `Tab`, `Esc`, and the four arrows. The C FFI's
   escape-sequence decoder only recognizes plain `ESC [ A/B/C/D`; it
