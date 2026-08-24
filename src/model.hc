@@ -62,6 +62,8 @@ pub type Action {
   MoveRight,
   MoveLineStart,
   MoveLineEnd,
+  MoveWordForward,
+  MoveWordBack,
   Resize(w: int, h: int),
   Copy,
   Paste,
@@ -69,6 +71,8 @@ pub type Action {
   Redo,
   KillLine,
   KillWordBack,
+  KillWordForward,
+  KillWholeLine,
   NewBuffer,
   NextBuffer,
   PrevBuffer,
@@ -110,10 +114,11 @@ pub struct KeyChord {
 // binding here is overridable via HiLisp `(bind …)` in M4.
 // Stage 1 readline-style remap (docs/new-keybindings.txt): `open-file`
 // moves Ctrl-e -> Ctrl-o, `redo` moves Ctrl-y -> Ctrl-r, freeing Ctrl-e/
-// Ctrl-y for line-end/yank. `NewBuffer`/`NextBuffer`/`PrevBuffer`/
-// `CloseBuffer` are pre-bound to Meta-o/Meta-n/Meta-p/Meta-w — dormant
-// until Stage 2's FFI decoder actually emits `KShortcut(Meta, _)`, but
-// harmless to register now since an unreachable chord just never fires.
+// Ctrl-y for line-end/yank. Stage 2 wires the Meta-* chords that Stage 1
+// pre-registered but couldn't reach yet: `term_ffi_inline.c` now decodes
+// a bare ESC + printable char as `KShortcut(Meta, _)` (most terminals'
+// "metaSendsEscape" behaviour), so `NewBuffer`/`NextBuffer`/`PrevBuffer`/
+// `CloseBuffer`/`ToggleHelp` and the new word-level ops below are live.
 pub fun default_bindings() : list<(KeyChord, Action)> =>
   [
     (KeyChord { m: Ctrl, c: 'q' }, Quit),
@@ -135,7 +140,12 @@ pub fun default_bindings() : list<(KeyChord, Action)> =>
     (KeyChord { m: Meta, c: 'o' }, NewBuffer),
     (KeyChord { m: Meta, c: 'n' }, NextBuffer),
     (KeyChord { m: Meta, c: 'p' }, PrevBuffer),
-    (KeyChord { m: Meta, c: 'w' }, CloseBuffer)
+    (KeyChord { m: Meta, c: 'w' }, CloseBuffer),
+    (KeyChord { m: Meta, c: 'h' }, ToggleHelp),
+    (KeyChord { m: Meta, c: 'f' }, MoveWordForward),
+    (KeyChord { m: Meta, c: 'b' }, MoveWordBack),
+    (KeyChord { m: Meta, c: 'd' }, KillWordForward),
+    (KeyChord { m: Meta, c: 'l' }, KillWholeLine)
   ]
 
 // Resolve a `KeyChord` against a bindings map. Unbound chords resolve to

@@ -16,6 +16,10 @@
 //   printable chars: ASCII value (32-126)
 //   Enter: 10, Backspace: 127, Tab: 9, Esc: 27
 //   Arrow Up: 1001, Down: 1002, Right: 1003, Left: 1004
+//   bare ESC + printable char (Alt/Meta-modified key, e.g. most
+//     terminals' "metaSendsEscape" for Alt-h): 2000 + ASCII value of
+//     the char (2032-2126) — see decode_key in src/keys.hc, which maps
+//     this to `KShortcut(Meta, c)`
 //   decoded multi-byte UTF-8 input (åäö, etc.): the Unicode codepoint (>=128)
 //   read timeout (no key within ~200ms): -2 — lets the caller re-poll
 //     get_dimensions() and redraw periodically (e.g. after a terminal
@@ -55,14 +59,25 @@ kk_integer_t hedit_read_key(void) {
         FD_SET(0, &fds);
         if (select(1, &fds, NULL, NULL, &tv) > 0) {
             unsigned char c2;
-            if (read(0, &c2, 1) == 1 && c2 == 91) {  // ESC [
-                unsigned char c3;
-                if (read(0, &c3, 1) == 1) {
-                    if      (c3 == 65) key = 1001;  // Up
-                    else if (c3 == 66) key = 1002;  // Down
-                    else if (c3 == 67) key = 1003;  // Right
-                    else if (c3 == 68) key = 1004;  // Left
-                    else               key = -1;
+            if (read(0, &c2, 1) == 1) {
+                if (c2 == 91) {  // ESC [
+                    unsigned char c3;
+                    if (read(0, &c3, 1) == 1) {
+                        if      (c3 == 65) key = 1001;  // Up
+                        else if (c3 == 66) key = 1002;  // Down
+                        else if (c3 == 67) key = 1003;  // Right
+                        else if (c3 == 68) key = 1004;  // Left
+                        else               key = -1;
+                    }
+                } else if (c2 >= 32 && c2 <= 126) {
+                    // Bare ESC + printable char: most terminals send this
+                    // for Alt/Meta-modified keys (xterm's
+                    // "metaSendsEscape"). Shift into its own range so
+                    // decode_key (src/keys.hc) can tell it apart from a
+                    // plain KChar or Ctrl-<letter> code.
+                    key = 2000 + (int)c2;
+                } else {
+                    key = -1;
                 }
             }
         }

@@ -231,6 +231,16 @@ fun event_loop_step(state: EditorState, buf_ref: ref<Buffer>, last_frame: maybe<
         set_selection(kill_word_back_text(sized))
         delete_word_back(sized)
       },
+      KillWordForward => {
+        buf_ref.snapshot(sized.buffer)
+        set_selection(kill_word_forward_text(sized))
+        delete_word_forward(sized)
+      },
+      KillWholeLine => {
+        buf_ref.snapshot(sized.buffer)
+        set_selection(kill_whole_line_text(sized))
+        kill_whole_line(sized)
+      },
       Undo      => apply_history(sized, buf_ref.undo(sized.buffer), "undo"),
       Redo      => apply_history(sized, buf_ref.redo(sized.buffer), "redo"),
       PromptSubmit => submit_prompt(sized),

@@ -317,11 +317,14 @@ pub fun kill_line(state: EditorState) : EditorState {
 
 fun is_space_char(c: char) : bool => c == ' ' || char_to_string(c) == "\t"
 
-// Drop chars off the front of a reversed char list while `pred` holds.
-fun skip_while_rev(chs: list<char>, pred: (char) -> bool) : list<char> =>
+// Drop chars off the front of a char list while `pred` holds. Used on
+// both a reversed prefix (word-back) and a plain suffix (word-forward)
+// slice — "drop leading matches" doesn't care which direction the
+// caller's list represents.
+fun drop_while(chs: list<char>, pred: (char) -> bool) : list<char> =>
   match chs {
     []          => [],
-    [x, ..rest] => if pred(x) { skip_while_rev(rest, pred) } else { chs }
+    [x, ..rest] => if pred(x) { drop_while(rest, pred) } else { chs }
   }
 
 // readline/bash-style Ctrl-w (`unix-word-rubout`): the column one
@@ -329,9 +332,20 @@ fun skip_while_rev(chs: list<char>, pred: (char) -> bool) : list<char> =>
 // then skip the trailing run of non-whitespace chars.
 fun word_back_col(line: string, col: int) : int {
   let prefix   = reverse(chars(line[0:col]))
-  let no_space = skip_while_rev(prefix, is_space_char)
-  let no_word  = skip_while_rev(no_space, (c) => !is_space_char(c))
+  let no_space = drop_while(prefix, is_space_char)
+  let no_word  = drop_while(no_space, (c) => !is_space_char(c))
   length(no_word)
+}
+
+// Meta-f/Meta-d word-forward boundary: the column one whitespace-
+// delimited word forward from `col` — skip leading whitespace, then
+// skip the following run of non-whitespace chars. Single-line only,
+// same simplification as `word_back_col` (a no-op at end of line).
+fun word_forward_col(line: string, col: int) : int {
+  let suffix     = chars(line[col:])
+  let no_space   = drop_while(suffix, is_space_char)
+  let no_word    = drop_while(no_space, (c) => !is_space_char(c))
+  col + (length(suffix) - length(no_word))
 }
 
 // Ctrl-w: the word-back text that gets killed, without yet applying it.
@@ -356,6 +370,72 @@ pub fun delete_word_back(state: EditorState) : EditorState {
   let new_lines   = list_set(buf.lines, line_idx, updated)
   let new_cursors = map(buf.cursors, (cc) =>
     Cursor { ...cc, pos: Position { line: line_idx, col: new_col } })
+  let new_buf = TextBuffer { ...buf, lines: new_lines, cursors: new_cursors, is_dirty: true }
+  EditorState { ...state, buffer: new_buf }
+}
+
+// Meta-b: move the cursor one whitespace-delimited word back.
+pub fun move_word_back(state: EditorState) : EditorState {
+  let buf     = state.buffer
+  let cur     = head_cursor(buf)
+  let ln      = list_get(buf.lines, cur.pos.line, "")
+  let new_col = word_back_col(ln, cur.pos.col)
+  let new_cursors = map(buf.cursors, (cc) =>
+    Cursor { ...cc, pos: Position { line: cur.pos.line, col: new_col } })
+  EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
+}
+
+// Meta-f: move the cursor one whitespace-delimited word forward.
+pub fun move_word_forward(state: EditorState) : EditorState {
+  let buf     = state.buffer
+  let cur     = head_cursor(buf)
+  let ln      = list_get(buf.lines, cur.pos.line, "")
+  let new_col = word_forward_col(ln, cur.pos.col)
+  let new_cursors = map(buf.cursors, (cc) =>
+    Cursor { ...cc, pos: Position { line: cur.pos.line, col: new_col } })
+  EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
+}
+
+// Meta-d: the word-forward text that gets killed, without yet applying it.
+pub fun kill_word_forward_text(state: EditorState) : string {
+  let buf     = state.buffer
+  let cur     = head_cursor(buf)
+  let ln      = list_get(buf.lines, cur.pos.line, "")
+  let new_col = word_forward_col(ln, cur.pos.col)
+  ln[cur.pos.col:new_col]
+}
+
+// Meta-d: remove the whitespace-delimited word after the cursor. The
+// cursor column is unchanged (still valid at the truncation point).
+pub fun delete_word_forward(state: EditorState) : EditorState {
+  let buf      = state.buffer
+  let cur      = head_cursor(buf)
+  let line_idx = cur.pos.line
+  let col      = cur.pos.col
+  let ln       = list_get(buf.lines, line_idx, "")
+  let new_col  = word_forward_col(ln, col)
+  let updated  = ln[0:col] + ln[new_col:]
+  let new_lines = list_set(buf.lines, line_idx, updated)
+  let new_buf   = TextBuffer { ...buf, lines: new_lines, is_dirty: true }
+  EditorState { ...state, buffer: new_buf }
+}
+
+// Meta-l: the entire current line's text, without yet applying the kill.
+pub fun kill_whole_line_text(state: EditorState) : string {
+  let buf = state.buffer
+  list_get(buf.lines, head_cursor(buf).pos.line, "")
+}
+
+// Meta-l: clear the current line's content, cursor moves to column 0.
+// Unlike `kill_line` (Ctrl-k, cursor to end-of-line) this always wipes
+// the whole line regardless of cursor position; the line itself stays
+// (an empty line), it isn't removed from the buffer.
+pub fun kill_whole_line(state: EditorState) : EditorState {
+  let buf      = state.buffer
+  let line_idx = head_cursor(buf).pos.line
+  let new_lines   = list_set(buf.lines, line_idx, "")
+  let new_cursors = map(buf.cursors, (cc) =>
+    Cursor { ...cc, pos: Position { line: line_idx, col: 0 } })
   let new_buf = TextBuffer { ...buf, lines: new_lines, cursors: new_cursors, is_dirty: true }
   EditorState { ...state, buffer: new_buf }
 }
@@ -633,6 +713,8 @@ pub fun apply_action(state: EditorState, action: Action) : EditorState =>
     MoveRight    => move_right(state),
     MoveLineStart => move_line_start(state),
     MoveLineEnd   => move_line_end(state),
+    MoveWordForward => move_word_forward(state),
+    MoveWordBack    => move_word_back(state),
     Resize(w, h) => EditorState { ...state, screen_size: (w, h) },
     Save         => state, // handled in event_loop; no-op here for purity
     Copy         => state, // handled in event_loop; needs <Clipboard>
@@ -641,6 +723,8 @@ pub fun apply_action(state: EditorState, action: Action) : EditorState =>
     Redo         => state, // handled in event_loop; needs <Buffer>
     KillLine       => state, // handled in event_loop; needs <Clipboard>
     KillWordBack   => state, // handled in event_loop; needs <Clipboard>
+    KillWordForward => state, // handled in event_loop; needs <Clipboard>
+    KillWholeLine   => state, // handled in event_loop; needs <Clipboard>
     NewBuffer    => new_buffer_action(state),
     NextBuffer   => cycle_next_buffer(state),
     PrevBuffer   => cycle_prev_buffer(state),

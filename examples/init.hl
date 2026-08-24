@@ -1,0 +1,84 @@
+;; init.hl — reference config covering every option hedit currently supports.
+;;
+;; Copy this to one of the discovery paths (first hit wins):
+;;   1. $XDG_CONFIG_HOME/hedit/init.hl  (or $HOME/.config/hedit/init.hl)
+;;   2. $HOME/.hedit.hl
+;; ...or point at it directly with `hedit --config /path/to/init.hl`.
+;;
+;; A broken form here won't lock you out: hedit evaluates top to bottom
+;; and stops at the first error, surfacing it in the status line while
+;; keeping whatever config loaded before that point.
+
+;; ---------------------------------------------------------------------
+;; Values — (set key value), read back with (get key)
+;; ---------------------------------------------------------------------
+
+;; Soft-tab width. `--tabsize <n>` on the CLI always overrides this.
+(set "tabsize" 4)
+
+;; Built-in theme presets: "default" or "ilseon".
+(set "theme" "default")
+;; (set "theme" "ilseon")
+
+;; Per-slot true-color overrides ("R,G,B"), layered on top of whichever
+;; preset "theme" resolved to above. Uncomment any you want to tweak —
+;; these are hedit's own chrome colors (tabline/status line/cursor
+;; line), not syntax highlighting.
+;; (set "theme.tabline-fg"     "255,255,255")
+;; (set "theme.tabline-bg"     "33,33,33")
+;; (set "theme.status-fg"      "0,0,0")
+;; (set "theme.status-bg"      "200,200,200")
+;; (set "theme.active-tab-fg"  "255,215,0")
+;; (set "theme.active-tab-bg"  "60,60,60")
+;; (set "theme.cursor-line-bg" "45,45,45")
+
+;; (get key) reads a value back; returns nil when absent.
+;; (if (get "tabsize") (println "tabsize is set"))
+
+;; ---------------------------------------------------------------------
+;; Key bindings — (bind "Modifier-c" 'action)
+;; ---------------------------------------------------------------------
+;;
+;; Ctrl-<letter> chords and a bare ESC+char (most terminals'
+;; "metaSendsEscape" for Alt) are both decoded from real terminal input
+;; — the latter shows up as Meta-<letter> below. These are hedit's
+;; built-in defaults, spelled out here so you can see every bindable
+;; action name and rebind any of them.
+
+(bind "Ctrl-q" 'quit)
+(bind "Ctrl-s" 'save)
+(bind "Ctrl-c" 'copy)
+(bind "Ctrl-v" 'paste)
+(bind "Ctrl-z" 'undo)
+(bind "Ctrl-r" 'redo)
+(bind "Ctrl-o" 'open-file)
+(bind "Ctrl-g" 'toggle-help)
+
+;; Readline-style cursor/line editing.
+(bind "Ctrl-a" 'move-line-start)
+(bind "Ctrl-e" 'move-line-end)
+(bind "Ctrl-b" 'move-left)
+(bind "Ctrl-f" 'move-right)
+(bind "Ctrl-d" 'delete-forward)
+(bind "Ctrl-k" 'kill-line)
+(bind "Ctrl-w" 'kill-word-back)
+(bind "Ctrl-y" 'paste)   ; yank — hedit has one clipboard slot, so this is Paste
+
+;; Word-level motion/kill (Meta = Alt on most terminals).
+(bind "Meta-f" 'move-word-forward)
+(bind "Meta-b" 'move-word-back)
+(bind "Meta-d" 'kill-word-forward)
+(bind "Meta-l" 'kill-whole-line)
+(bind "Meta-h" 'toggle-help)
+
+;; Buffer ring.
+(bind "Meta-o" 'new-buffer)
+(bind "Meta-n" 'next-buffer)
+(bind "Meta-p" 'prev-buffer)
+(bind "Meta-w" 'close-buffer)
+
+;; 'ignore is also a valid target — binds a chord to a no-op, e.g. to
+;; silence a default without giving it a new job:
+;; (bind "Ctrl-w" 'ignore)
+
+

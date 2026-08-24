@@ -42,6 +42,10 @@ home row — the same bindings work inside the Save-As/Open prompt too
 | Ctrl-d  | `delete-forward`| Delete the char under the cursor (or merge the next line up at end of line). |
 | Ctrl-k  | `kill-line`      | Kill from the cursor to the end of the line, into the clipboard.     |
 | Ctrl-w  | `kill-word-back` | Kill the whitespace-delimited word before the cursor, into the clipboard. |
+| Meta-f  | `move-word-forward` | Move forward one word.                                           |
+| Meta-b  | `move-word-back`    | Move back one word.                                              |
+| Meta-d  | `kill-word-forward` | Kill the word after the cursor, into the clipboard.              |
+| Meta-l  | `kill-whole-line`   | Kill the entire current line, into the clipboard.                |
 
 ### Buffers
 
@@ -50,12 +54,10 @@ hedit has no tabs in the GUI sense — open buffers form a ring; `next`/
 last buffer is refused with a status message instead of exiting.
 
 `new-buffer`/`next-buffer`/`prev-buffer`/`close-buffer` are bound to
-`Meta-o`/`Meta-n`/`Meta-p`/`Meta-w` by default. **These are currently
-unreachable from a real terminal** — nothing decodes a bare Alt/Meta
-byte sequence into `KShortcut(Meta, _)` yet (see
-[What's not there yet](#whats-not-there-yet)). Rebind them to a free
-`Ctrl-` chord in `init.hl` if you need buffer navigation today, e.g.
-`(bind "Ctrl-x" 'new-buffer)`.
+`Meta-o`/`Meta-n`/`Meta-p`/`Meta-w` by default — `term_ffi_inline.c`
+decodes a bare `ESC` + printable char as `KShortcut(Meta, _)` (most
+terminals' "metaSendsEscape" behaviour for Alt), so these are reachable
+from a real terminal.
 
 | Key     | Action         | Description                                                    |
 |-------- |--------------- |----------------------------------------------------------------|
@@ -96,6 +98,7 @@ directly in `resolve_normal_action` rather than going through
 | Key     | Action        | Description                                                        |
 |-------- |-------------- |--------------------------------------------------------------------- |
 | Ctrl-g  | `toggle-help` | Open/close the keybindings overlay (any key closes it once it's up). |
+| Meta-h  | `toggle-help` | Same as Ctrl-g — mnemonic "help".                                  |
 
 ### Save-As / Open prompts
 
@@ -128,13 +131,13 @@ because it's the natural next milestone (a candidate "M11 — extended
 key input" in `docs/effects-journal.md`'s numbering) rather than a
 separate speculative document.
 
-- **No Alt/Meta/Shift-modified chords.** `Modifier` (`src/keys.hc`)
-  already has `Alt`, `Meta`, `Shift` variants, and `default_bindings()`
-  already registers `Meta-o`/`Meta-n`/`Meta-p`/`Meta-w` (buffer ring)
-  for when this lands, but nothing in `term_ffi_inline.c` or
-  `keys.hc::decode_key` produces them today — only `Ctrl-<letter>` is
-  decoded (raw control-byte codes 1-26). `Alt-f` (next word),
-  `Shift-Home` (select to line start), etc. are all unreachable today.
+- **No further Alt/Meta chords beyond a single modified char.**
+  `term_ffi_inline.c` now decodes a bare `ESC` + printable char as
+  `KShortcut(Meta, _)` (most terminals' "metaSendsEscape" for Alt), and
+  `default_bindings()` wires up `Meta-o/n/p/w/h/f/b/d/l`. Still
+  missing: `Shift`-modified chords (`Modifier.Shift` exists but nothing
+  produces it) and `Meta`/`Alt` combined with a special key like
+  `Alt-Backspace` — only `Meta-<letter>` round-trips today.
 - **No Home/End/PageUp/PageDown/Delete/F-keys.** `SpecialKey` only has
   `Enter`, `Backspace`, `Tab`, `Esc`, and the four arrows. The C FFI's
   escape-sequence decoder only recognizes plain `ESC [ A/B/C/D`; it
@@ -170,9 +173,9 @@ separate speculative document.
    and to parse the `;<n>` modifier parameter on both arrow and `~`
    sequences into a separate return value (or a packed code) rather
    than throwing it away.
-3. **Detect bare Alt.** Most terminals send `Alt-x` as `ESC` followed
-   immediately by `x` (no `[`) — the FFI's existing "peek after ESC"
-   logic can special-case a non-`[` byte as an Alt-modified char
+3. **Detect bare Alt.** ✅ Done — most terminals send `Alt-x` as `ESC`
+   followed immediately by `x` (no `[`); `term_ffi_inline.c` special-cases
+   a non-`[` byte after `ESC` as a Meta-modified char (codes 2032-2126)
    instead of falling through to plain `Esc`.
 4. **Generalize `KeyChord`** to carry a *set* of modifiers plus either
    a `char` or a `SpecialKey` payload, e.g.

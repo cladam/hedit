@@ -27,9 +27,10 @@ hedit --help / --version
 | Arrow keys  | Move up/down/left/right (wraps at line ends) |
 | Ctrl-b / Ctrl-f | Move left/right (same as ArrowLeft/ArrowRight) |
 | Ctrl-a / Ctrl-e | Move to start/end of the current line |
+| Meta-f / Meta-b | Move forward/back one word |
 
-**Not yet:** Page Up/Down, Home/End, word-wise movement (`Ctrl-Left/Right`),
-jump-to-line. See [hedit-defaultkeys.md § What's not there yet](hedit-defaultkeys.md#whats-not-there-yet).
+**Not yet:** Page Up/Down, Home/End, jump-to-line. See
+[hedit-defaultkeys.md § What's not there yet](hedit-defaultkeys.md#whats-not-there-yet).
 
 ## Basic editing
 
@@ -41,6 +42,8 @@ jump-to-line. See [hedit-defaultkeys.md § What's not there yet](hedit-defaultke
 | Ctrl-d   | Delete the char under the cursor (forward-delete)    |
 | Ctrl-k   | Kill from the cursor to the end of the line, into the clipboard |
 | Ctrl-w   | Kill the word before the cursor, into the clipboard  |
+| Meta-d   | Kill the word after the cursor, into the clipboard   |
+| Meta-l   | Kill the entire current line, into the clipboard     |
 | Ctrl-c   | Copy the current line                                |
 | Ctrl-v   | Paste                                                |
 | Ctrl-y   | Yank — same as Ctrl-v (one shared clipboard slot)    |
@@ -75,12 +78,6 @@ hedit keeps open buffers in a ring:
 | Meta-p | Previous buffer in the ring                                  |
 | Meta-w | Close the active buffer (refuses on the last one)            |
 
-**Meta chords aren't reachable from a real terminal yet** — hedit
-doesn't decode Alt/Meta byte sequences today (see
-[hedit-defaultkeys.md § What's not there yet](hedit-defaultkeys.md#whats-not-there-yet)).
-Rebind one to a free `Ctrl-` chord in `init.hl` if you need buffer
-navigation now, e.g. `(bind "Ctrl-x" 'new-buffer)`.
-
 The tabline (row 0) lists every open buffer, active one bracketed —
 e.g. `[scratch] | notes.txt`.
 
@@ -91,6 +88,7 @@ e.g. `[scratch] | notes.txt`.
 | Key    | Does                                                              |
 |------- |--------------------------------------------------------------------|
 | Ctrl-g | Toggle a full-screen keybindings overlay, generated live from the current bindings (any key closes it) |
+| Meta-h | Same as Ctrl-g                                                     |
 
 ## Customization — `init.hl`
 
