@@ -61,9 +61,27 @@ fun build_tabline(state: EditorState) : string {
 // normal path/dirty-flag or status-message row while typing.
 fun prompt_label(p: Prompt) : string =>
   match p {
-    NoPrompt        => "",
-    SaveAsPrompt(t) => "Save as: " + t,
-    OpenPrompt(t)   => "Open: " + t
+    NoPrompt           => "",
+    SaveAsPrompt(t, _) => "Save as: " + t,
+    OpenPrompt(t, _)   => "Open: " + t
+  }
+
+// Length of the fixed label prefix in front of the typed text — needed
+// to place the real cursor at the right screen column (Stage 1 prompt
+// cursor movement, see actions.hc's PromptMove* actions).
+fun prompt_prefix_len(p: Prompt) : int =>
+  match p {
+    NoPrompt           => 0,
+    SaveAsPrompt(_, _) => length("Save as: "),
+    OpenPrompt(_, _)   => length("Open: ")
+  }
+
+// The prompt's own cursor column within its typed text.
+fun prompt_cursor_col(p: Prompt) : int =>
+  match p {
+    NoPrompt           => 0,
+    SaveAsPrompt(_, c) => c,
+    OpenPrompt(_, c)   => c
   }
 
 // Build a ScreenBuffer from `state`. Reads `state.screen_size` for dimensions.
@@ -106,7 +124,7 @@ fun render_normal_buffer(state: EditorState) : ScreenBuffer {
 
   let (crow, ccol) = match state.prompt {
     NoPrompt => (visible_line + 2, visible_col + 1)
-    _        => (h, min(length(prompt_label(state.prompt)) + 1, w))
+    _        => (h, min(prompt_prefix_len(state.prompt) + prompt_cursor_col(state.prompt) + 1, w))
   }
 
   ScreenBuffer {

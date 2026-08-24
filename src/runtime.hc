@@ -95,7 +95,7 @@ fun save_buffer(state: EditorState) {
   }
   else {
     match state.buffer.path {
-      None    => EditorState { ...state, prompt: SaveAsPrompt("") },
+      None    => EditorState { ...state, prompt: SaveAsPrompt("", 0) },
       Some(p) => {
         let body = join(state.buffer.lines, "\n") + "\n"
         apply_write_result(state, write_file(p, body))
@@ -144,9 +144,9 @@ fun submit_open_file(state: EditorState, path: string) {
 // no-op rather than crashing.
 fun submit_prompt(state: EditorState) {
   match state.prompt {
-    NoPrompt           => state,
-    SaveAsPrompt(text) => submit_save_as(state, text),
-    OpenPrompt(text)   => submit_open_file(state, text)
+    NoPrompt              => state,
+    SaveAsPrompt(text, _) => submit_save_as(state, text),
+    OpenPrompt(text, _)   => submit_open_file(state, text)
   }
 }
 
@@ -217,9 +217,27 @@ fun event_loop_step(state: EditorState, buf_ref: ref<Buffer>, last_frame: maybe<
         buf_ref.snapshot(sized.buffer)
         apply_action(sized, action)
       },
+      DeleteForward => {
+        buf_ref.snapshot(sized.buffer)
+        apply_action(sized, action)
+      },
+      KillLine  => {
+        buf_ref.snapshot(sized.buffer)
+        set_selection(kill_line_text(sized))
+        kill_line(sized)
+      },
+      KillWordBack => {
+        buf_ref.snapshot(sized.buffer)
+        set_selection(kill_word_back_text(sized))
+        delete_word_back(sized)
+      },
       Undo      => apply_history(sized, buf_ref.undo(sized.buffer), "undo"),
       Redo      => apply_history(sized, buf_ref.redo(sized.buffer), "redo"),
       PromptSubmit => submit_prompt(sized),
+      PromptKillLine => {
+        set_selection(prompt_kill_text(sized))
+        prompt_truncate(sized)
+      },
       _         => apply_action(sized, action)
     }
     event_loop_step(next, buf_ref, next_frame)

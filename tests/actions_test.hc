@@ -86,6 +86,81 @@ test "arrow keys move the cursor and wrap at line boundaries" {
 fun head_cursor_pos(s: EditorState) : Position =>
   match s.buffer.cursors { [] => Position { line: 0, col: 0 }, [x, .._] => x.pos }
 
+// ------------------- Stage 1 readline chords (docs/new-keybindings.txt) --
+
+test "Ctrl-a/Ctrl-e move to the start/end of the line via default_bindings" {
+  let s0 = init_editor(None)
+  let s1 = handle_action(s0, KeyEvent(KChar('h')))
+  let s2 = handle_action(s1, KeyEvent(KChar('i')))
+  let s3 = handle_action(s2, KeyEvent(KShortcut(Ctrl, 'a')))
+  assert(head_cursor_pos(s3) == Position { line: 0, col: 0 })
+  let s4 = handle_action(s3, KeyEvent(KShortcut(Ctrl, 'e')))
+  assert(head_cursor_pos(s4) == Position { line: 0, col: 2 })
+}
+
+test "Ctrl-b/Ctrl-f move the cursor like the arrow keys via default_bindings" {
+  let s0 = init_editor(None)
+  let s1 = handle_action(s0, KeyEvent(KChar('h')))
+  let s2 = handle_action(s1, KeyEvent(KChar('i')))
+  let s3 = handle_action(s2, KeyEvent(KShortcut(Ctrl, 'b')))
+  assert(head_cursor_pos(s3) == Position { line: 0, col: 1 })
+  let s4 = handle_action(s3, KeyEvent(KShortcut(Ctrl, 'f')))
+  assert(head_cursor_pos(s4) == Position { line: 0, col: 2 })
+}
+
+test "Ctrl-d deletes the char under the cursor (forward-delete)" {
+  let s0 = init_editor(None)
+  let s1 = handle_action(s0, KeyEvent(KChar('h')))
+  let s2 = handle_action(s1, KeyEvent(KChar('i')))
+  let s3 = handle_action(s2, KeyEvent(KShortcut(Ctrl, 'a')))
+  let s4 = handle_action(s3, KeyEvent(KShortcut(Ctrl, 'd')))
+  assert(s4.buffer.lines == ["i"])
+}
+
+test "delete_forward at the end of a non-last line merges the next line up" {
+  let s0 = init_editor(None)
+  let s1 = handle_action(s0, KeyEvent(KChar('a')))
+  let s2 = handle_action(s1, KeyEvent(KSpecial(Enter)))
+  let s3 = handle_action(s2, KeyEvent(KChar('b')))
+  let s4 = handle_action(s3, KeyEvent(KSpecial(ArrowUp))) // back to line 0, end of "a"
+  let s5 = apply_action(s4, DeleteForward)
+  assert(s5.buffer.lines == ["ab"])
+}
+
+test "kill_line_text/kill_line kill from the cursor to the end of the line" {
+  let s0 = init_editor(None)
+  let s1 = handle_action(s0, KeyEvent(KChar('h')))
+  let s2 = handle_action(s1, KeyEvent(KChar('i')))
+  let s3 = handle_action(s2, KeyEvent(KChar('!')))
+  let s4 = handle_action(s3, KeyEvent(KShortcut(Ctrl, 'a')))
+  let s5 = handle_action(s4, KeyEvent(KShortcut(Ctrl, 'f')))
+  assert(kill_line_text(s5) == "i!")
+  let s6 = kill_line(s5)
+  assert(s6.buffer.lines == ["h"])
+}
+
+test "resolve_action maps Ctrl-k to KillLine via default_bindings" {
+  let s0 = init_editor(None)
+  assert(resolve_action(s0, KeyEvent(KShortcut(Ctrl, 'k'))) == KillLine)
+}
+
+test "kill_word_back_text/delete_word_back kill the whitespace-delimited word before the cursor" {
+  let s0 = init_editor(None)
+  let s1 = handle_action(s0, KeyEvent(KChar('a')))
+  let s2 = handle_action(s1, KeyEvent(KChar(' ')))
+  let s3 = handle_action(s2, KeyEvent(KChar('b')))
+  let s4 = handle_action(s3, KeyEvent(KChar('c')))
+  assert(kill_word_back_text(s4) == "bc")
+  let s5 = delete_word_back(s4)
+  assert(s5.buffer.lines == ["a "])
+  assert(head_cursor_pos(s5) == Position { line: 0, col: 2 })
+}
+
+test "resolve_action maps Ctrl-w to KillWordBack via default_bindings" {
+  let s0 = init_editor(None)
+  assert(resolve_action(s0, KeyEvent(KShortcut(Ctrl, 'w'))) == KillWordBack)
+}
+
 test "ctrl-q sets should_quit" {
   let s0 = init_editor(None)
   let s1 = handle_action(s0, KeyEvent(KShortcut(Ctrl, 'q')))
@@ -213,10 +288,16 @@ test "resolve_action maps Ctrl-z to Undo via default_bindings" {
   assert(a == Undo)
 }
 
-test "resolve_action maps Ctrl-y to Redo via default_bindings" {
+test "resolve_action maps Ctrl-r to Redo via default_bindings" {
+  let s0 = init_editor(None)
+  let a  = resolve_action(s0, KeyEvent(KShortcut(Ctrl, 'r')))
+  assert(a == Redo)
+}
+
+test "resolve_action maps Ctrl-y to Paste (yank) via default_bindings" {
   let s0 = init_editor(None)
   let a  = resolve_action(s0, KeyEvent(KShortcut(Ctrl, 'y')))
-  assert(a == Redo)
+  assert(a == Paste)
 }
 
 // Pure `apply_action` no-ops Undo/Redo; the actual history swap lives in
@@ -255,12 +336,16 @@ test "custom bindings override defaults — Ctrl-x becomes Quit" {
 // path-prompt input widget that's deferred (see
 // docs/effects-journal.md M5.5 non-goals).
 
+// Stage 1 remap (docs/new-keybindings.txt): NewBuffer/NextBuffer/
+// PrevBuffer/CloseBuffer move to Meta-o/Meta-n/Meta-p/Meta-w — dormant
+// until Stage 2's FFI decoder emits real Meta chords, but already
+// resolvable here since resolve_action only cares about the KeyChord.
 test "resolve_action maps the multi-buffer chords via default_bindings" {
   let s0 = init_editor(None)
-  assert(resolve_action(s0, KeyEvent(KShortcut(Ctrl, 'o'))) == NewBuffer)
-  assert(resolve_action(s0, KeyEvent(KShortcut(Ctrl, 'n'))) == NextBuffer)
-  assert(resolve_action(s0, KeyEvent(KShortcut(Ctrl, 'p'))) == PrevBuffer)
-  assert(resolve_action(s0, KeyEvent(KShortcut(Ctrl, 'w'))) == CloseBuffer)
+  assert(resolve_action(s0, KeyEvent(KShortcut(Meta, 'o'))) == NewBuffer)
+  assert(resolve_action(s0, KeyEvent(KShortcut(Meta, 'n'))) == NextBuffer)
+  assert(resolve_action(s0, KeyEvent(KShortcut(Meta, 'p'))) == PrevBuffer)
+  assert(resolve_action(s0, KeyEvent(KShortcut(Meta, 'w'))) == CloseBuffer)
 }
 
 test "NewBuffer opens a fresh scratch buffer and keeps the old one open" {
@@ -316,16 +401,16 @@ test "CloseBuffer on the last remaining buffer is a no-op with a status message"
 
 // ------------------- Save-As / Open prompt (M9) --------------------------
 
-test "resolve_action maps Ctrl-e to OpenFile via default_bindings" {
+test "resolve_action maps Ctrl-o to OpenFile via default_bindings" {
   let s0 = init_editor(None)
-  let a  = resolve_action(s0, KeyEvent(KShortcut(Ctrl, 'e')))
+  let a  = resolve_action(s0, KeyEvent(KShortcut(Ctrl, 'o')))
   assert(a == OpenFile)
 }
 
 test "OpenFile opens an Open prompt with empty text" {
   let s0 = init_editor(None)
   let s1 = apply_action(s0, OpenFile)
-  assert(s1.prompt == OpenPrompt(""))
+  assert(s1.prompt == OpenPrompt("", 0))
 }
 
 test "while a prompt is active, typing resolves to PromptChar not Insert" {
@@ -364,9 +449,9 @@ test "PromptChar/PromptBackspace edit the prompt text without touching the buffe
   let s1 = apply_action(s0, OpenFile)
   let s2 = apply_action(s1, PromptChar('a'))
   let s3 = apply_action(s2, PromptChar('b'))
-  assert(s3.prompt == OpenPrompt("ab"))
+  assert(s3.prompt == OpenPrompt("ab", 2))
   let s4 = apply_action(s3, PromptBackspace)
-  assert(s4.prompt == OpenPrompt("a"))
+  assert(s4.prompt == OpenPrompt("a", 1))
   assert(s4.buffer.lines == [""])
 }
 
@@ -374,7 +459,7 @@ test "PromptBackspace on empty prompt text is a no-op" {
   let s0 = init_editor(None)
   let s1 = apply_action(s0, OpenFile)
   let s2 = apply_action(s1, PromptBackspace)
-  assert(s2.prompt == OpenPrompt(""))
+  assert(s2.prompt == OpenPrompt("", 0))
 }
 
 test "PromptCancel clears the prompt back to NoPrompt, discarding typed text" {
@@ -390,7 +475,59 @@ test "apply_action leaves state untouched for PromptSubmit (handled in event_loo
   let s1 = apply_action(s0, OpenFile)
   let s2 = apply_action(s1, PromptChar('x'))
   let s3 = apply_action(s2, PromptSubmit)
-  assert(s3.prompt == OpenPrompt("x"))
+  assert(s3.prompt == OpenPrompt("x", 1))
+}
+
+// ------------------- Stage 1 prompt cursor movement -----------------------
+
+test "PromptMoveStart/PromptMoveLeft/PromptMoveRight/PromptMoveEnd move the cursor" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, OpenFile)
+  let s2 = apply_action(s1, PromptChar('a'))
+  let s3 = apply_action(s2, PromptChar('b'))
+  let s4 = apply_action(s3, PromptChar('c'))
+  assert(s4.prompt == OpenPrompt("abc", 3))
+  let s5 = apply_action(s4, PromptMoveStart)
+  assert(s5.prompt == OpenPrompt("abc", 0))
+  let s6 = apply_action(s5, PromptMoveRight)
+  assert(s6.prompt == OpenPrompt("abc", 1))
+  let s7 = apply_action(s6, PromptMoveEnd)
+  assert(s7.prompt == OpenPrompt("abc", 3))
+  let s8 = apply_action(s7, PromptMoveLeft)
+  assert(s8.prompt == OpenPrompt("abc", 2))
+}
+
+test "PromptChar inserts at the cursor, not just at the end" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, OpenFile)
+  let s2 = apply_action(s1, PromptChar('a'))
+  let s3 = apply_action(s2, PromptChar('c'))
+  let s4 = apply_action(s3, PromptMoveLeft)
+  let s5 = apply_action(s4, PromptChar('b'))
+  assert(s5.prompt == OpenPrompt("abc", 2))
+}
+
+test "PromptDeleteForward removes the char under the prompt cursor" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, OpenFile)
+  let s2 = apply_action(s1, PromptChar('a'))
+  let s3 = apply_action(s2, PromptChar('b'))
+  let s4 = apply_action(s3, PromptMoveStart)
+  let s5 = apply_action(s4, PromptDeleteForward)
+  assert(s5.prompt == OpenPrompt("b", 0))
+}
+
+test "prompt_kill_text/prompt_truncate kill from the cursor to the end" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, OpenFile)
+  let s2 = apply_action(s1, PromptChar('a'))
+  let s3 = apply_action(s2, PromptChar('b'))
+  let s4 = apply_action(s3, PromptChar('c'))
+  let s5 = apply_action(s4, PromptMoveStart)
+  let s6 = apply_action(s5, PromptMoveRight)
+  assert(prompt_kill_text(s6) == "bc")
+  let s7 = prompt_truncate(s6)
+  assert(s7.prompt == OpenPrompt("a", 1))
 }
 
 // ------------------- Help overlay (M10) -----------------------------------

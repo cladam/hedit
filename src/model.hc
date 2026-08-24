@@ -55,15 +55,20 @@ pub type Action {
   Insert(c: char),
   NewLine,
   DeleteBackward,
+  DeleteForward,
   MoveUp,
   MoveDown,
   MoveLeft,
   MoveRight,
+  MoveLineStart,
+  MoveLineEnd,
   Resize(w: int, h: int),
   Copy,
   Paste,
   Undo,
   Redo,
+  KillLine,
+  KillWordBack,
   NewBuffer,
   NextBuffer,
   PrevBuffer,
@@ -73,6 +78,12 @@ pub type Action {
   PromptBackspace,
   PromptSubmit,
   PromptCancel,
+  PromptMoveStart,
+  PromptMoveEnd,
+  PromptMoveLeft,
+  PromptMoveRight,
+  PromptDeleteForward,
+  PromptKillLine,
   ToggleHelp,
   Ignore
 }
@@ -97,6 +108,12 @@ pub struct KeyChord {
 // Default keybindings — sourced from micro's defaults (Ctrl-q → quit,
 // Ctrl-s → save) but *not* hard-coded into the dispatcher. Every
 // binding here is overridable via HiLisp `(bind …)` in M4.
+// Stage 1 readline-style remap (docs/new-keybindings.txt): `open-file`
+// moves Ctrl-e -> Ctrl-o, `redo` moves Ctrl-y -> Ctrl-r, freeing Ctrl-e/
+// Ctrl-y for line-end/yank. `NewBuffer`/`NextBuffer`/`PrevBuffer`/
+// `CloseBuffer` are pre-bound to Meta-o/Meta-n/Meta-p/Meta-w — dormant
+// until Stage 2's FFI decoder actually emits `KShortcut(Meta, _)`, but
+// harmless to register now since an unreachable chord just never fires.
 pub fun default_bindings() : list<(KeyChord, Action)> =>
   [
     (KeyChord { m: Ctrl, c: 'q' }, Quit),
@@ -104,13 +121,21 @@ pub fun default_bindings() : list<(KeyChord, Action)> =>
     (KeyChord { m: Ctrl, c: 'c' }, Copy),
     (KeyChord { m: Ctrl, c: 'v' }, Paste),
     (KeyChord { m: Ctrl, c: 'z' }, Undo),
-    (KeyChord { m: Ctrl, c: 'y' }, Redo),
-    (KeyChord { m: Ctrl, c: 'o' }, NewBuffer),
-    (KeyChord { m: Ctrl, c: 'n' }, NextBuffer),
-    (KeyChord { m: Ctrl, c: 'p' }, PrevBuffer),
-    (KeyChord { m: Ctrl, c: 'w' }, CloseBuffer),
-    (KeyChord { m: Ctrl, c: 'e' }, OpenFile),
-    (KeyChord { m: Ctrl, c: 'g' }, ToggleHelp)
+    (KeyChord { m: Ctrl, c: 'r' }, Redo),
+    (KeyChord { m: Ctrl, c: 'o' }, OpenFile),
+    (KeyChord { m: Ctrl, c: 'g' }, ToggleHelp),
+    (KeyChord { m: Ctrl, c: 'a' }, MoveLineStart),
+    (KeyChord { m: Ctrl, c: 'e' }, MoveLineEnd),
+    (KeyChord { m: Ctrl, c: 'b' }, MoveLeft),
+    (KeyChord { m: Ctrl, c: 'f' }, MoveRight),
+    (KeyChord { m: Ctrl, c: 'd' }, DeleteForward),
+    (KeyChord { m: Ctrl, c: 'k' }, KillLine),
+    (KeyChord { m: Ctrl, c: 'w' }, KillWordBack),
+    (KeyChord { m: Ctrl, c: 'y' }, Paste),
+    (KeyChord { m: Meta, c: 'o' }, NewBuffer),
+    (KeyChord { m: Meta, c: 'n' }, NextBuffer),
+    (KeyChord { m: Meta, c: 'p' }, PrevBuffer),
+    (KeyChord { m: Meta, c: 'w' }, CloseBuffer)
   ]
 
 // Resolve a `KeyChord` against a bindings map. Unbound chords resolve to
@@ -320,8 +345,8 @@ pub type CursorStyle {
 // prompt text entry and buffer editing never race.
 pub type Prompt {
   NoPrompt,
-  SaveAsPrompt(text: string),
-  OpenPrompt(text: string)
+  SaveAsPrompt(text: string, cursor: int),
+  OpenPrompt(text: string, cursor: int)
 }
 
 // --- constructors ---------------------------------------------------------

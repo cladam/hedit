@@ -118,6 +118,25 @@ pub fun insert_newline(state: EditorState) : EditorState {
   EditorState { ...state, buffer: new_buf }
 }
 
+// Ctrl-a: move the head cursor to column 0 of its current line.
+pub fun move_line_start(state: EditorState) : EditorState {
+  let buf = state.buffer
+  let cur = head_cursor(buf)
+  let new_pos = Position { line: cur.pos.line, col: 0 }
+  let new_cursors = map(buf.cursors, (cc) => Cursor { ...cc, pos: new_pos })
+  EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
+}
+
+// Ctrl-e: move the head cursor to the end of its current line.
+pub fun move_line_end(state: EditorState) : EditorState {
+  let buf      = state.buffer
+  let cur      = head_cursor(buf)
+  let line_len = length(list_get(buf.lines, cur.pos.line, ""))
+  let new_pos  = Position { line: cur.pos.line, col: line_len }
+  let new_cursors = map(buf.cursors, (cc) => Cursor { ...cc, pos: new_pos })
+  EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
+}
+
 // Backspace: delete the char before the cursor on the same line, or — at
 // column 0 — merge the current line into the end of the previous one. A
 // no-op at the very start of the buffer (line 0, col 0).
@@ -145,6 +164,35 @@ pub fun delete_backward(state: EditorState) : EditorState {
     let new_cursors = map(buf.cursors, (cc) =>
       Cursor { ...cc, pos: Position { line: prev_idx, col: merged_col } })
     let new_buf = TextBuffer { ...buf, lines: new_lines, cursors: new_cursors, is_dirty: true }
+    EditorState { ...state, buffer: new_buf }
+  } else {
+    state
+  }
+}
+
+// Ctrl-d: delete the char under the cursor (forward-delete), or — at the
+// end of a non-last line — merge the next line up into this one. Mirrors
+// `delete_backward`'s line-merge but in the opposite direction. A no-op
+// at the very end of the buffer.
+pub fun delete_forward(state: EditorState) : EditorState {
+  let buf      = state.buffer
+  let cur      = head_cursor(buf)
+  let line_idx = cur.pos.line
+  let col      = cur.pos.col
+  let current  = list_get(buf.lines, line_idx, "")
+  let line_len = length(current)
+  if col < line_len {
+    let updated   = current[0:col] + current[col + 1:]
+    let new_lines = list_set(buf.lines, line_idx, updated)
+    let new_buf   = TextBuffer { ...buf, lines: new_lines, is_dirty: true }
+    EditorState { ...state, buffer: new_buf }
+  } else if line_idx < length(buf.lines) - 1 {
+    let next_idx  = line_idx + 1
+    let next      = list_get(buf.lines, next_idx, "")
+    let merged    = current + next
+    let joined    = list_set(buf.lines, line_idx, merged)
+    let new_lines = list_remove_at(joined, next_idx)
+    let new_buf   = TextBuffer { ...buf, lines: new_lines, is_dirty: true }
     EditorState { ...state, buffer: new_buf }
   } else {
     state
@@ -235,6 +283,83 @@ pub fun paste_text(state: EditorState, text: string) : EditorState {
   EditorState { ...state, buffer: new_buf }
 }
 
+// ------------------- kill / yank (Ctrl-k, Ctrl-w) -------------------------
+//
+// Both kill actions reuse the same `Clipboard` sink as `Copy`/`Paste`
+// (event_loop calls `set_selection` with the killed text) — hedit only
+// has one clipboard slot for now, so `Ctrl-y` (yank) is just `Paste`
+// bound to a second chord (see `default_bindings`), not a separate
+// kill-ring. Split into a pure "what gets killed" + "what state looks
+// like after" pair so `event_loop` can hand the text to `set_selection`
+// before applying the truncation, mirroring the `Copy` dispatch.
+
+// Ctrl-k: the text from the cursor to the end of the current line —
+// what gets killed (added to the clipboard) without yet applying it.
+pub fun kill_line_text(state: EditorState) : string {
+  let buf  = state.buffer
+  let cur  = head_cursor(buf)
+  let line = list_get(buf.lines, cur.pos.line, "")
+  line[cur.pos.col:]
+}
+
+// Ctrl-k: truncate the current line at the cursor. Cursor position is
+// already valid at the truncation point, so it doesn't need updating.
+pub fun kill_line(state: EditorState) : EditorState {
+  let buf      = state.buffer
+  let cur      = head_cursor(buf)
+  let line_idx = cur.pos.line
+  let current  = list_get(buf.lines, line_idx, "")
+  let updated  = current[0:cur.pos.col]
+  let new_lines = list_set(buf.lines, line_idx, updated)
+  let new_buf   = TextBuffer { ...buf, lines: new_lines, is_dirty: true }
+  EditorState { ...state, buffer: new_buf }
+}
+
+fun is_space_char(c: char) : bool => c == ' ' || char_to_string(c) == "\t"
+
+// Drop chars off the front of a reversed char list while `pred` holds.
+fun skip_while_rev(chs: list<char>, pred: (char) -> bool) : list<char> =>
+  match chs {
+    []          => [],
+    [x, ..rest] => if pred(x) { skip_while_rev(rest, pred) } else { chs }
+  }
+
+// readline/bash-style Ctrl-w (`unix-word-rubout`): the column one
+// whitespace-delimited word back from `col` — skip trailing whitespace,
+// then skip the trailing run of non-whitespace chars.
+fun word_back_col(line: string, col: int) : int {
+  let prefix   = reverse(chars(line[0:col]))
+  let no_space = skip_while_rev(prefix, is_space_char)
+  let no_word  = skip_while_rev(no_space, (c) => !is_space_char(c))
+  length(no_word)
+}
+
+// Ctrl-w: the word-back text that gets killed, without yet applying it.
+pub fun kill_word_back_text(state: EditorState) : string {
+  let buf     = state.buffer
+  let cur     = head_cursor(buf)
+  let line    = list_get(buf.lines, cur.pos.line, "")
+  let new_col = word_back_col(line, cur.pos.col)
+  line[new_col:cur.pos.col]
+}
+
+// Ctrl-w: remove the whitespace-delimited word before the cursor,
+// moving the cursor to the start of the removed span.
+pub fun delete_word_back(state: EditorState) : EditorState {
+  let buf      = state.buffer
+  let cur      = head_cursor(buf)
+  let line_idx = cur.pos.line
+  let col      = cur.pos.col
+  let line     = list_get(buf.lines, line_idx, "")
+  let new_col  = word_back_col(line, col)
+  let updated  = line[0:new_col] + line[col:]
+  let new_lines   = list_set(buf.lines, line_idx, updated)
+  let new_cursors = map(buf.cursors, (cc) =>
+    Cursor { ...cc, pos: Position { line: line_idx, col: new_col } })
+  let new_buf = TextBuffer { ...buf, lines: new_lines, cursors: new_cursors, is_dirty: true }
+  EditorState { ...state, buffer: new_buf }
+}
+
 // ------------------- multi-buffer navigation (M5.5) ----------------------
 //
 // `EditorState.buffer` is always the active buffer; `background_buffers`
@@ -282,46 +407,129 @@ pub fun close_buffer_action(state: EditorState) : EditorState =>
     [x, ..rest] => EditorState { ...state, buffer: x, background_buffers: rest }
   }
 
-// ------------------- Save-As / Open prompt (M9) --------------------------
+// ------------------- Save-As / Open prompt (M9 + Stage 1 readline) -------
 //
 // A minimal single-line input widget. Only one prompt is ever active at a
 // time (`EditorState.prompt`); `resolve_action` routes every `KeyEvent` to
-// the four Prompt* actions below while a prompt is active, instead of the
+// the Prompt* actions below while a prompt is active, instead of the
 // normal Insert/Enter/Backspace dispatch. Submitting (`PromptSubmit`) needs
 // `<fsys>`, so it stays a no-op here and is handled in `runtime.hc`.
+//
+// `Prompt`'s `cursor` field (Stage 1) is the column within `text` where
+// typing/deletion happens — it lets the readline-style Ctrl-a/e/b/f/d/k
+// chords work inside the prompt the same way they do in the main buffer,
+// instead of only ever appending at the end of the typed text.
 
 // The text typed so far, regardless of which prompt variant is active.
 fun prompt_text(p: Prompt) : string =>
   match p {
-    NoPrompt        => "",
-    SaveAsPrompt(t) => t,
-    OpenPrompt(t)   => t
+    NoPrompt           => "",
+    SaveAsPrompt(t, _) => t,
+    OpenPrompt(t, _)   => t
   }
 
-// Rebuild `p` with new text, preserving its variant. A `NoPrompt` stays
-// `NoPrompt` — there's nothing to type into.
-fun with_prompt_text(p: Prompt, t: string) : Prompt =>
+// The cursor column within the prompt's typed text.
+fun prompt_cursor(p: Prompt) : int =>
   match p {
-    NoPrompt        => NoPrompt,
-    SaveAsPrompt(_) => SaveAsPrompt(t),
-    OpenPrompt(_)   => OpenPrompt(t)
+    NoPrompt           => 0,
+    SaveAsPrompt(_, c) => c,
+    OpenPrompt(_, c)   => c
   }
 
-pub fun prompt_insert_char(state: EditorState, c: char) : EditorState =>
-  EditorState { ...state, prompt: with_prompt_text(state.prompt, prompt_text(state.prompt) + char_to_string(c)) }
+// Rebuild `p` with new text + cursor, preserving its variant. A
+// `NoPrompt` stays `NoPrompt` — there's nothing to type into.
+fun with_prompt(p: Prompt, t: string, c: int) : Prompt =>
+  match p {
+    NoPrompt           => NoPrompt,
+    SaveAsPrompt(_, _) => SaveAsPrompt(t, c),
+    OpenPrompt(_, _)   => OpenPrompt(t, c)
+  }
 
+// Insert `c` at the prompt's cursor column, advancing the cursor by one.
+pub fun prompt_insert_char(state: EditorState, c: char) : EditorState {
+  let p   = state.prompt
+  let t   = prompt_text(p)
+  let col = prompt_cursor(p)
+  let new_t = t[0:col] + char_to_string(c) + t[col:]
+  EditorState { ...state, prompt: with_prompt(p, new_t, col + 1) }
+}
+
+// Delete the char before the prompt's cursor. No-op at column 0.
 pub fun prompt_backspace(state: EditorState) : EditorState {
-  let t     = prompt_text(state.prompt)
-  let new_t = if length(t) > 0 { t[0:length(t) - 1] } else { t }
-  EditorState { ...state, prompt: with_prompt_text(state.prompt, new_t) }
+  let p   = state.prompt
+  let t   = prompt_text(p)
+  let col = prompt_cursor(p)
+  if col > 0 {
+    let new_t = t[0:col - 1] + t[col:]
+    EditorState { ...state, prompt: with_prompt(p, new_t, col - 1) }
+  } else {
+    state
+  }
 }
 
 pub fun prompt_cancel(state: EditorState) : EditorState =>
   EditorState { ...state, prompt: NoPrompt }
 
-// `Ctrl-e` (default binding): open the "open file" prompt with empty text.
+// Ctrl-a inside a prompt: move the cursor to column 0.
+pub fun prompt_move_start(state: EditorState) : EditorState {
+  let p = state.prompt
+  EditorState { ...state, prompt: with_prompt(p, prompt_text(p), 0) }
+}
+
+// Ctrl-e inside a prompt: move the cursor to the end of the typed text.
+pub fun prompt_move_end(state: EditorState) : EditorState {
+  let p = state.prompt
+  let t = prompt_text(p)
+  EditorState { ...state, prompt: with_prompt(p, t, length(t)) }
+}
+
+// Ctrl-b inside a prompt: move the cursor left one column.
+pub fun prompt_move_left(state: EditorState) : EditorState {
+  let p   = state.prompt
+  let col = prompt_cursor(p)
+  EditorState { ...state, prompt: with_prompt(p, prompt_text(p), max(col - 1, 0)) }
+}
+
+// Ctrl-f inside a prompt: move the cursor right one column.
+pub fun prompt_move_right(state: EditorState) : EditorState {
+  let p   = state.prompt
+  let t   = prompt_text(p)
+  let col = prompt_cursor(p)
+  EditorState { ...state, prompt: with_prompt(p, t, min(col + 1, length(t))) }
+}
+
+// Ctrl-d inside a prompt: delete the char under the cursor. No-op at
+// the end of the typed text.
+pub fun prompt_delete_forward(state: EditorState) : EditorState {
+  let p   = state.prompt
+  let t   = prompt_text(p)
+  let col = prompt_cursor(p)
+  if col < length(t) {
+    let new_t = t[0:col] + t[col + 1:]
+    EditorState { ...state, prompt: with_prompt(p, new_t, col) }
+  } else {
+    state
+  }
+}
+
+// Ctrl-k inside a prompt: the text from the cursor to the end — what
+// gets killed (added to the clipboard) without yet applying it.
+pub fun prompt_kill_text(state: EditorState) : string {
+  let p = state.prompt
+  prompt_text(p)[prompt_cursor(p):]
+}
+
+// Ctrl-k inside a prompt: truncate the typed text at the cursor.
+pub fun prompt_truncate(state: EditorState) : EditorState {
+  let p   = state.prompt
+  let t   = prompt_text(p)
+  let col = prompt_cursor(p)
+  EditorState { ...state, prompt: with_prompt(p, t[0:col], col) }
+}
+
+// `Ctrl-o` (default binding): open the "open file" prompt with empty text.
 pub fun open_file_prompt(state: EditorState) : EditorState =>
-  EditorState { ...state, prompt: OpenPrompt("") }
+  EditorState { ...state, prompt: OpenPrompt("", 0) }
 
 // ------------------- Event → Action resolution ---------------------------
 
@@ -336,6 +544,11 @@ pub fun open_file_prompt(state: EditorState) : EditorState =>
 // it as an ordinary ignored shortcut would spin `event_loop` forever
 // re-reading EOF instead of exiting. `ResizeEvent` still resizes so a
 // terminal resize while typing a filename doesn't get swallowed.
+//
+// Stage 1 (docs/new-keybindings.txt): the same readline cursor/kill
+// chords bound in the main buffer (Ctrl-a/e/b/f/d/k) also work while a
+// prompt is active, routed to their Prompt* counterparts instead of the
+// TextBuffer ones.
 fun resolve_prompt_action(evt: Event) : Action =>
   match evt {
     KeyEvent(KChar(c))            => PromptChar(c),
@@ -343,6 +556,12 @@ fun resolve_prompt_action(evt: Event) : Action =>
     KeyEvent(KSpecial(Backspace)) => PromptBackspace,
     KeyEvent(KSpecial(Esc))       => PromptCancel,
     KeyEvent(KShortcut(Ctrl, 'q')) => Quit,
+    KeyEvent(KShortcut(Ctrl, 'a')) => PromptMoveStart,
+    KeyEvent(KShortcut(Ctrl, 'e')) => PromptMoveEnd,
+    KeyEvent(KShortcut(Ctrl, 'b')) => PromptMoveLeft,
+    KeyEvent(KShortcut(Ctrl, 'f')) => PromptMoveRight,
+    KeyEvent(KShortcut(Ctrl, 'd')) => PromptDeleteForward,
+    KeyEvent(KShortcut(Ctrl, 'k')) => PromptKillLine,
     ResizeEvent(w, h)             => Resize(w, h),
     _                             => Ignore
   }
@@ -407,16 +626,21 @@ pub fun apply_action(state: EditorState, action: Action) : EditorState =>
     Insert(c)    => insert_char(state, c),
     NewLine        => insert_newline(state),
     DeleteBackward => delete_backward(state),
+    DeleteForward  => delete_forward(state),
     MoveUp         => move_up(state),
     MoveDown     => move_down(state),
     MoveLeft     => move_left(state),
     MoveRight    => move_right(state),
+    MoveLineStart => move_line_start(state),
+    MoveLineEnd   => move_line_end(state),
     Resize(w, h) => EditorState { ...state, screen_size: (w, h) },
     Save         => state, // handled in event_loop; no-op here for purity
     Copy         => state, // handled in event_loop; needs <Clipboard>
     Paste        => state, // handled in event_loop; needs <Clipboard>
     Undo         => state, // handled in event_loop; needs <Buffer>
     Redo         => state, // handled in event_loop; needs <Buffer>
+    KillLine       => state, // handled in event_loop; needs <Clipboard>
+    KillWordBack   => state, // handled in event_loop; needs <Clipboard>
     NewBuffer    => new_buffer_action(state),
     NextBuffer   => cycle_next_buffer(state),
     PrevBuffer   => cycle_prev_buffer(state),
@@ -426,6 +650,12 @@ pub fun apply_action(state: EditorState, action: Action) : EditorState =>
     PromptBackspace => prompt_backspace(state),
     PromptCancel    => prompt_cancel(state),
     PromptSubmit    => state, // handled in event_loop; needs <fsys>
+    PromptMoveStart     => prompt_move_start(state),
+    PromptMoveEnd       => prompt_move_end(state),
+    PromptMoveLeft      => prompt_move_left(state),
+    PromptMoveRight     => prompt_move_right(state),
+    PromptDeleteForward => prompt_delete_forward(state),
+    PromptKillLine      => state, // handled in event_loop; needs <Clipboard>
     ToggleHelp      => EditorState { ...state, show_help: !state.show_help },
     Ignore       => state
   }

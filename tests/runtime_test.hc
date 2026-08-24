@@ -339,11 +339,15 @@ test "HiLisp (bind Ctrl-x 'quit) rewires the quit chord end-to-end" {
 
 // ------------------- M5.5: multi-buffer navigation through event_loop --
 
-// Ctrl-o (new), Ctrl-n / Ctrl-p (cycle), Ctrl-w (close) all reach
+// Meta-o (new), Meta-n / Meta-p (cycle), Meta-w (close) all reach
 // `apply_action` through the same resolve_action/event_loop pipeline as
 // every other default binding — no special-casing in event_loop, since
-// these are all pure `Action`s (see src/actions.hc).
-test "Ctrl-o opens a new buffer, Ctrl-n cycles back to the original" {
+// these are all pure `Action`s (see src/actions.hc). Stage 1 remap
+// (docs/new-keybindings.txt) moved these off Ctrl-o/n/p/w to make room
+// for the new readline chords; the Meta chords are dormant until
+// Stage 2's FFI decoder emits real `KShortcut(Meta, _)` events, but
+// resolve_action doesn't care how the event was produced.
+test "Meta-o opens a new buffer, Meta-n cycles back to the original" {
   let final: EditorState = handle Terminal {
     poll_event() => match events {
       []          => KeyEvent(KShortcut(Ctrl, 'q')),
@@ -354,9 +358,9 @@ test "Ctrl-o opens a new buffer, Ctrl-n cycles back to the original" {
     set_cursor_style(_s) => ()
   } with var events = [
     KeyEvent(KChar('a')),
-    KeyEvent(KShortcut(Ctrl, 'o')), // open a fresh scratch buffer
+    KeyEvent(KShortcut(Meta, 'o')), // open a fresh scratch buffer
     KeyEvent(KChar('b')),
-    KeyEvent(KShortcut(Ctrl, 'n')), // cycle forward — wraps to buffer "a"
+    KeyEvent(KShortcut(Meta, 'n')), // cycle forward — wraps to buffer "a"
     KeyEvent(KShortcut(Ctrl, 'q'))
   ] in {
     event_loop(init_editor(None))
@@ -365,7 +369,7 @@ test "Ctrl-o opens a new buffer, Ctrl-n cycles back to the original" {
   assert(length(final.background_buffers) == 1)
 }
 
-test "Ctrl-w closes the active buffer and promotes the other one" {
+test "Meta-w closes the active buffer and promotes the other one" {
   let final: EditorState = handle Terminal {
     poll_event() => match events {
       []          => KeyEvent(KShortcut(Ctrl, 'q')),
@@ -376,9 +380,9 @@ test "Ctrl-w closes the active buffer and promotes the other one" {
     set_cursor_style(_s) => ()
   } with var events = [
     KeyEvent(KChar('a')),
-    KeyEvent(KShortcut(Ctrl, 'o')), // buffer "b" is now active, "a" backgrounded
+    KeyEvent(KShortcut(Meta, 'o')), // buffer "b" is now active, "a" backgrounded
     KeyEvent(KChar('b')),
-    KeyEvent(KShortcut(Ctrl, 'w')), // close "b" — "a" is promoted
+    KeyEvent(KShortcut(Meta, 'w')), // close "b" — "a" is promoted
     KeyEvent(KShortcut(Ctrl, 'q'))
   ] in {
     event_loop(init_editor(None))
@@ -451,17 +455,18 @@ test "Esc cancels a Save-As prompt without writing anything" {
   assert(!was_written)
 }
 
-// Ctrl-e opens an Open prompt; typing an existing path and Enter loads
-// its real content into a new buffer, backgrounding the current one —
-// same shape as Ctrl-o's NewBuffer.
-test "ctrl-e opens an Open prompt; typing a path + Enter loads a new buffer" {
+// Ctrl-o opens an Open prompt (Stage 1 remap, docs/new-keybindings.txt);
+// typing an existing path and Enter loads its real content into a new
+// buffer, backgrounding the current one — same shape as Meta-o's
+// NewBuffer.
+test "ctrl-o opens an Open prompt; typing a path + Enter loads a new buffer" {
   let src_path = "/tmp/hedit_test_m9_open_src.txt"
   let write_result = write_file(src_path, "line1\nline2\n")
   assert(write_result == Ok(()))
   let path_events = map(chars(src_path), (c) => KeyEvent(KChar(c)))
   let events = [
     KeyEvent(KChar('a')), // original scratch buffer has content
-    KeyEvent(KShortcut(Ctrl, 'e'))       // opens OpenPrompt("")
+    KeyEvent(KShortcut(Ctrl, 'o'))       // opens OpenPrompt("")
   ] + path_events + [
     KeyEvent(KSpecial(Enter)), // submits — loads the file
     KeyEvent(KShortcut(Ctrl, 'q'))
