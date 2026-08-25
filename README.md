@@ -35,7 +35,7 @@ with `hedit` (see `hica.hml`).
 
 (bind "Ctrl-s" 'save)
 (bind "Ctrl-q" 'quit)
-(bind "Ctrl-w" 'close-buffer)
+(bind "Meta-w" 'close-buffer)
 ```
 
 Config discovery order (first hit wins):
@@ -82,9 +82,19 @@ hica build            # compile to ./hedit
 ./hedit somefile.txt  # open a real file
 ```
 
-Default keybindings (overridable from `init.hl` — see above):
-Ctrl-s save, Ctrl-c/Ctrl-v copy/paste, Ctrl-z/Ctrl-y undo/redo,
-Ctrl-o/n/p/w new/next/prev/close buffer, Ctrl-q quit.
+Default keybindings (overridable from `init.hl` — see above). Full
+reference with every chord: [`docs/hedit-defaultkeys.md`](docs/hedit-defaultkeys.md)
+(or press `Ctrl-g`/`Meta-h` inside hedit for a live overlay).
+
+- File: `Ctrl-s` save, `Ctrl-o` open-file prompt, `Ctrl-q` quit
+- Readline-style editing: `Ctrl-a`/`Ctrl-e` line start/end, `Ctrl-b`/`Ctrl-f`
+  left/right, `Ctrl-d` delete-forward, `Ctrl-k` kill-line, `Ctrl-w`
+  kill-word-back, `Meta-f`/`Meta-b` word forward/back, `Meta-d`
+  kill-word-forward, `Meta-l` kill-whole-line
+- Clipboard & history: `Ctrl-c`/`Ctrl-v` copy/paste, `Ctrl-y` yank
+  (same clipboard slot as paste), `Ctrl-z` undo, `Ctrl-r` redo
+- Buffers: `Meta-o`/`Meta-n`/`Meta-p`/`Meta-w` new/next/prev/close buffer
+- Help: `Ctrl-g`/`Meta-h` toggle the keybindings overlay
 
 ### Command-line flags (M8)
 
@@ -214,6 +224,16 @@ hica clean   # remove generated files
       actions + 6 render + 22 hilisp_host + 13 model + 16 runtime + 4
       config_loader + 8 keys + 19 cli + 4 spawn. See
       `docs/effects-journal.md`'s Milestone M10 section.
+- ✅ **Readline/Meta keybinding rework** — remapped `open-file` to
+      `Ctrl-o` and `redo` to `Ctrl-r`, freeing `Ctrl-e`/`Ctrl-y` for a
+      full set of bash/readline-style chords (`Ctrl-a/e/b/f/d/k/w`),
+      which also work inside the Save-As/Open prompt via cursor-aware
+      `Prompt*` actions. `term_ffi_inline.c` now decodes a bare
+      `ESC`+char as `KShortcut(Meta, _)` (most terminals'
+      "metaSendsEscape" for Alt), so buffer-ring navigation moved to
+      `Meta-o/n/p/w`, `Meta-h` mirrors `Ctrl-g`, and `Meta-f/b/d/l`
+      add word-level motion/kill. Full chart:
+      [`docs/hedit-defaultkeys.md`](docs/hedit-defaultkeys.md).
 
 
 
