@@ -56,7 +56,7 @@ Using standard `curl`:
 curl -fsSL https://github.com/cladam/hedit/releases/latest/download/install.sh | sh
 ```
 
-Or install hedit using `hicurl`:
+Or install hedit using [`hicurl`](https://github.com/cladam/hicurl):
 
 ```sh
 hicurl https://github.com/cladam/hedit/releases/latest/download/install.sh | sh
