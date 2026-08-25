@@ -475,7 +475,7 @@ If neither exists, `hedit` runs with hard-coded defaults and no user script is e
 
 HiLisp is the sole language for both **configuration** and **plugins** in `hedit` — there is no second scripting layer planned. Configuration files, keybindings, and (in later milestones) plugins are all authored as `.hl` files evaluated by the same embedded HiLisp interpreter.
 
-The initial scripting scope is deliberately narrow: **settings + keybindings.** Plugin discovery, event hooks, and dynamic buffer manipulation are explicitly out of scope for v1 and slated for a follow-up milestone (see §7.9), but they will land as additional HiLisp built-ins on the same interpreter — not as a separate plugin system.
+The initial scripting scope was deliberately narrow at launch: **settings + keybindings**, with plugin loading, event hooks, and buffer introspection landing later as additional HiLisp built-ins on the same interpreter (see §7.9, Milestone M11) — not as a separate plugin system.
 
 ```lisp
 ;; ~/.config/hedit/init.hl — v1 example
@@ -529,30 +529,61 @@ config file.
 - **Unit:** parse & eval a fixture `init.hl` against an in-memory `env` handler, assert the resulting `ConfigState`.
 - **Integration:** run the existing headless handler stack (§4.2) with a config that rebinds `Ctrl-x` to `save`; feed a synthetic `Ctrl-x` and assert the file-written mock triggered.
 
-### 7.9 Deferred (v2+)
+### 7.9 Plugin System (M11)
 
-Everything in this section is planned to be written **in HiLisp** — the same
-language users already touch for config. There is no separate plugin runtime.
+hedit's plugin system is modelled directly on
+[micro's](https://github.com/micro-editor/micro) — see
+[`help/plugins.md`](https://github.com/micro-editor/micro/blob/master/runtime/help/plugins.md)
+and the bundled examples under
+[`runtime/plugins/`](https://github.com/micro-editor/micro/tree/master/runtime/plugins) —
+with the Lua runtime replaced by HiLisp everywhere micro would reach
+for a Lua callback or host package. There is still no second embedded
+runtime: a plugin is just another `.hl` file evaluated by the same
+`HilispHost` that already evaluates `init.hl`.
 
-Explicitly not in v1:
+**What carries over from micro, and what doesn't:**
 
-- **Plugin discovery.** `~/.config/hedit/plug/*/plugin.hl` files auto-loaded
-  after `init.hl`, each plugin being an ordinary HiLisp file with access to the
-  same built-ins plus the expanded API below.
-- **Event hooks.** `(on 'buffer-open  (fn [buf] …))`,
-  `(on 'pre-insert-char (fn [ch buf] …))`,
-  `(on 'save (fn [buf] …))`, `(on 'quit (fn [] …))` — registered from HiLisp,
-  fired by the hedit event loop.
-- **Buffer introspection & mutation from HiLisp.** Built-ins such as
-  `(current-buffer)`, `(insert-text s)`, `(replace-line n s)`, `(cursor-pos)`,
-  `(set-cursor line col)` letting plugins drive the editor.
-- **Runtime `:eval` command** inside the editor — a mini-REPL that evaluates a
-  HiLisp expression against the live env, useful for plugin authors.
+| micro concept | hedit v1 equivalent |
+|---|---|
+| Plugin folder auto-scanned from `~/.config/micro/plug/*` | **Explicit opt-in.** `init.hl` lists plugins by name: `(plugin "greeter")`. hedit resolves `<config-root>/plug/<name>/plugin.hl` and evaluates it into the same `Env` `init.hl` used — no directory listing needed (see below for why). |
+| Lifecycle callbacks (`init`, `onBufferOpen`, `onAction`/`preAction`, `deinit`, …) | `(on 'event-name (fn […] …))` — a hook registry builtin. Five v1 events: `buffer-open`, `pre-save`, `post-save`, `pre-action`, `quit`. |
+| `preAction(bp)` returns bool to cancel | `pre-action`/`pre-save` hooks use the same convention: any hook returning `false` cancels the pending action/save. |
+| `micro.InfoBar():Message(...)`, `buffer.Log(...)` host functions | **Return-value-as-status convention** instead of a new builtin: if a hook returns a string, hedit shows it as the next status-bar message. |
+| `micro.CurPane()`, `buffer.NewBuffer(...)`, full buffer mutation API | **Not in v1.** Hooks are pure observers — they receive data (`path`, `action-name`) as arguments and communicate back only via the status-message convention. Two-way buffer mutation from HiLisp is deferred (see below). |
+| `config.MakeCommand(...)` (plugins add new commands) | **Not in v1.** `Action` stays a closed, exhaustively-matched enum on the hedit side; plugins can only rebind existing actions via `(bind …)` and observe/cancel via `(on 'pre-action …)`. |
+| Plugin manager (`channels`, `repo.json`, `> plugin install`) | **Out of scope indefinitely.** No remote install story; plugins are files the user places by hand. |
 
-These land once §7.5 has been in daily use long enough to feel stable. Because
-plugins are HiLisp, adding them is largely a matter of exposing more hedit
-built-ins on the existing `HilispHost` — no new language, no new build step,
-no second embedded runtime.
+**Why explicit opt-in instead of directory auto-scan:** hedit's HiLisp
+bridge has only ever needed `read_file`/`write_file`/`get_env`/
+`get_args` from `hica`'s stdlib — no directory-listing builtin exists
+yet. Rather than block M11 on that (or add one speculatively), `init.hl`
+declares the plugins it wants by name, and hedit resolves each to a
+concrete path the same way it already resolves `init.hl` itself (§7.4's
+XDG/HOME candidate search, one level deeper: `plug/<name>/plugin.hl`).
+This also means nothing executes just because a file exists in a
+folder — a deliberately more conservative default than micro's.
+
+**Error isolation:** unlike `init.hl` (which aborts config loading on
+the first error), a broken `plugin.hl` is caught, surfaced as a
+one-line status message naming the plugin, and skipped — it does not
+stop other plugins or the rest of startup.
+
+**Example plugin** (`plug/greeter/plugin.hl`):
+
+```lisp
+;; Shows a welcome message the first time any buffer is opened.
+(on 'buffer-open (fn (path) "Welcome to hedit!"))
+```
+
+```lisp
+;; init.hl
+(plugin "greeter")
+```
+
+See `docs/effects-journal.md`'s Milestone M11 for the full plan, the
+hook-firing points inside `event_loop`, and what's explicitly deferred
+(directory auto-discovery, a plugin manager, buffer mutation, new
+actions from plugins, syntax-highlighting hooks).
 
 ---
 
