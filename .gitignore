@@ -8,6 +8,9 @@ docs/micro-defaultkeys.md
 docs/learning-map.md
 docs/bash-navigation.md
 docs/micro-cheatsheet.md
+docs/hedit-design.md
+docs/hedit-defaultkeys.md
+docs/notes.md
 
 src/*
 !src/*.hc
