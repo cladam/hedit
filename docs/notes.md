@@ -15,29 +15,50 @@ actions. Nothing is hard-coded in the dispatcher — the defaults live in
 `src/model.hc::default_bindings()` and can be replaced from HiLisp (M4)
 via `(bind "Ctrl-x" 'save)`.
 
-### Current default bindings (M10)
+### Current default bindings (M10.6 — readline-style remap)
 
 | Chord    | Action | Notes |
 |----------|--------|-------|
 | `Ctrl-q` | `quit`  | Sets `should_quit`; event loop terminates. |
 | `Ctrl-s` | `save`  | Writes buffer to disk, or opens a Save-As prompt for a pathless buffer (M9). |
+| `Ctrl-o` | `open-file`    | Opens a prompt to load an existing file into a new buffer (M9). Moved here from `new-buffer` in M10.6 — see note below. |
 | `Ctrl-c` | `copy`  | Copies the head cursor's current line into the clipboard. |
 | `Ctrl-v` | `paste` | Appends the clipboard content at the end of the head cursor's line. |
+| `Ctrl-y` | `paste` | Yank — same clipboard slot as `Ctrl-v` (M10.6). |
 | `Ctrl-z` | `undo`  | Restores the buffer to its last snapshot. |
-| `Ctrl-y` | `redo`  | Re-applies the most recently undone snapshot. |
-| `Ctrl-o` | `new-buffer`   | Opens a fresh in-memory scratch buffer and makes it active. |
-| `Ctrl-n` | `next-buffer`  | Cycles to the next open buffer (wraps around). |
-| `Ctrl-p` | `prev-buffer`  | Cycles to the previous open buffer (wraps around). |
-| `Ctrl-w` | `close-buffer` | Closes the active buffer; refuses to close the last one. |
-| `Ctrl-e` | `open-file`    | Opens a prompt to load an existing file into a new buffer (M9). |
+| `Ctrl-r` | `redo`  | Re-applies the most recently undone snapshot. Moved here from `Ctrl-y` in M10.6. |
+| `Ctrl-a` | `move-line-start` | Readline-style motion (M10.6). |
+| `Ctrl-e` | `move-line-end`   | Readline-style motion (M10.6). Was `open-file` before M10.6 — see note below. |
+| `Ctrl-b` / `Ctrl-f` | `move-left` / `move-right` | Duplicates of the arrow keys (M10.6). |
+| `Ctrl-d` | `delete-forward` | Delete the char under the cursor (M10.6). |
+| `Ctrl-k` | `kill-line` | Kill from the cursor to end of line (M10.6). |
+| `Ctrl-w` | `kill-word-back` | Kill the word before the cursor (M10.6). Was `close-buffer` before M10.6 — see note below. |
 | `Ctrl-g` | `toggle-help`  | Shows/hides the full-screen keybindings overlay (M10). |
+| `Meta-o` | `new-buffer`   | Opens a fresh in-memory scratch buffer and makes it active. Moved here from `Ctrl-o` in M10.6. |
+| `Meta-n` | `next-buffer`  | Cycles to the next open buffer (wraps around). |
+| `Meta-p` | `prev-buffer`  | Cycles to the previous open buffer (wraps around). |
+| `Meta-w` | `close-buffer` | Closes the active buffer; refuses to close the last one. Moved here from `Ctrl-w` in M10.6. |
+| `Meta-h` | `toggle-help`  | Same action as `Ctrl-g`. |
+| `Meta-f` / `Meta-b` | `move-word-forward` / `move-word-back` | Word motion (M10.6). |
+| `Meta-d` | `kill-word-forward` | Kill the word after the cursor (M10.6). |
+| `Meta-l` | `kill-whole-line` | Kill the entire current line (M10.6). |
+
+**Binding remap note (M10.6):** if your `init.hl` has a custom
+`(bind "Ctrl-o" …)`, `(bind "Ctrl-e" …)`, `(bind "Ctrl-w" …)`, or
+`(bind "Ctrl-y" …)` from before M10.6, it now shadows a *different*
+default action than it used to (the table above shows the new
+defaults) — worth double-checking after upgrading.
 
 Typing any printable character routes to `insert` automatically — you
 don't (and can't) bind `a`, `b`, `c`, … Those aren't chord bindings.
 
-Unbound shortcuts (e.g. `Ctrl-x` today) resolve to the `Ignore` action —
-they are silently no-ops rather than errors, so a stale binding in your
-`init.hl` won't wedge the editor.
+Unbound shortcuts resolve to the `Ignore` action — they are silently
+no-ops rather than errors, so a stale binding in your `init.hl` won't
+wedge the editor.
+
+`Meta-*` chords require the terminal to send a bare `ESC` immediately
+followed by the character (most terminals' "metaSendsEscape" mode,
+on by default) — see `src/term_ffi_inline.c` / `src/keys.hc::decode_key`.
 
 
 ### M4 (landed): HiLisp `(set …)` / `(bind …)` in `init.hl`
@@ -142,21 +163,22 @@ stacks of `TextBuffer` snapshots. Behaviour:
 
 ---
 
-## Multi-buffer navigation (Ctrl-o / Ctrl-n / Ctrl-p / Ctrl-w)
+## Multi-buffer navigation (Meta-o / Meta-n / Meta-p / Meta-w)
 
 M5.5 lets hedit hold more than one open buffer. `EditorState.buffer` is
 always the *active* buffer; `EditorState.background_buffers` holds the
 rest as a rotation ring (see `docs/hedit-design.md` §10 for the shape).
+These chords moved from `Ctrl-*` to `Meta-*` in M10.6 to make room for
+the readline-style `Ctrl-*` motions below — see the Keybindings table.
 
-- **`Ctrl-o` (new-buffer)** backgrounds the current buffer and opens a
+- **`Meta-o` (new-buffer)** backgrounds the current buffer and opens a
   fresh, empty, unnamed scratch buffer as the new active one. This is
-  an **in-memory** buffer only — there's no way yet to open an existing
-  file from disk (`OpenFile(path)` needs a command/path-prompt input
-  widget that doesn't exist).
-- **`Ctrl-n` / `Ctrl-p` (next-buffer / prev-buffer)** rotate through
+  an **in-memory** buffer only — use `Ctrl-o` (`open-file`, M9) to load
+  an existing file from disk instead.
+- **`Meta-n` / `Meta-p` (next-buffer / prev-buffer)** rotate through
   every open buffer, wrapping at both ends. With only one buffer open,
   both are no-ops.
-- **`Ctrl-w` (close-buffer)** closes the active buffer and promotes the
+- **`Meta-w` (close-buffer)** closes the active buffer and promotes the
   next one in the ring. Refuses (with a `"Can't close the last
   buffer"` status message) if it's the only buffer open — hedit always
   keeps at least one buffer open.
@@ -197,19 +219,22 @@ growing hedit into a full command palette.
   on success so subsequent `Ctrl-s` saves go straight to disk. `Esc`
   cancels, discarding the typed text and leaving the buffer exactly as
   it was (nothing is written).
-- **`Ctrl-e` (`open-file`)** opens `Open: ` — type a path to an
+- **`Ctrl-o` (`open-file`)** opens `Open: ` — type a path to an
   *existing* file and press `Enter` to load it into a **new** buffer,
-  backgrounding the current one (same shape as `Ctrl-o`'s `new-buffer`).
+  backgrounding the current one (same shape as `Meta-o`'s `new-buffer`).
   A missing/unreadable path surfaces the same `"Could not open …"`
   status `load_buffer` (M6) already produces for the CLI `[file]`
-  positional.
-- **While a prompt is active**, every keystroke edits the prompt text
-  instead of the buffer — normal Insert/Enter/Backspace/arrow dispatch
-  is suspended. `Ctrl-q` is the one exception: it still quits
-  immediately even mid-prompt, matching the synthetic "stdin closed"
-  event and avoiding a stuck prompt if the terminal session ends.
+  positional. (`open-file` moved from `Ctrl-e` to `Ctrl-o` in M10.6 to
+  free `Ctrl-e` for the readline `move-line-end` motion.)
+- **While a prompt is active**, printable keys edit the prompt text
+  instead of the buffer; `Ctrl-a/e/b/f` move within the prompt text and
+  `Ctrl-k`/`Ctrl-d` kill-to-end/delete-forward inside it too (M10.6),
+  mirroring the normal-mode readline motions. `Ctrl-q` is the one
+  exception to "prompt steals every key": it still quits immediately
+  even mid-prompt, matching the synthetic "stdin closed" event and
+  avoiding a stuck prompt if the terminal session ends.
 - **Rebindable.** `open-file` is a normal `Action` symbol, so
-  `(bind "Ctrl-e" 'open-file)` in `init.hl` moves it like any other
+  `(bind "Ctrl-o" 'open-file)` in `init.hl` moves it like any other
   chord (see the Keybindings table above).
 - **Non-goals:** filename tab-completion, directory browsing, and
   overwrite confirmation on an existing path are all deliberately out
@@ -311,22 +336,33 @@ ARGS:
 
 ## Known limitations
 
-Small stuff we've deliberately deferred; each one is fine for the M2/M3
-scope but flagged here so no-one is surprised.
+Small stuff we've deliberately deferred; flagged here so no-one is
+surprised. (Updated 2026-08-25, pre-M11 review — several M2/M3-era
+entries below were stale and have been resolved or corrected.)
 
 - **Render truncation is byte-oriented.** `render.hc::fit_to_width` uses
   `s[0:w]`, which slices by *byte* offset. Any multi-byte UTF-8 codepoint
   (é, →, 🙂, …) that straddles the width boundary will either corrupt or
   crash the render. hedit is ASCII-only in practice until we add a
   codepoint-safe slice (either in the hica stdlib or as a hedit helper).
-- **Only one line + one cursor.** `insert_char` appends to the active
-  line's end regardless of column. Multi-cursor and mid-line insertion
-  are on the M5+ list.
-- **No file open flow yet.** `write_file` on `Ctrl-s` works because the
-  design lets you construct an `EditorState` with a path via
-  `init_editor(Some(path))`. Opening a file from the command line / a
-  key chord lands with M4 or M5.
-- **Native handler is a stub.** `src/main.hc` runs one iteration and
-  quits (canned `Ctrl-q`), and `render_frame` dumps `ScreenBuffer.lines`
-  line-by-line with no ANSI positioning. A real terminal driver lands
-  after the effect scaffolding stabilises.
+  Still open.
+- **No multi-cursor support.** Cursor-aware, mid-line editing (insert,
+  delete, arrow motion) has been in since the M7 revisit; there is
+  still only ever one cursor per buffer, not several. Still open, no
+  milestone currently planned for it.
+- **Per-buffer undo/redo isolation.** Switching buffers doesn't swap in
+  a separate undo/redo history — see the Undo/Redo section above and
+  `docs/effects-journal.md`'s M5.5 non-goals. Still open.
+- **Tabline order isn't stable across cycling.** The active buffer is
+  always listed first, so `Ctrl-n`/`Ctrl-p`/`Meta-n`/`Meta-p` visibly
+  reshuffle tab order instead of just moving a highlight. Cosmetic,
+  still open.
+- **`set_cursor_style` is a no-op.** No ANSI cursor-shape escape is
+  sent; the terminal's default cursor shape is used throughout. Still
+  open, low priority.
+
+**Resolved since this section was last written** (kept here briefly so
+the history isn't lost): file loading from the CLI/a running session
+(M6, M9), the native terminal handler (M7), and vertical scrolling for
+buffers taller than the viewport (M10.5, a bottom-anchored formula in
+`render.hc::scroll_offset`).
