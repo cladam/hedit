@@ -1,12 +1,9 @@
-// types.hc — user input & event types for hedit.
-//
-// These mirror section 2.1 of docs/hedit-design.md but without the algebraic
-// `effect` blocks (hica has no user-defined effects yet). Once the compiler
-// ships effects we'll layer `effect terminal` on top of these types.
-//
-// Naming: hica requires user-defined types to be PascalCase.
+/// User input & event types for hedit (mirrors section 2.1 of
+/// docs/hedit-design.md). These are the plain payload types carried by
+/// the `Terminal` effect declared in runtime.hc; kept effect-free here
+/// so `decode_key` stays pure and unit-testable without a real tty.
 
-// Modifier keys that can be combined with a base char (Ctrl-s, Alt-x, ...).
+/// A modifier key that can be combined with a base char (Ctrl-s, Alt-x, ...).
 pub type Modifier {
   Ctrl,
   Alt,
@@ -14,7 +11,7 @@ pub type Modifier {
   Shift
 }
 
-// Non-printable keys that don't map to a single `char`.
+/// A non-printable key that doesn't map to a single `char`.
 pub type SpecialKey {
   Enter,
   Backspace,
@@ -26,14 +23,14 @@ pub type SpecialKey {
   ArrowRight
 }
 
-// A single keypress the terminal handler delivers to us.
+/// A single keypress the terminal handler delivers to us.
 pub type Key {
   KChar(c: char),
   KSpecial(k: SpecialKey),
   KShortcut(m: Modifier, c: char)
 }
 
-// Mouse button / wheel actions.
+/// A mouse button / wheel action.
 pub type MouseAction {
   Press,
   Release,
@@ -42,7 +39,7 @@ pub type MouseAction {
   ScrollDown
 }
 
-// Anything the outside world can deliver into the editor's event loop.
+/// Anything the outside world can deliver into the editor's event loop.
 pub type Event {
   KeyEvent(k: Key),
   MouseEvent(a: MouseAction, x: int, y: int),
@@ -50,15 +47,14 @@ pub type Event {
   Tick
 }
 
-// M7: decode a raw key code from the native `Terminal` handler
-// (`term_ffi.hedit_read_key`'s contract — see src/term_ffi.kk) into an
-// `Event`. Kept pure and unit-tested (tests/keys_test.hc) without
-// needing a real tty: the C FFI already assembles escape sequences into
-// the synthetic 1001-1004 arrow codes, decodes multi-byte UTF-8 input
-// (åäö etc.) into a single Unicode codepoint, and returns -2 on a read
-// timeout (no key pressed — lets event_loop re-poll `get_dimensions()`
-// and redraw periodically, e.g. after a terminal resize, without
-// waiting on the next keystroke).
+/// Decode a raw key code from the native `Terminal` handler
+/// (`term_ffi.hedit_read_key`'s contract, see src/term_ffi.kk) into an
+/// `Event`.
+// The C FFI already assembles escape sequences into synthetic 1001-1004
+// arrow codes, decodes multi-byte UTF-8 (åäö etc.) into a single Unicode
+// codepoint, and returns -2 on a read timeout (no key pressed — lets
+// event_loop re-poll dimensions and redraw periodically without waiting
+// on the next keystroke).
 pub fun decode_key(code: int) : Event {
   if code == 10 { KeyEvent(KSpecial(Enter)) }
   else if code == 127 { KeyEvent(KSpecial(Backspace)) }
