@@ -1,22 +1,20 @@
 # hedit Cheatsheet
 
-What hedit offers today, a companion to the full reference in 
-[hedit-defaultkeys.md](hedit-defaultkeys.md) (every binding, plus gaps/roadmap) and [hedit-design.md](hedit-design.md)
-(the "why"). 
+What hedit offers today.
 
 This is a living document and will be extended as new features are implemented. Anything marked **not yet** is a known gap.
 
 ## Starting hedit
 
 ```sh
-hedit                 # empty scratch buffer
-hedit file.txt         # open a file
-hedit +42 file.txt      # open at line 42
-hedit +42:8 file.txt    # open at line 42, column 8
-hedit --readonly file.txt   # -R — open read-only (Save disabled)
-hedit --tabsize 2 file.txt  # override tabsize for this run
-hedit --config path/to/init.hl file.txt  # load config from elsewhere
-hedit --no-config file.txt  # skip init.hl entirely
+hedit                                   # empty scratch buffer
+hedit file.txt                          # open a file
+hedit +42 file.txt                      # open at line 42
+hedit +42:8 file.txt                    # open at line 42, column 8
+hedit --readonly file.txt               # -R — open read-only (Save disabled)
+hedit --tabsize 2 file.txt              # override tabsize for this run
+hedit --config init.hl file.txt         # load config from elsewhere
+hedit --no-config file.txt              # skip init.hl entirely
 hedit --help / --version
 ```
 
