@@ -20,6 +20,7 @@
 ## Dependencies
 - `keys`
 - `model`
+- `hilisp_host`
 
 ## Public API Catalog
 
@@ -27,6 +28,7 @@
 
 | Function | Signature | Description |
 | --- | --- | --- |
+| `render_help_buffer` | `fun render_help_buffer(state: EditorState) : ScreenBuffer` | *(No documentation provided)* |
 | `render_editor_to_buffer` | `fun render_editor_to_buffer(state: EditorState) : ScreenBuffer` | *(No documentation provided)* |
 
 
@@ -44,18 +46,85 @@
 | --- | --- | --- | --- |
 | `fit_to_width` | `fun fit_to_width(s: string, w: int) : string` | ✅ Pure | None |
 | `take_or_pad` | `fun take_or_pad(xs: list<string>, n: int, pad: string) : list<string>` | ⚡ Impure | Divergent (recursion/loop) |
+| `drop_n` | `fun drop_n(xs: list<string>, n: int) : list<string>` | ⚡ Impure | Divergent (recursion/loop) |
+| `scroll_offset` | `fun scroll_offset(n_content: int, line: int) : int` | ✅ Pure | None |
 | `buffer_tab_name` | `fun buffer_tab_name(buf: TextBuffer) : string` | ✅ Pure | None |
 | `build_tabline` | `fun build_tabline(state: EditorState) : string` | ✅ Pure | None |
+| `prompt_label` | `fun prompt_label(p: Prompt) : string` | ✅ Pure | None |
+| `prompt_prefix_len` | `fun prompt_prefix_len(p: Prompt) : int` | ✅ Pure | None |
+| `prompt_cursor_col` | `fun prompt_cursor_col(p: Prompt) : int` | ✅ Pure | None |
+| `render_normal_buffer` | `fun render_normal_buffer(state: EditorState) : ScreenBuffer` | ✅ Pure | None |
+| `format_binding` | `fun format_binding(b: (KeyChord, Action)) : string` | ✅ Pure | None |
+| `render_help_buffer` | `fun render_help_buffer(state: EditorState) : ScreenBuffer` | ✅ Pure | None |
 | `render_editor_to_buffer` | `fun render_editor_to_buffer(state: EditorState) : ScreenBuffer` | ✅ Pure | None |
 
 ---
 
 # Hica Analysis Hotspot: `src/render.hc`
 
-## Summary
-✅ **No functional debt detected** — all 5 function(s) are clean.
+## Function Context
+- **Name:** `render_normal_buffer`
+- **Signature:** `fun render_normal_buffer(state: EditorState) : ScreenBuffer`
+- **Location:** `src/render.hc:97`
+- **Debt Score:** 10 (Critical)
 
-**FP Quality Index: 100/100**
+## Detected FP Anti-Patterns
+1. **Pipelines & Allocation:** Eager list pipeline with >2 operations (score: +10)
+   - *Hint:* Wrap input with 'stream(xs)' from 'std/stream' or use pipeline transducers from 'std/xform' to eliminate intermediate list allocations.
+
+## Code Snippet
+```hica
+fun render_normal_buffer(state: EditorState) : ScreenBuffer {
+  let (w, h)    = state.screen_size
+  let buf       = state.buffer
+  let n_content = h - 2
+
+  let cur    = match buf.cursors { [] => Position { line: 0, col: 0 }, [x, .._] => x.pos }
+  let offset = scroll_offset(n_content, cur.line)
+
+  // Each content line truncated to screen width; empty rows filled with "~".
+  let text_rows    = map(drop_n(buf.lines, offset), (l) => fit_to_width(l, w))
+  let content_rows = take_or_pad(text_rows, n_content, "~")
+
+  let tabline_row = fit_to_width(build_tabline(state), w)
+
+  // Status line: an active prompt wins; otherwise an explicit message,
+  // falling back to path + dirty flag.
+  let path_part   = match buf.path { None => "[No Name]", Some(p) => p }
+  let dirty_str   = if buf.is_dirty { " [+]" } else { "" }
+  let default_msg = path_part + dirty_str
+  let status_msg  = match state.status_message { None => default_msg, Some(m) => m }
+  let status_row  = match state.prompt {
+    NoPrompt => fit_to_width(status_msg, w),
+    _        => fit_to_width(prompt_label(state.prompt), w)
+  }
+
+  let visible_line = max(min(cur.line - offset, max(n_content - 1, 0)), 0)
+  let visible_col  = max(min(cur.col, max(w - 1, 0)), 0)
+
+  let (crow, ccol) = match state.prompt {
+    NoPrompt => (visible_line + 2, visible_col + 1)
+    _        => (h, min(prompt_prefix_len(state.prompt) + prompt_cursor_col(state.prompt) + 1, w))
+  }
+
+  ScreenBuffer {
+    width: w,
+    height: h,
+    lines: [tabline_row] + content_rows + [status_row],
+    cursor_row: crow,
+    cursor_col: ccol
+  }
+}
+```
+
+---
+
+## Summary
+- **Functions analysed:** 13
+- **Functions with debt:** 1
+- **Total debt score:** 10
+
+**FP Quality Index: 90/100**
 
 ---
 
@@ -63,11 +132,19 @@
 
 This index maps symbol names to their original file ranges, for tool and human reference.
 
-- [`fit_to_width`](../../src/render.hc#L12)
-- [`take_or_pad`](../../src/render.hc#L16)
-- [`buffer_tab_name`](../../src/render.hc#L29)
-- [`build_tabline`](../../src/render.hc#L35)
-- [`render_editor_to_buffer`](../../src/render.hc#L42)
+- [`fit_to_width`](../../src/render.hc#L13)
+- [`take_or_pad`](../../src/render.hc#L17)
+- [`drop_n`](../../src/render.hc#L29)
+- [`scroll_offset`](../../src/render.hc#L43)
+- [`buffer_tab_name`](../../src/render.hc#L48)
+- [`build_tabline`](../../src/render.hc#L54)
+- [`prompt_label`](../../src/render.hc#L62)
+- [`prompt_prefix_len`](../../src/render.hc#L72)
+- [`prompt_cursor_col`](../../src/render.hc#L80)
+- [`render_normal_buffer`](../../src/render.hc#L97)
+- [`format_binding`](../../src/render.hc#L148)
+- [`render_help_buffer`](../../src/render.hc#L151)
+- [`render_editor_to_buffer`](../../src/render.hc#L169)
 ---
 
 # Project Architecture & Export Directory: `config_loader.hc`
@@ -87,6 +164,8 @@ This index maps symbol names to their original file ranges, for tool and human r
 | `candidate_paths` | `fun candidate_paths(xdg: maybe<string>, home: maybe<string>) : list<string>` | *(No documentation provided)* |
 | `read_first` | `fun read_first(paths: list<string>) : (string, maybe<string>)` | *(No documentation provided)* |
 | `load_user_config` | `fun load_user_config(cfg0: Config) : (Config, maybe<string>)` | *(No documentation provided)* |
+| `load_config_from_path` | `fun load_config_from_path(cfg0: Config, p: string) : (Config, maybe<string>)` | *(No documentation provided)* |
+| `load_user_config_opts` | `fun load_user_config_opts(cfg0: Config, explicit_path: maybe<string>, skip: bool) : (Config, maybe<string>)` | *(No documentation provided)* |
 
 
 ---
@@ -106,14 +185,17 @@ This index maps symbol names to their original file ranges, for tool and human r
 | `home_candidate` | `fun home_candidate(home: maybe<string>) : list<string>` | ✅ Pure | None |
 | `candidate_paths` | `fun candidate_paths(xdg: maybe<string>, home: maybe<string>) : list<string>` | ✅ Pure | None |
 | `read_first` | `fun read_first(paths: list<string>) : (string, maybe<string>)` | ⚡ Impure | I/O & FileSystem, Divergent (recursion/loop) |
+| `apply_config_src` | `fun apply_config_src(cfg0: Config, src: string, p: string) : (Config, maybe<string>)` | ✅ Pure | None |
 | `load_user_config` | `fun load_user_config(cfg0: Config) : (Config, maybe<string>)` | ⚡ Impure | I/O & FileSystem |
+| `load_config_from_path` | `fun load_config_from_path(cfg0: Config, p: string) : (Config, maybe<string>)` | ⚡ Impure | I/O & FileSystem |
+| `load_user_config_opts` | `fun load_user_config_opts(cfg0: Config, explicit_path: maybe<string>, skip: bool) : (Config, maybe<string>)` | ✅ Pure | None |
 
 ---
 
 # Hica Analysis Hotspot: `src/config_loader.hc`
 
 ## Summary
-✅ **No functional debt detected** — all 6 function(s) are clean.
+✅ **No functional debt detected** — all 9 function(s) are clean.
 
 **FP Quality Index: 100/100**
 
@@ -123,12 +205,15 @@ This index maps symbol names to their original file ranges, for tool and human r
 
 This index maps symbol names to their original file ranges, for tool and human reference.
 
-- [`opt_path`](../../src/config_loader.hc#L25)
-- [`xdg_candidate`](../../src/config_loader.hc#L31)
-- [`home_candidate`](../../src/config_loader.hc#L38)
-- [`candidate_paths`](../../src/config_loader.hc#L47)
-- [`read_first`](../../src/config_loader.hc#L54)
-- [`load_user_config`](../../src/config_loader.hc#L78)
+- [`opt_path`](../../src/config_loader.hc#L31)
+- [`xdg_candidate`](../../src/config_loader.hc#L37)
+- [`home_candidate`](../../src/config_loader.hc#L44)
+- [`candidate_paths`](../../src/config_loader.hc#L53)
+- [`read_first`](../../src/config_loader.hc#L60)
+- [`apply_config_src`](../../src/config_loader.hc#L87)
+- [`load_user_config`](../../src/config_loader.hc#L95)
+- [`load_config_from_path`](../../src/config_loader.hc#L110)
+- [`load_user_config_opts`](../../src/config_loader.hc#L120)
 ---
 
 # Project Architecture & Export Directory: `keys.hc`
@@ -136,6 +221,12 @@ This index maps symbol names to their original file ranges, for tool and human r
 ## Module Overview
 - **Source File:** `src/keys.hc`
 ## Public API Catalog
+
+### Public Functions
+
+| Function | Signature | Description |
+| --- | --- | --- |
+| `decode_key` | `fun decode_key(code: int) : Event` | *(No documentation provided)* |
 
 ### Public Enums / ADTs
 
@@ -198,13 +289,14 @@ This index maps symbol names to their original file ranges, for tool and human r
 
 | Function | Signature | Purity Status | Detected Effect Dependencies |
 | --- | --- | --- | --- |
+| `decode_key` | `fun decode_key(code: int) : Event` | ✅ Pure | None |
 
 ---
 
 # Hica Analysis Hotspot: `src/keys.hc`
 
 ## Summary
-✅ **No functional debt detected** — all 0 function(s) are clean.
+✅ **No functional debt detected** — all 1 function(s) are clean.
 
 **FP Quality Index: 100/100**
 
@@ -214,6 +306,7 @@ This index maps symbol names to their original file ranges, for tool and human r
 
 This index maps symbol names to their original file ranges, for tool and human reference.
 
+- [`decode_key`](../../src/keys.hc#L62)
 ---
 
 # Project Architecture & Export Directory: `actions.hc`
@@ -231,12 +324,42 @@ This index maps symbol names to their original file ranges, for tool and human r
 | Function | Signature | Description |
 | --- | --- | --- |
 | `insert_char` | `fun insert_char(state: EditorState, c: char) : EditorState` | *(No documentation provided)* |
+| `insert_newline` | `fun insert_newline(state: EditorState) : EditorState` | *(No documentation provided)* |
+| `move_line_start` | `fun move_line_start(state: EditorState) : EditorState` | *(No documentation provided)* |
+| `move_line_end` | `fun move_line_end(state: EditorState) : EditorState` | *(No documentation provided)* |
+| `delete_backward` | `fun delete_backward(state: EditorState) : EditorState` | *(No documentation provided)* |
+| `delete_forward` | `fun delete_forward(state: EditorState) : EditorState` | *(No documentation provided)* |
+| `move_left` | `fun move_left(state: EditorState) : EditorState` | *(No documentation provided)* |
+| `move_right` | `fun move_right(state: EditorState) : EditorState` | *(No documentation provided)* |
+| `move_up` | `fun move_up(state: EditorState) : EditorState` | *(No documentation provided)* |
+| `move_down` | `fun move_down(state: EditorState) : EditorState` | *(No documentation provided)* |
 | `current_line` | `fun current_line(state: EditorState) : string` | *(No documentation provided)* |
 | `paste_text` | `fun paste_text(state: EditorState, text: string) : EditorState` | *(No documentation provided)* |
+| `kill_line_text` | `fun kill_line_text(state: EditorState) : string` | *(No documentation provided)* |
+| `kill_line` | `fun kill_line(state: EditorState) : EditorState` | *(No documentation provided)* |
+| `kill_word_back_text` | `fun kill_word_back_text(state: EditorState) : string` | *(No documentation provided)* |
+| `delete_word_back` | `fun delete_word_back(state: EditorState) : EditorState` | *(No documentation provided)* |
+| `move_word_back` | `fun move_word_back(state: EditorState) : EditorState` | *(No documentation provided)* |
+| `move_word_forward` | `fun move_word_forward(state: EditorState) : EditorState` | *(No documentation provided)* |
+| `kill_word_forward_text` | `fun kill_word_forward_text(state: EditorState) : string` | *(No documentation provided)* |
+| `delete_word_forward` | `fun delete_word_forward(state: EditorState) : EditorState` | *(No documentation provided)* |
+| `kill_whole_line_text` | `fun kill_whole_line_text(state: EditorState) : string` | *(No documentation provided)* |
+| `kill_whole_line` | `fun kill_whole_line(state: EditorState) : EditorState` | *(No documentation provided)* |
 | `new_buffer_action` | `fun new_buffer_action(state: EditorState) : EditorState` | *(No documentation provided)* |
 | `cycle_next_buffer` | `fun cycle_next_buffer(state: EditorState) : EditorState` | *(No documentation provided)* |
 | `cycle_prev_buffer` | `fun cycle_prev_buffer(state: EditorState) : EditorState` | *(No documentation provided)* |
 | `close_buffer_action` | `fun close_buffer_action(state: EditorState) : EditorState` | *(No documentation provided)* |
+| `prompt_insert_char` | `fun prompt_insert_char(state: EditorState, c: char) : EditorState` | *(No documentation provided)* |
+| `prompt_backspace` | `fun prompt_backspace(state: EditorState) : EditorState` | *(No documentation provided)* |
+| `prompt_cancel` | `fun prompt_cancel(state: EditorState) : EditorState` | *(No documentation provided)* |
+| `prompt_move_start` | `fun prompt_move_start(state: EditorState) : EditorState` | *(No documentation provided)* |
+| `prompt_move_end` | `fun prompt_move_end(state: EditorState) : EditorState` | *(No documentation provided)* |
+| `prompt_move_left` | `fun prompt_move_left(state: EditorState) : EditorState` | *(No documentation provided)* |
+| `prompt_move_right` | `fun prompt_move_right(state: EditorState) : EditorState` | *(No documentation provided)* |
+| `prompt_delete_forward` | `fun prompt_delete_forward(state: EditorState) : EditorState` | *(No documentation provided)* |
+| `prompt_kill_text` | `fun prompt_kill_text(state: EditorState) : string` | *(No documentation provided)* |
+| `prompt_truncate` | `fun prompt_truncate(state: EditorState) : EditorState` | *(No documentation provided)* |
+| `open_file_prompt` | `fun open_file_prompt(state: EditorState) : EditorState` | *(No documentation provided)* |
 | `resolve_action` | `fun resolve_action(state: EditorState, evt: Event) : Action` | *(No documentation provided)* |
 | `apply_action` | `fun apply_action(state: EditorState, action: Action) : EditorState` | *(No documentation provided)* |
 | `handle_action` | `fun handle_action(state: EditorState, evt: Event) : EditorState` | *(No documentation provided)* |
@@ -256,14 +379,57 @@ This index maps symbol names to their original file ranges, for tool and human r
 | --- | --- | --- | --- |
 | `list_set` | `fun list_set(xs: list<string>, idx: int, new_val: string) : list<string>` | ⚡ Impure | Divergent (recursion/loop) |
 | `list_get` | `fun list_get(xs: list<string>, idx: int, default: string) : string` | ⚡ Impure | Divergent (recursion/loop) |
-| `advance_cursor` | `fun advance_cursor(c: Cursor) : Cursor` | ✅ Pure | None |
+| `list_split_at` | `fun list_split_at(xs: list<string>, idx: int, a: string, b: string) : list<string>` | ⚡ Impure | Divergent (recursion/loop) |
+| `list_remove_at` | `fun list_remove_at(xs: list<string>, idx: int) : list<string>` | ⚡ Impure | Divergent (recursion/loop) |
+| `head_cursor` | `fun head_cursor(buf: TextBuffer) : Cursor` | ✅ Pure | None |
+| `clamp_col` | `fun clamp_col(lines: list<string>, line_idx: int, col: int) : int` | ✅ Pure | None |
 | `insert_char` | `fun insert_char(state: EditorState, c: char) : EditorState` | ✅ Pure | None |
+| `insert_newline` | `fun insert_newline(state: EditorState) : EditorState` | ✅ Pure | None |
+| `move_line_start` | `fun move_line_start(state: EditorState) : EditorState` | ✅ Pure | None |
+| `move_line_end` | `fun move_line_end(state: EditorState) : EditorState` | ✅ Pure | None |
+| `delete_backward` | `fun delete_backward(state: EditorState) : EditorState` | ✅ Pure | None |
+| `delete_forward` | `fun delete_forward(state: EditorState) : EditorState` | ✅ Pure | None |
+| `move_left` | `fun move_left(state: EditorState) : EditorState` | ✅ Pure | None |
+| `move_right` | `fun move_right(state: EditorState) : EditorState` | ✅ Pure | None |
+| `move_up` | `fun move_up(state: EditorState) : EditorState` | ✅ Pure | None |
+| `move_down` | `fun move_down(state: EditorState) : EditorState` | ✅ Pure | None |
 | `current_line` | `fun current_line(state: EditorState) : string` | ✅ Pure | None |
 | `paste_text` | `fun paste_text(state: EditorState, text: string) : EditorState` | ✅ Pure | None |
+| `kill_line_text` | `fun kill_line_text(state: EditorState) : string` | ✅ Pure | None |
+| `kill_line` | `fun kill_line(state: EditorState) : EditorState` | ✅ Pure | None |
+| `is_space_char` | `fun is_space_char(c: char) : bool` | ✅ Pure | None |
+| `drop_while` | `fun drop_while(chs: list<char>, pred: (char) -> bool) : list<char>` | ⚡ Impure | Divergent (recursion/loop) |
+| `word_back_col` | `fun word_back_col(line: string, col: int) : int` | ✅ Pure | None |
+| `word_forward_col` | `fun word_forward_col(line: string, col: int) : int` | ✅ Pure | None |
+| `kill_word_back_text` | `fun kill_word_back_text(state: EditorState) : string` | ✅ Pure | None |
+| `delete_word_back` | `fun delete_word_back(state: EditorState) : EditorState` | ✅ Pure | None |
+| `move_word_back` | `fun move_word_back(state: EditorState) : EditorState` | ✅ Pure | None |
+| `move_word_forward` | `fun move_word_forward(state: EditorState) : EditorState` | ✅ Pure | None |
+| `kill_word_forward_text` | `fun kill_word_forward_text(state: EditorState) : string` | ✅ Pure | None |
+| `delete_word_forward` | `fun delete_word_forward(state: EditorState) : EditorState` | ✅ Pure | None |
+| `kill_whole_line_text` | `fun kill_whole_line_text(state: EditorState) : string` | ✅ Pure | None |
+| `kill_whole_line` | `fun kill_whole_line(state: EditorState) : EditorState` | ✅ Pure | None |
 | `new_buffer_action` | `fun new_buffer_action(state: EditorState) : EditorState` | ✅ Pure | None |
 | `cycle_next_buffer` | `fun cycle_next_buffer(state: EditorState) : EditorState` | ✅ Pure | None |
 | `cycle_prev_buffer` | `fun cycle_prev_buffer(state: EditorState) : EditorState` | ✅ Pure | None |
 | `close_buffer_action` | `fun close_buffer_action(state: EditorState) : EditorState` | ✅ Pure | None |
+| `prompt_text` | `fun prompt_text(p: Prompt) : string` | ✅ Pure | None |
+| `prompt_cursor` | `fun prompt_cursor(p: Prompt) : int` | ✅ Pure | None |
+| `with_prompt` | `fun with_prompt(p: Prompt, t: string, c: int) : Prompt` | ✅ Pure | None |
+| `prompt_insert_char` | `fun prompt_insert_char(state: EditorState, c: char) : EditorState` | ✅ Pure | None |
+| `prompt_backspace` | `fun prompt_backspace(state: EditorState) : EditorState` | ✅ Pure | None |
+| `prompt_cancel` | `fun prompt_cancel(state: EditorState) : EditorState` | ✅ Pure | None |
+| `prompt_move_start` | `fun prompt_move_start(state: EditorState) : EditorState` | ✅ Pure | None |
+| `prompt_move_end` | `fun prompt_move_end(state: EditorState) : EditorState` | ✅ Pure | None |
+| `prompt_move_left` | `fun prompt_move_left(state: EditorState) : EditorState` | ✅ Pure | None |
+| `prompt_move_right` | `fun prompt_move_right(state: EditorState) : EditorState` | ✅ Pure | None |
+| `prompt_delete_forward` | `fun prompt_delete_forward(state: EditorState) : EditorState` | ✅ Pure | None |
+| `prompt_kill_text` | `fun prompt_kill_text(state: EditorState) : string` | ✅ Pure | None |
+| `prompt_truncate` | `fun prompt_truncate(state: EditorState) : EditorState` | ✅ Pure | None |
+| `open_file_prompt` | `fun open_file_prompt(state: EditorState) : EditorState` | ✅ Pure | None |
+| `resolve_prompt_action` | `fun resolve_prompt_action(evt: Event) : Action` | ✅ Pure | None |
+| `resolve_help_action` | `fun resolve_help_action(evt: Event) : Action` | ✅ Pure | None |
+| `resolve_normal_action` | `fun resolve_normal_action(state: EditorState, evt: Event) : Action` | ✅ Pure | None |
 | `resolve_action` | `fun resolve_action(state: EditorState, evt: Event) : Action` | ✅ Pure | None |
 | `apply_action` | `fun apply_action(state: EditorState, action: Action) : EditorState` | ✅ Pure | None |
 | `handle_action` | `fun handle_action(state: EditorState, evt: Event) : EditorState` | ✅ Pure | None |
@@ -273,7 +439,7 @@ This index maps symbol names to their original file ranges, for tool and human r
 # Hica Analysis Hotspot: `src/actions.hc`
 
 ## Summary
-✅ **No functional debt detected** — all 13 function(s) are clean.
+✅ **No functional debt detected** — all 56 function(s) are clean.
 
 **FP Quality Index: 100/100**
 
@@ -285,17 +451,60 @@ This index maps symbol names to their original file ranges, for tool and human r
 
 - [`list_set`](../../src/actions.hc#L22)
 - [`list_get`](../../src/actions.hc#L31)
-- [`advance_cursor`](../../src/actions.hc#L42)
-- [`insert_char`](../../src/actions.hc#L48)
-- [`current_line`](../../src/actions.hc#L71)
-- [`paste_text`](../../src/actions.hc#L85)
-- [`new_buffer_action`](../../src/actions.hc#L122)
-- [`cycle_next_buffer`](../../src/actions.hc#L134)
-- [`cycle_prev_buffer`](../../src/actions.hc#L142)
-- [`close_buffer_action`](../../src/actions.hc#L151)
-- [`resolve_action`](../../src/actions.hc#L165)
-- [`apply_action`](../../src/actions.hc#L180)
-- [`handle_action`](../../src/actions.hc#L201)
+- [`list_split_at`](../../src/actions.hc#L41)
+- [`list_remove_at`](../../src/actions.hc#L51)
+- [`head_cursor`](../../src/actions.hc#L63)
+- [`clamp_col`](../../src/actions.hc#L70)
+- [`insert_char`](../../src/actions.hc#L78)
+- [`insert_newline`](../../src/actions.hc#L101)
+- [`move_line_start`](../../src/actions.hc#L122)
+- [`move_line_end`](../../src/actions.hc#L131)
+- [`delete_backward`](../../src/actions.hc#L143)
+- [`delete_forward`](../../src/actions.hc#L177)
+- [`move_left`](../../src/actions.hc#L205)
+- [`move_right`](../../src/actions.hc#L219)
+- [`move_up`](../../src/actions.hc#L232)
+- [`move_down`](../../src/actions.hc#L241)
+- [`current_line`](../../src/actions.hc#L254)
+- [`paste_text`](../../src/actions.hc#L264)
+- [`kill_line_text`](../../src/actions.hc#L298)
+- [`kill_line`](../../src/actions.hc#L307)
+- [`is_space_char`](../../src/actions.hc#L318)
+- [`drop_while`](../../src/actions.hc#L324)
+- [`word_back_col`](../../src/actions.hc#L333)
+- [`word_forward_col`](../../src/actions.hc#L344)
+- [`kill_word_back_text`](../../src/actions.hc#L352)
+- [`delete_word_back`](../../src/actions.hc#L362)
+- [`move_word_back`](../../src/actions.hc#L378)
+- [`move_word_forward`](../../src/actions.hc#L389)
+- [`kill_word_forward_text`](../../src/actions.hc#L400)
+- [`delete_word_forward`](../../src/actions.hc#L410)
+- [`kill_whole_line_text`](../../src/actions.hc#L424)
+- [`kill_whole_line`](../../src/actions.hc#L433)
+- [`new_buffer_action`](../../src/actions.hc#L455)
+- [`cycle_next_buffer`](../../src/actions.hc#L467)
+- [`cycle_prev_buffer`](../../src/actions.hc#L475)
+- [`close_buffer_action`](../../src/actions.hc#L484)
+- [`prompt_text`](../../src/actions.hc#L504)
+- [`prompt_cursor`](../../src/actions.hc#L512)
+- [`with_prompt`](../../src/actions.hc#L521)
+- [`prompt_insert_char`](../../src/actions.hc#L529)
+- [`prompt_backspace`](../../src/actions.hc#L538)
+- [`prompt_cancel`](../../src/actions.hc#L550)
+- [`prompt_move_start`](../../src/actions.hc#L554)
+- [`prompt_move_end`](../../src/actions.hc#L560)
+- [`prompt_move_left`](../../src/actions.hc#L567)
+- [`prompt_move_right`](../../src/actions.hc#L574)
+- [`prompt_delete_forward`](../../src/actions.hc#L583)
+- [`prompt_kill_text`](../../src/actions.hc#L597)
+- [`prompt_truncate`](../../src/actions.hc#L603)
+- [`open_file_prompt`](../../src/actions.hc#L611)
+- [`resolve_prompt_action`](../../src/actions.hc#L632)
+- [`resolve_help_action`](../../src/actions.hc#L655)
+- [`resolve_normal_action`](../../src/actions.hc#L668)
+- [`resolve_action`](../../src/actions.hc#L686)
+- [`apply_action`](../../src/actions.hc#L703)
+- [`handle_action`](../../src/actions.hc#L751)
 ---
 
 # Project Architecture & Export Directory: `runtime.hc`
@@ -331,8 +540,11 @@ This index maps symbol names to their original file ranges, for tool and human r
 | --- | --- | --- | --- |
 | `apply_write_result` | `fun apply_write_result(state: EditorState, result: result<(), string>) : EditorState` | ✅ Pure | None |
 | `save_buffer` | `fun save_buffer(state: EditorState) : EditorState` | ⚡ Impure | I/O & FileSystem |
+| `submit_save_as` | `fun submit_save_as(state: EditorState, path: string) : EditorState` | ⚡ Impure | I/O & FileSystem |
+| `submit_open_file` | `fun submit_open_file(state: EditorState, path: string) : EditorState` | ✅ Pure | None |
+| `submit_prompt` | `fun submit_prompt(state: EditorState) : EditorState` | ✅ Pure | None |
 | `apply_history` | `fun apply_history(state: EditorState, result: maybe<TextBuffer>, verb: string) : EditorState` | ✅ Pure | None |
-| `event_loop_step` | `fun event_loop_step(state: EditorState, buf_ref: ref<Buffer>) : EditorState` | ⚡ Impure | Divergent (recursion/loop) |
+| `event_loop_step` | `fun event_loop_step(state: EditorState, buf_ref: ref<Buffer>, last_frame: maybe<ScreenBuffer>) : EditorState` | ⚡ Impure | Divergent (recursion/loop) |
 | `event_loop` | `fun event_loop(state: EditorState) : EditorState` | ✅ Pure | None |
 
 ---
@@ -340,7 +552,7 @@ This index maps symbol names to their original file ranges, for tool and human r
 # Hica Analysis Hotspot: `src/runtime.hc`
 
 ## Summary
-✅ **No functional debt detected** — all 5 function(s) are clean.
+✅ **No functional debt detected** — all 8 function(s) are clean.
 
 **FP Quality Index: 100/100**
 
@@ -351,10 +563,13 @@ This index maps symbol names to their original file ranges, for tool and human r
 This index maps symbol names to their original file ranges, for tool and human reference.
 
 - [`apply_write_result`](../../src/runtime.hc#L75)
-- [`save_buffer`](../../src/runtime.hc#L89)
-- [`apply_history`](../../src/runtime.hc#L103)
-- [`event_loop_step`](../../src/runtime.hc#L123)
-- [`event_loop`](../../src/runtime.hc#L160)
+- [`save_buffer`](../../src/runtime.hc#L92)
+- [`submit_save_as`](../../src/runtime.hc#L110)
+- [`submit_open_file`](../../src/runtime.hc#L125)
+- [`submit_prompt`](../../src/runtime.hc#L145)
+- [`apply_history`](../../src/runtime.hc#L157)
+- [`event_loop_step`](../../src/runtime.hc#L185)
+- [`event_loop`](../../src/runtime.hc#L262)
 ---
 
 # Project Architecture & Export Directory: `model.hc`
@@ -375,7 +590,14 @@ This index maps symbol names to their original file ranges, for tool and human r
 | `default_config` | `fun default_config() : Config` | *(No documentation provided)* |
 | `get_config` | `fun get_config(cfg: Config, key: string, default: string) : string` | *(No documentation provided)* |
 | `get_config_int` | `fun get_config_int(cfg: Config, key: string, default: int) : int` | *(No documentation provided)* |
+| `set_config_value` | `fun set_config_value(cfg: Config, key: string, value: string) : Config` | *(No documentation provided)* |
+| `default_theme` | `fun default_theme() : Theme` | *(No documentation provided)* |
+| `ilseon_theme` | `fun ilseon_theme() : Theme` | *(No documentation provided)* |
+| `resolve_theme_with_status` | `fun resolve_theme_with_status(cfg: Config) : (Theme, maybe<string>)` | *(No documentation provided)* |
+| `resolve_theme` | `fun resolve_theme(cfg: Config) : Theme` | *(No documentation provided)* |
 | `new_buffer` | `fun new_buffer(bid: int, path: maybe<string>) : TextBuffer` | *(No documentation provided)* |
+| `clamp_position` | `fun clamp_position(lines: list<string>, pos: Position) : Position` | *(No documentation provided)* |
+| `set_initial_position` | `fun set_initial_position(buf: TextBuffer, pos: maybe<Position>) : TextBuffer` | *(No documentation provided)* |
 | `init_editor` | `fun init_editor(path: maybe<string>) : EditorState` | *(No documentation provided)* |
 | `init_editor_with_config` | `fun init_editor_with_config(path: maybe<string>, cfg: Config) : EditorState` | *(No documentation provided)* |
 | `init_editor_with_buffer` | `fun init_editor_with_buffer(buf: TextBuffer, cfg: Config) : EditorState` | *(No documentation provided)* |
@@ -391,6 +613,7 @@ This index maps symbol names to their original file ranges, for tool and human r
 - **`TextBuffer`**: *(No documentation provided)*
 - **`KeyChord`**: *(No documentation provided)*
 - **`Config`**: *(No documentation provided)*
+- **`Theme`**: *(No documentation provided)*
 - **`EditorState`**: *(No documentation provided)*
 - **`ScreenBuffer`**: *(No documentation provided)*
 
@@ -398,6 +621,7 @@ This index maps symbol names to their original file ranges, for tool and human r
 
 - **`Action`**: *(No documentation provided)*
 - **`CursorStyle`**: *(No documentation provided)*
+- **`Prompt`**: *(No documentation provided)*
 
 
 ---
@@ -438,6 +662,18 @@ This index maps symbol names to their original file ranges, for tool and human r
 | --- | --- | --- |
 | `bindings` | `list<(KeyChord, Action)>` | *(Field)* |
 | `values` | `list<(string, string)>` | *(Field)* |
+| `readonly` | `bool` | *(Field)* |
+
+### Struct `Theme` `pub`
+| Field | Type | Description |
+| --- | --- | --- |
+| `tabline_fg` | `(int, int, int)` | *(Field)* |
+| `tabline_bg` | `(int, int, int)` | *(Field)* |
+| `status_fg` | `(int, int, int)` | *(Field)* |
+| `status_bg` | `(int, int, int)` | *(Field)* |
+| `active_tab_fg` | `(int, int, int)` | *(Field)* |
+| `active_tab_bg` | `(int, int, int)` | *(Field)* |
+| `cursor_line_bg` | `(int, int, int)` | *(Field)* |
 
 ### Struct `EditorState` `pub`
 | Field | Type | Description |
@@ -449,6 +685,8 @@ This index maps symbol names to their original file ranges, for tool and human r
 | `screen_size` | `(int, int)` | *(Field)* |
 | `should_quit` | `bool` | *(Field)* |
 | `config` | `Config` | *(Field)* |
+| `prompt` | `Prompt` | *(Field)* |
+| `show_help` | `bool` | *(Field)* |
 
 ### Struct `ScreenBuffer` `pub`
 | Field | Type | Description |
@@ -456,6 +694,8 @@ This index maps symbol names to their original file ranges, for tool and human r
 | `width` | `int` | *(Field)* |
 | `height` | `int` | *(Field)* |
 | `lines` | `list<string>` | *(Field)* |
+| `cursor_row` | `int` | *(Field)* |
+| `cursor_col` | `int` | *(Field)* |
 
 ## Algebraic Data Types (Enums)
 
@@ -464,15 +704,42 @@ This index maps symbol names to their original file ranges, for tool and human r
 - `Quit`
 - `Save`
 - `Insert(c: char)`
+- `NewLine`
+- `DeleteBackward`
+- `DeleteForward`
+- `MoveUp`
+- `MoveDown`
+- `MoveLeft`
+- `MoveRight`
+- `MoveLineStart`
+- `MoveLineEnd`
+- `MoveWordForward`
+- `MoveWordBack`
 - `Resize(w: int, h: int)`
 - `Copy`
 - `Paste`
 - `Undo`
 - `Redo`
+- `KillLine`
+- `KillWordBack`
+- `KillWordForward`
+- `KillWholeLine`
 - `NewBuffer`
 - `NextBuffer`
 - `PrevBuffer`
 - `CloseBuffer`
+- `OpenFile`
+- `PromptChar(c: char)`
+- `PromptBackspace`
+- `PromptSubmit`
+- `PromptCancel`
+- `PromptMoveStart`
+- `PromptMoveEnd`
+- `PromptMoveLeft`
+- `PromptMoveRight`
+- `PromptDeleteForward`
+- `PromptKillLine`
+- `ToggleHelp`
 - `Ignore`
 
 ### Type `CursorStyle` `pub`
@@ -480,6 +747,12 @@ This index maps symbol names to their original file ranges, for tool and human r
 - `Block`
 - `Bar`
 - `Underscore`
+
+### Type `Prompt` `pub`
+#### Variants
+- `NoPrompt`
+- `SaveAsPrompt(text: string, cursor: int)`
+- `OpenPrompt(text: string, cursor: int)`
 
 
 ---
@@ -494,7 +767,19 @@ This index maps symbol names to their original file ranges, for tool and human r
 | `get_config` | `fun get_config(cfg: Config, key: string, default: string) : string` | ✅ Pure | None |
 | `parse_or` | `fun parse_or(v: string, fallback: int) : int` | ✅ Pure | None |
 | `get_config_int` | `fun get_config_int(cfg: Config, key: string, default: int) : int` | ✅ Pure | None |
+| `set_config_value` | `fun set_config_value(cfg: Config, key: string, value: string) : Config` | ✅ Pure | None |
+| `default_theme` | `fun default_theme() : Theme` | ✅ Pure | None |
+| `ilseon_theme` | `fun ilseon_theme() : Theme` | ✅ Pure | None |
+| `theme_preset` | `fun theme_preset(name: string) : maybe<Theme>` | ✅ Pure | None |
+| `parse_rgb` | `fun parse_rgb(s: string, fallback: (int, int, int)) : (int, int, int)` | ✅ Pure | None |
+| `get_rgb_override` | `fun get_rgb_override(cfg: Config, key: string, fallback: (int, int, int)) : (int, int, int)` | ✅ Pure | None |
+| `apply_theme_overrides` | `fun apply_theme_overrides(cfg: Config, base: Theme) : Theme` | ✅ Pure | None |
+| `resolve_theme_with_status` | `fun resolve_theme_with_status(cfg: Config) : (Theme, maybe<string>)` | ✅ Pure | None |
+| `resolve_theme` | `fun resolve_theme(cfg: Config) : Theme` | ✅ Pure | None |
 | `new_buffer` | `fun new_buffer(bid: int, path: maybe<string>) : TextBuffer` | ✅ Pure | None |
+| `nth_line` | `fun nth_line(lines: list<string>, idx: int) : string` | ⚡ Impure | Divergent (recursion/loop) |
+| `clamp_position` | `fun clamp_position(lines: list<string>, pos: Position) : Position` | ✅ Pure | None |
+| `set_initial_position` | `fun set_initial_position(buf: TextBuffer, pos: maybe<Position>) : TextBuffer` | ✅ Pure | None |
 | `init_editor` | `fun init_editor(path: maybe<string>) : EditorState` | ✅ Pure | None |
 | `init_editor_with_config` | `fun init_editor_with_config(path: maybe<string>, cfg: Config) : EditorState` | ✅ Pure | None |
 | `init_editor_with_buffer` | `fun init_editor_with_buffer(buf: TextBuffer, cfg: Config) : EditorState` | ✅ Pure | None |
@@ -510,7 +795,7 @@ This index maps symbol names to their original file ranges, for tool and human r
 # Hica Analysis Hotspot: `src/model.hc`
 
 ## Summary
-✅ **No functional debt detected** — all 16 function(s) are clean.
+✅ **No functional debt detected** — all 28 function(s) are clean.
 
 **FP Quality Index: 100/100**
 
@@ -520,22 +805,34 @@ This index maps symbol names to their original file ranges, for tool and human r
 
 This index maps symbol names to their original file ranges, for tool and human reference.
 
-- [`default_bindings`](../../src/model.hc#L88)
-- [`lookup_binding`](../../src/model.hc#L105)
-- [`default_config`](../../src/model.hc#L121)
-- [`get_config`](../../src/model.hc#L127)
-- [`parse_or`](../../src/model.hc#L139)
-- [`get_config_int`](../../src/model.hc#L145)
-- [`new_buffer`](../../src/model.hc#L190)
-- [`init_editor`](../../src/model.hc#L201)
-- [`init_editor_with_config`](../../src/model.hc#L211)
-- [`init_editor_with_buffer`](../../src/model.hc#L219)
-- [`split_lines`](../../src/model.hc#L233)
-- [`load_existing_buffer`](../../src/model.hc#L242)
-- [`load_buffer`](../../src/model.hc#L261)
-- [`open_buffers`](../../src/model.hc#L269)
-- [`set_status_message`](../../src/model.hc#L274)
-- [`clear_status_message`](../../src/model.hc#L277)
+- [`default_bindings`](../../src/model.hc#L122)
+- [`lookup_binding`](../../src/model.hc#L154)
+- [`default_config`](../../src/model.hc#L174)
+- [`get_config`](../../src/model.hc#L180)
+- [`parse_or`](../../src/model.hc#L192)
+- [`get_config_int`](../../src/model.hc#L198)
+- [`set_config_value`](../../src/model.hc#L207)
+- [`default_theme`](../../src/model.hc#L230)
+- [`ilseon_theme`](../../src/model.hc#L244)
+- [`theme_preset`](../../src/model.hc#L255)
+- [`parse_rgb`](../../src/model.hc#L265)
+- [`get_rgb_override`](../../src/model.hc#L272)
+- [`apply_theme_overrides`](../../src/model.hc#L281)
+- [`resolve_theme_with_status`](../../src/model.hc#L295)
+- [`resolve_theme`](../../src/model.hc#L304)
+- [`new_buffer`](../../src/model.hc#L365)
+- [`nth_line`](../../src/model.hc#L377)
+- [`clamp_position`](../../src/model.hc#L386)
+- [`set_initial_position`](../../src/model.hc#L396)
+- [`init_editor`](../../src/model.hc#L408)
+- [`init_editor_with_config`](../../src/model.hc#L418)
+- [`init_editor_with_buffer`](../../src/model.hc#L426)
+- [`split_lines`](../../src/model.hc#L442)
+- [`load_existing_buffer`](../../src/model.hc#L451)
+- [`load_buffer`](../../src/model.hc#L470)
+- [`open_buffers`](../../src/model.hc#L478)
+- [`set_status_message`](../../src/model.hc#L483)
+- [`clear_status_message`](../../src/model.hc#L486)
 ---
 
 # Project Architecture & Export Directory: `hilisp_host.hc`
@@ -557,6 +854,8 @@ This index maps symbol names to their original file ranges, for tool and human r
 | `eval_source` | `fun eval_source(src: string) : string` | *(No documentation provided)* |
 | `eval_source_val` | `fun eval_source_val(src: string) : LVal` | *(No documentation provided)* |
 | `parse_chord` | `fun parse_chord(s: string) : maybe<KeyChord>` | *(No documentation provided)* |
+| `chord_to_str` | `fun chord_to_str(chord: KeyChord) : string` | *(No documentation provided)* |
+| `action_to_string` | `fun action_to_string(a: Action) : string` | *(No documentation provided)* |
 | `config_from_env` | `fun config_from_env(env: Env, fallback: Config) : Config` | *(No documentation provided)* |
 | `env_with_config` | `fun env_with_config(env: Env, cfg: Config) : Env` | *(No documentation provided)* |
 | `hedit_host_dispatch` | `fun hedit_host_dispatch(name: string, args: list<LVal>, env: Env) : (LVal, Env)` | *(No documentation provided)* |
@@ -628,28 +927,28 @@ This index maps symbol names to their original file ranges, for tool and human r
 - [`parse_mod`](../../src/hilisp_host.hc#L90)
 - [`single_char_of`](../../src/hilisp_host.hc#L101)
 - [`parse_chord`](../../src/hilisp_host.hc#L111)
-- [`chord_to_str`](../../src/hilisp_host.hc#L126)
-- [`action_to_string`](../../src/hilisp_host.hc#L131)
-- [`string_to_action`](../../src/hilisp_host.hc#L148)
-- [`bindings_key`](../../src/hilisp_host.hc#L173)
-- [`values_key`](../../src/hilisp_host.hc#L175)
-- [`bindings_to_hash`](../../src/hilisp_host.hc#L179)
-- [`binding_to_entry`](../../src/hilisp_host.hc#L182)
-- [`values_to_hash`](../../src/hilisp_host.hc#L190)
-- [`value_to_entry`](../../src/hilisp_host.hc#L193)
-- [`config_from_env`](../../src/hilisp_host.hc#L202)
-- [`entries_to_bindings`](../../src/hilisp_host.hc#L214)
-- [`entries_to_values`](../../src/hilisp_host.hc#L225)
-- [`env_with_config`](../../src/hilisp_host.hc#L234)
-- [`value_to_string`](../../src/hilisp_host.hc#L258)
-- [`hedit_host_dispatch`](../../src/hilisp_host.hc#L280)
-- [`host_set`](../../src/hilisp_host.hc#L289)
-- [`host_get`](../../src/hilisp_host.hc#L304)
-- [`bind_ok`](../../src/hilisp_host.hc#L324)
-- [`host_bind`](../../src/hilisp_host.hc#L336)
-- [`preamble`](../../src/hilisp_host.hc#L353)
-- [`make_hedit_env`](../../src/hilisp_host.hc#L364)
-- [`load_config`](../../src/hilisp_host.hc#L381)
+- [`chord_to_str`](../../src/hilisp_host.hc#L127)
+- [`action_to_string`](../../src/hilisp_host.hc#L133)
+- [`string_to_action`](../../src/hilisp_host.hc#L177)
+- [`bindings_key`](../../src/hilisp_host.hc#L215)
+- [`values_key`](../../src/hilisp_host.hc#L217)
+- [`bindings_to_hash`](../../src/hilisp_host.hc#L221)
+- [`binding_to_entry`](../../src/hilisp_host.hc#L224)
+- [`values_to_hash`](../../src/hilisp_host.hc#L232)
+- [`value_to_entry`](../../src/hilisp_host.hc#L235)
+- [`config_from_env`](../../src/hilisp_host.hc#L244)
+- [`entries_to_bindings`](../../src/hilisp_host.hc#L256)
+- [`entries_to_values`](../../src/hilisp_host.hc#L267)
+- [`env_with_config`](../../src/hilisp_host.hc#L276)
+- [`value_to_string`](../../src/hilisp_host.hc#L300)
+- [`hedit_host_dispatch`](../../src/hilisp_host.hc#L322)
+- [`host_set`](../../src/hilisp_host.hc#L331)
+- [`host_get`](../../src/hilisp_host.hc#L346)
+- [`bind_ok`](../../src/hilisp_host.hc#L366)
+- [`host_bind`](../../src/hilisp_host.hc#L378)
+- [`preamble`](../../src/hilisp_host.hc#L395)
+- [`make_hedit_env`](../../src/hilisp_host.hc#L406)
+- [`load_config`](../../src/hilisp_host.hc#L423)
 ---
 
 # Project Architecture & Export Directory: `cli_spec.hc`
@@ -658,6 +957,7 @@ This index maps symbol names to their original file ranges, for tool and human r
 - **Source File:** `src/cli_spec.hc`
 ## Dependencies
 - `std/cli`
+- `model`
 
 ## Public API Catalog
 
@@ -666,6 +966,8 @@ This index maps symbol names to their original file ranges, for tool and human r
 | Function | Signature | Description |
 | --- | --- | --- |
 | `make_spec` | `fun make_spec() : CliSpec` | *(No documentation provided)* |
+| `parse_position_arg` | `fun parse_position_arg(a: string) : maybe<Position>` | *(No documentation provided)* |
+| `extract_position_arg` | `fun extract_position_arg(args: list<string>) : (maybe<string>, list<string>)` | *(No documentation provided)* |
 
 
 ---
@@ -681,13 +983,17 @@ This index maps symbol names to their original file ranges, for tool and human r
 | Function | Signature | Purity Status | Detected Effect Dependencies |
 | --- | --- | --- | --- |
 | `make_spec` | `fun make_spec() : CliSpec` | ✅ Pure | None |
+| `with_parsed_line` | `fun with_parsed_line(n: int, col_str: string) : maybe<Position>` | ✅ Pure | None |
+| `parse_line_col` | `fun parse_line_col(line_str: string, col_str: string) : maybe<Position>` | ✅ Pure | None |
+| `parse_position_arg` | `fun parse_position_arg(a: string) : maybe<Position>` | ✅ Pure | None |
+| `extract_position_arg` | `fun extract_position_arg(args: list<string>) : (maybe<string>, list<string>)` | ⚡ Impure | Divergent (recursion/loop) |
 
 ---
 
 # Hica Analysis Hotspot: `src/cli_spec.hc`
 
 ## Summary
-✅ **No functional debt detected** — all 1 function(s) are clean.
+✅ **No functional debt detected** — all 5 function(s) are clean.
 
 **FP Quality Index: 100/100**
 
@@ -697,7 +1003,11 @@ This index maps symbol names to their original file ranges, for tool and human r
 
 This index maps symbol names to their original file ranges, for tool and human reference.
 
-- [`make_spec`](../../src/cli_spec.hc#L12)
+- [`make_spec`](../../src/cli_spec.hc#L16)
+- [`with_parsed_line`](../../src/cli_spec.hc#L30)
+- [`parse_line_col`](../../src/cli_spec.hc#L36)
+- [`parse_position_arg`](../../src/cli_spec.hc#L42)
+- [`extract_position_arg`](../../src/cli_spec.hc#L62)
 ---
 
 # Project Architecture & Export Directory: `main.hc`
@@ -712,6 +1022,8 @@ This index maps symbol names to their original file ranges, for tool and human r
 - `config_loader`
 - `cli_spec`
 - `std/cli`
+- `std/term`
+- `term_ffi` (extern)
 
 *(No public API exported)*
 
@@ -729,15 +1041,29 @@ This index maps symbol names to their original file ranges, for tool and human r
 | --- | --- | --- | --- |
 | `combine_with` | `fun combine_with(x: string, b: maybe<string>) : maybe<string>` | ✅ Pure | None |
 | `combine_status` | `fun combine_status(a: maybe<string>, b: maybe<string>) : maybe<string>` | ✅ Pure | None |
-| `run_editor` | `fun run_editor(r: CliResult) : ()` | ⚡ Impure | Console |
-| `main` | `fun main() : ()` | ⚡ Impure | Console |
+| `enable_raw_mode` | `fun enable_raw_mode() : ()` | ✅ Pure | None |
+| `disable_raw_mode` | `fun disable_raw_mode() : ()` | ✅ Pure | None |
+| `rgb_fg_code` | `fun rgb_fg_code(c: (int, int, int)) : string` | ✅ Pure | None |
+| `rgb_bg_code` | `fun rgb_bg_code(c: (int, int, int)) : string` | ✅ Pure | None |
+| `wrap_fg_bg` | `fun wrap_fg_bg(fg: (int, int, int), bg: (int, int, int), s: string) : string` | ✅ Pure | None |
+| `wrap_bg` | `fun wrap_bg(bg: (int, int, int), s: string) : string` | ✅ Pure | None |
+| `colorize_tabline_row` | `fun colorize_tabline_row(theme: Theme, row: string) : string` | ✅ Pure | None |
+| `colorize_status_row` | `fun colorize_status_row(theme: Theme, row: string) : string` | ✅ Pure | None |
+| `colorize_cursor_row` | `fun colorize_cursor_row(theme: Theme, row: string) : string` | ✅ Pure | None |
+| `style_frame_lines` | `fun style_frame_lines(theme: Theme, lines: list<string>, cursor_row: int) : list<string>` | ✅ Pure | None |
+| `style_frame_lines_go` | `fun style_frame_lines_go(theme: Theme, lines: list<string>, idx: int, total: int, cursor_row: int) : list<string>` | ⚡ Impure | Divergent (recursion/loop) |
+| `render_native` | `fun render_native(theme: Theme, buf: ScreenBuffer) : ()` | ⚡ Impure | I/O & FileSystem |
+| `apply_tabsize_override` | `fun apply_tabsize_override(cfg: Config, tabsize: maybe<string>) : Config` | ✅ Pure | None |
+| `apply_readonly_override` | `fun apply_readonly_override(cfg: Config, ro: bool) : Config` | ✅ Pure | None |
+| `run_editor` | `fun run_editor(r: CliResult, pos_arg: maybe<string>) : ()` | ✅ Pure | None |
+| `main` | `fun main() : ()` | ⚡ Impure | I/O & FileSystem, Console |
 
 ---
 
 # Hica Analysis Hotspot: `src/main.hc`
 
 ## Summary
-✅ **No functional debt detected** — all 4 function(s) are clean.
+✅ **No functional debt detected** — all 18 function(s) are clean.
 
 **FP Quality Index: 100/100**
 
@@ -747,7 +1073,21 @@ This index maps symbol names to their original file ranges, for tool and human r
 
 This index maps symbol names to their original file ranges, for tool and human reference.
 
-- [`combine_with`](../../src/main.hc#L37)
-- [`combine_status`](../../src/main.hc#L46)
-- [`run_editor`](../../src/main.hc#L52)
-- [`main`](../../src/main.hc#L78)
+- [`combine_with`](../../src/main.hc#L57)
+- [`combine_status`](../../src/main.hc#L66)
+- [`enable_raw_mode`](../../src/main.hc#L76)
+- [`disable_raw_mode`](../../src/main.hc#L80)
+- [`rgb_fg_code`](../../src/main.hc#L91)
+- [`rgb_bg_code`](../../src/main.hc#L94)
+- [`wrap_fg_bg`](../../src/main.hc#L97)
+- [`wrap_bg`](../../src/main.hc#L100)
+- [`colorize_tabline_row`](../../src/main.hc#L107)
+- [`colorize_status_row`](../../src/main.hc#L118)
+- [`colorize_cursor_row`](../../src/main.hc#L121)
+- [`style_frame_lines`](../../src/main.hc#L127)
+- [`style_frame_lines_go`](../../src/main.hc#L132)
+- [`render_native`](../../src/main.hc#L163)
+- [`apply_tabsize_override`](../../src/main.hc#L174)
+- [`apply_readonly_override`](../../src/main.hc#L182)
+- [`run_editor`](../../src/main.hc#L185)
+- [`main`](../../src/main.hc#L219)
