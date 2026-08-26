@@ -1,44 +1,7 @@
-// main.hc — hedit entry point.
-//
-// M1: native stub Terminal handler + event_loop.
-// M2: render_frame arm now flushes the ScreenBuffer lines to stdout
-//     (simple line-by-line dump — full ANSI diffing lands in a later pass).
-//     event_loop gains <fsys> from handle_action's Ctrl-s save path.
-// M3: adds an in-memory Clipboard handler stacked outside the Terminal
-//     handler. Ctrl-c / Ctrl-v round-trip through a `with var clip = ""`
-//     slot; a native pbcopy/wl-copy/xclip handler can replace this arm
-//     without touching event_loop or the M4 HiLisp bridge.
-// M4b: calls `load_user_config(default_config())` before installing
-//      handlers. If a user's `init.hl` sits under $XDG_CONFIG_HOME or
-//      $HOME its (set …) / (bind …) forms feed into the initial
-//      `EditorState.config`. Any status message from the loader
-//      (successful path, or an error string) is primed onto
-//      `EditorState.status_message` so the first render tick surfaces
-//      the load result — mirroring vim/emacs on .vimrc/init.el.
-//      Unblocked by the hica `hica build` include-path fix (see
-//      docs/hica-issues.md Issue #7) + HiLisp v0.9.1 with the
-//      apply-carve-out shipped upstream.
-// M6: argv now goes through `std/cli` (spec in `src/cli_spec.hc`).
-//     `--help`/`--version` print and exit before any editor state is
-//     built. The optional `[FILE]` positional is loaded for real via
-//     `load_buffer` (model.hc) instead of the old path-only stub.
-// M7: the stub Terminal handler is replaced with a real one backed by
-//     `term_ffi` (raw-mode key reads + terminal size, C FFI — see
-//     src/term_ffi.kk) and `std/term` (ANSI escape helpers). Raw mode
-//     itself is toggled via `stty` through hica's built-in `exec`
-//     (no termios FFI needed) — the same approach hica-ecosystem's
-//     `programs/myeon` reference program uses for the same problem.
-// M8: CLI polish — `--config`/`--no-config` (config_loader.hc's
-//     load_user_config_opts), `--tabsize` (a post-load Config.values
-//     override, CLI wins over init.hl), `--readonly` (gates Save in
-//     runtime.hc), and `+LINE:COL` (a hand-parsed positional, stripped
-//     out of argv before `cli_parse_args` ever sees it — `std/cli` has
-//     no concept of a `+`-prefixed arg).
-// M10: theming. `resolve_theme_with_status` (model.hc) turns `Config.values`
-//     into a concrete `Theme` once at startup (a session never changes it
-//     live — HiLisp only runs once, before the event loop starts), which
-//     `render_native` then applies as true-color ANSI codes to the
-//     tabline/status/cursor-line rows of every rendered frame.
+/// hedit's entry point: parses argv, loads config + the target file,
+/// resolves the theme, installs the native Terminal/Clipboard handlers
+/// (raw-mode key reads via `term_ffi`, ANSI rendering via `std/term`),
+/// and hands off to `runtime.hc::event_loop`.
 
 import "keys"
 import "model"
@@ -51,9 +14,8 @@ import "std/term"
 
 extern import "term_ffi"
 
-// Combine the config-load and file-load status messages (either, both,
-// or neither may be present) into the single message that gets primed
-// onto `EditorState.status_message` for the first render tick.
+/// Combine a status message `x` (config/file load result) with an
+/// optional second one `b` (e.g. the theme resolver's warning).
 fun combine_with(x: string, b: maybe<string>) : maybe<string> =>
   match b {
     None => Some(x),
@@ -63,47 +25,56 @@ fun combine_with(x: string, b: maybe<string>) : maybe<string> =>
     }
   }
 
+/// Combine two optional status messages (either, both, or neither may
+/// be present) into the single message primed onto
+/// `EditorState.status_message` for the first render tick.
 fun combine_status(a: maybe<string>, b: maybe<string>) : maybe<string> =>
   match a {
     None => b,
     Some(x) => combine_with(x, b)
   }
 
-// Raw mode via `stty` (through hica's built-in `exec`) rather than a
-// hand-written termios FFI — `stty sane` on the way out covers the
-// normal-quit path; a crash/SIGINT leaving the shell in raw mode is a
-// known, documented limitation (see M7 exit criteria / manual QA list).
+/// Put the terminal into raw mode via `stty` (through hica's built-in
+/// `exec`) rather than a hand-written termios FFI.
+// `stty sane` on the way out covers the normal-quit path; a
+// crash/SIGINT leaving the shell in raw mode is a known, documented
+// limitation (see M7 exit criteria / manual QA list).
 fun enable_raw_mode() {
   let _ = exec("stty raw -echo icrnl 2>/dev/null")
 }
 
+/// Restore normal terminal mode (`stty sane`).
 fun disable_raw_mode() {
   let _ = exec("stty sane 2>/dev/null")
 }
 
-// ------------------- Theming (M10) ----------------------------------------
+// -------------------------- Theming ----------------------------------------
 //
 // `Theme` (model.hc) holds true-color (r, g, b) triples; these helpers turn
 // one into raw ANSI SGR codes wrapping a single already-width-fitted row.
 // Applied here (not in render.hc) so `render.hc`'s ScreenBuffer stays plain
 // text — the existing render tests assert on exact row content, and the
 // real terminal is the only place that needs to see escape sequences.
+
+/// The ANSI SGR foreground true-color code for `c`.
 fun rgb_fg_code(c: (int, int, int)) : string =>
   "38;2;" + show(c.0) + ";" + show(c.1) + ";" + show(c.2)
 
+/// The ANSI SGR background true-color code for `c`.
 fun rgb_bg_code(c: (int, int, int)) : string =>
   "48;2;" + show(c.0) + ";" + show(c.1) + ";" + show(c.2)
 
+/// Wrap `s` in an ANSI SGR foreground+background pair, reset afterward.
 fun wrap_fg_bg(fg: (int, int, int), bg: (int, int, int), s: string) : string =>
   term_esc() + "[" + rgb_fg_code(fg) + ";" + rgb_bg_code(bg) + "m" + s + term_esc() + "[0m"
 
+/// Wrap `s` in an ANSI SGR background-only code, reset afterward.
 fun wrap_bg(bg: (int, int, int), s: string) : string =>
   term_esc() + "[" + rgb_bg_code(bg) + "m" + s + term_esc() + "[0m"
 
-// The tabline's active tab is the leading "[name]" segment (see
-// `render.hc::build_tabline`) — split on the first "]" so it gets
-// `active_tab_fg`/`active_tab_bg` while the rest of the row (other open
-// buffers) gets the plain `tabline_fg`/`tabline_bg` pair.
+/// Colorize a rendered tabline row: the active tab (leading "[name]"
+/// segment) gets `active_tab_fg`/`active_tab_bg`, the rest of the row
+/// gets the plain `tabline_fg`/`tabline_bg` pair.
 fun colorize_tabline_row(theme: Theme, row: string) : string =>
   match index_of(row, "]") {
     Some(i) => {
@@ -115,20 +86,24 @@ fun colorize_tabline_row(theme: Theme, row: string) : string =>
     None => wrap_fg_bg(theme.tabline_fg, theme.tabline_bg, row)
   }
 
+/// Colorize a rendered status-line row.
 fun colorize_status_row(theme: Theme, row: string) : string =>
   wrap_fg_bg(theme.status_fg, theme.status_bg, row)
 
+/// Colorize a rendered content row that the cursor currently sits on.
 fun colorize_cursor_row(theme: Theme, row: string) : string =>
   wrap_bg(theme.cursor_line_bg, row)
 
-// Style the tabline (first row), status line (last row), and the row the
-// cursor currently sits on (everything else, plain). `cursor_row` is
-// 1-indexed and already clamped to the visible viewport by render.hc.
+/// Style the tabline (first row), status line (last row), and the row
+/// the cursor currently sits on (everything else, plain).
+// `cursor_row` is 1-indexed and already clamped to the visible viewport
+// by render.hc.
 fun style_frame_lines(theme: Theme, lines: list<string>, cursor_row: int) : list<string> {
   let total = length(lines)
   style_frame_lines_go(theme, lines, 0, total, cursor_row)
 }
 
+/// Recursive worker for `style_frame_lines`, tracking the current row index.
 fun style_frame_lines_go(theme: Theme, lines: list<string>, idx: int, total: int, cursor_row: int) : list<string> =>
   match lines {
     [] => [],
@@ -142,12 +117,8 @@ fun style_frame_lines_go(theme: Theme, lines: list<string>, idx: int, total: int
     }
   }
 
-// Full-redraw ANSI: home, then the rendered lines (each followed by an
-// erase-to-end-of-line), then an erase-to-end-of-screen (handles a frame
-// with fewer rows than the last one, e.g. after a resize) and a final
-// escape moving the real terminal cursor to `buf.cursor_row`/
-// `buf.cursor_col` (1-indexed) so it visibly tracks the edit position.
-// No diffing/partial-redraw optimization in this pass (see M7 scope).
+/// Full-redraw a `ScreenBuffer` to the real terminal via ANSI escapes,
+/// including moving the terminal's real cursor to `buf.cursor_row`/`buf.cursor_col`.
 // Deliberately does NOT clear the whole screen (`ESC[2J`) before
 // redrawing — that blanks the terminal for a frame before the new
 // content lands, which reads as flicker on every keystroke. Overwriting
@@ -169,19 +140,22 @@ fun render_native(theme: Theme, buf: ScreenBuffer) {
   flush_stdout()
 }
 
-// `--tabsize <n>` (M8): applied to Config.values *after* init.hl has
-// loaded, so it always wins over a config-file setting.
+/// `--tabsize <n>`: applied to Config.values after init.hl has
+/// loaded, so it always wins over a config-file setting.
 fun apply_tabsize_override(cfg: Config, tabsize: maybe<string>) : Config =>
   match tabsize {
     None    => cfg,
     Some(v) => set_config_value(cfg, "tabsize", v)
   }
 
-// `--readonly` (M8): can only turn the flag on (there's no "un-readonly"
-// CLI flag — omit it and the default `false` stands).
+/// `--readonly`: can only turn the flag on (there's no
+/// "un-readonly" CLI flag — omit it and the default `false` stands).
 fun apply_readonly_override(cfg: Config, ro: bool) : Config =>
   if ro { Config { ...cfg, readonly: true } } else { cfg }
 
+/// Build the initial `EditorState` from parsed CLI args (config, theme,
+/// target file, `+LINE:COL` start position), then install the native
+/// Terminal/Clipboard handlers and run `event_loop`.
 fun run_editor(r: CliResult, pos_arg: maybe<string>) {
   let cfg0             = default_config()
   let (cfg1, cfg_status) = load_user_config_opts(cfg0, get_opt(r, "config"), has_flag(r, "no-config"))
@@ -216,6 +190,8 @@ fun run_editor(r: CliResult, pos_arg: maybe<string>) {
   disable_raw_mode()
 }
 
+/// hedit's entry point: parse argv, then dispatch to `--help`/`--version`
+/// or `run_editor`.
 fun main() {
   let spec = make_spec()
   let (pos_arg, args) = extract_position_arg(get_args())
