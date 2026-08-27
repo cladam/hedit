@@ -1,4 +1,4 @@
-// config_loader_test.hc — tests for load_user_config_opts (M8).
+// config_loader_test.hc — tests for load_user_config_opts.
 //
 // `--no-config` and `--config <path>` are exercised here directly
 // against the filesystem (real temp files) rather than mocked, mirroring

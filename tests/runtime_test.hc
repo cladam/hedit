@@ -1,4 +1,4 @@
-// runtime_test.hc — M1/M2/M3 headless-handler regression tests.
+// runtime_test.hc — headless-handler regression tests.
 //
 // Every test installs a scripted `Terminal` handler with two pieces of
 // handler-local state:
@@ -9,7 +9,7 @@
 //   * `var render_count` — bumped on every `render_frame()` call so we
 //     can assert the loop actually ticked.
 //
-// M3 tests additionally wrap the Terminal handler in an in-memory
+// These tests also wrap the Terminal handler in an in-memory
 // `Clipboard` handler (`with var clip = ""`), so Ctrl-c / Ctrl-v
 // round-trips are asserted without hitting a real OS clipboard.
 //
@@ -27,7 +27,7 @@ import "../src/hilisp_host"
 // with the prelude's string `lines` function (see repo memory notes).
 fun buf_lines(b: TextBuffer) : list<string> => b.lines
 
-// ------------------- test 1: quit terminates immediately ----------------
+// ------------------- quit terminates immediately ----------------
 
 test "scripted Ctrl-q terminates the loop after one tick" {
   // The EditorState annotation on `final` prevents a cross-module type-inference
@@ -49,7 +49,7 @@ test "scripted Ctrl-q terminates the loop after one tick" {
   assert(final.buffer.lines == [""])   // no chars typed
 }
 
-// ------------------- test 2: scripted keys build "hi" -------------------
+// ------------------- scripted keys build "hi" -------------------
 
 test "scripted keys h i Ctrl-q leave buffer as [hi]" {
   let final: EditorState = handle Terminal {
@@ -72,7 +72,7 @@ test "scripted keys h i Ctrl-q leave buffer as [hi]" {
   assert(final.should_quit == true)
 }
 
-// ------------------- test 3: render fires each iteration ----------------
+// ------------------- render fires each iteration ----------------
 
 test "render_frame is called at least once per iteration" {
   // Return the EditorState alongside render_count as a typed tuple so that
@@ -101,7 +101,7 @@ test "render_frame is called at least once per iteration" {
   assert(final.buffer.lines == ["abc"])
 }
 
-// ------------------- test 4: get_dimensions updates screen_size ---------
+// ------------------- get_dimensions updates screen_size ---------
 
 test "get_dimensions is propagated onto EditorState.screen_size" {
   let final = handle Terminal {
@@ -115,7 +115,7 @@ test "get_dimensions is propagated onto EditorState.screen_size" {
   assert(final.screen_size == (120, 40))
 }
 
-// ------------------- test 5: Ctrl-s writes the file --------------------
+// ------------------- Ctrl-s writes the file --------------------
 
 test "ctrl-s on a named buffer writes content to disk" {
   let tmp_path = "/tmp/hedit_test_m2_save.txt"
@@ -144,7 +144,7 @@ test "ctrl-s on a named buffer writes content to disk" {
   assert(content == Ok("hi\n"))
 }
 
-// ------------------- M8: --readonly gates Save --------------------------
+// ------------------- --readonly gates Save --------------------------
 
 test "ctrl-s on a readonly buffer does not write and sets a status message" {
   let tmp_path = "/tmp/hedit_test_m8_readonly_save.txt"
@@ -177,7 +177,7 @@ test "ctrl-s on a readonly buffer does not write and sets a status message" {
 
 // A pathless buffer under --readonly must not open the Save-As prompt
 // either — the readonly gate is checked before the "no path" branch in
-// `runtime.hc::save_buffer` (M9).
+// `runtime.hc::save_buffer`.
 test "ctrl-s on a readonly scratch buffer does not open a Save-As prompt" {
   let ro_cfg = Config { ...default_config(), readonly: true }
   let s0 = init_editor_with_config(None, ro_cfg)
@@ -200,14 +200,11 @@ test "ctrl-s on a readonly scratch buffer does not open a Save-As prompt" {
   assert(final.prompt == NoPrompt)
 }
 
-// ------------------- Clipboard integration tests (M3) ------------------
+// ------------------- Clipboard integration tests ------------------
 //
-// Nested Terminal+Clipboard handlers around `event_loop`. Previously
-// blocked on hica-issues.md Issue #5 (test-mode `fun main()` didn't
-// discharge user-defined effects from `try({ hctest_() })`); resolved
-// in hica 0.49.3 with the auto-installed panic-handler fix.
+// Nested Terminal+Clipboard handlers around `event_loop`.
 
-// ------------------- test 6: Ctrl-c copies current line ----------------
+// ------------------- Ctrl-c copies current line ----------------
 
 test "ctrl-c copies the head cursor line into the Clipboard" {
   // Type "abc", Ctrl-c, then Ctrl-q. After the loop returns, `clip`
@@ -242,7 +239,7 @@ test "ctrl-c copies the head cursor line into the Clipboard" {
   assert(final.status_message == Some("Copied line"))
 }
 
-// ------------------- test 7: Ctrl-v pastes from Clipboard --------------
+// ------------------- Ctrl-v pastes from Clipboard --------------
 
 test "ctrl-v appends Clipboard contents to head cursor line" {
   // Pre-seed the clipboard with "xyz". After Ctrl-v, the buffer's first
@@ -272,7 +269,7 @@ test "ctrl-v appends Clipboard contents to head cursor line" {
   assert(final.buffer.is_dirty == true)
 }
 
-// ------------------- test 8: full Copy → Paste round-trip --------------
+// ------------------- full Copy → Paste round-trip --------------
 
 test "copy then paste duplicates the line content" {
   // Type "hi", Copy, Paste, Ctrl-q. Final line should be "hihi",
@@ -307,7 +304,7 @@ test "copy then paste duplicates the line content" {
   assert(clipped == "hi")
 }
 
-// ------------------- M4b integration: HiLisp-rebound chord fires action -
+// ------------------- HiLisp-rebound chord fires action ----------------
 
 // End-to-end proof that a HiLisp `(bind …)` form materialised through
 // `load_config` reaches the event loop's action dispatch. We rebind
@@ -337,7 +334,7 @@ test "HiLisp (bind Ctrl-x 'quit) rewires the quit chord end-to-end" {
   assert(final.should_quit == true)
 }
 
-// ------------------- M5.5: multi-buffer navigation through event_loop --
+// ------------------- multi-buffer navigation through event_loop ---------
 
 // Meta-o (new), Meta-n / Meta-p (cycle), Meta-w (close) all reach
 // `apply_action` through the same resolve_action/event_loop pipeline as
@@ -391,7 +388,7 @@ test "Meta-w closes the active buffer and promotes the other one" {
   assert(length(final.background_buffers) == 0)
 }
 
-// ------------------- M9: Save-As / Open prompt through event_loop -------
+// ------------------- Save-As / Open prompt through event_loop ---------------
 
 // Ctrl-s on a pathless ("scratch") buffer opens a Save-As prompt instead
 // of the old "not possible" dead end; typing a path and pressing Enter
@@ -455,7 +452,7 @@ test "Esc cancels a Save-As prompt without writing anything" {
   assert(!was_written)
 }
 
-// Ctrl-o opens an Open prompt (Stage 1 remap, docs/new-keybindings.txt);
+// Ctrl-o opens an Open prompt;
 // typing an existing path and Enter loads its real content into a new
 // buffer, backgrounding the current one — same shape as Meta-o's
 // NewBuffer.

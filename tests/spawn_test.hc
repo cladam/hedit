@@ -1,4 +1,4 @@
-// spawn_test.hc — M5: `pub effect Buffer` isolation + undo/redo proof.
+// spawn_test.hc — `pub effect Buffer` isolation + undo/redo proof.
 //
 // These tests exercise the spawned `Buffer` effect directly (no
 // `event_loop`, no Terminal/Clipboard handlers) — the "does spawn
@@ -23,7 +23,7 @@ import "../src/runtime"
 fun mk_buf(lines: list<string>) : TextBuffer =>
   TextBuffer { ...new_buffer(0, None), lines: lines }
 
-// ------------------- test 1: undo restores prior snapshot ---------------
+// ------------------- undo restores prior snapshot ---------------
 
 test "type, snapshot, type, undo restores the snapshot" {
   spawn Buffer {
@@ -56,7 +56,7 @@ test "type, snapshot, type, undo restores the snapshot" {
   assert(restored == Some(after_type))
 }
 
-// ------------------- test 2: redo moves forward again --------------------
+// ------------------- redo moves forward again --------------------
 
 test "undo then redo returns to the later state" {
   spawn Buffer {
@@ -90,7 +90,7 @@ test "undo then redo returns to the later state" {
   assert(restored == Some(later))
 }
 
-// ------------------- test 3: undo on an empty stack is a no-op ----------
+// ------------------- undo on an empty stack is a no-op ----------
 
 test "undo on an empty history returns None" {
   spawn Buffer {
@@ -120,7 +120,7 @@ test "undo on an empty history returns None" {
   assert(restored == None)
 }
 
-// ------------------- test 4: two spawned instances stay isolated --------
+// ------------------- two spawned instances stay isolated --------
 
 test "two spawned Buffer instances keep independent history" {
   spawn Buffer {

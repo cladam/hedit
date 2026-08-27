@@ -1,4 +1,4 @@
-// model_test.hc — tests for src/model.hc's real file-loading (M6).
+// model_test.hc — tests for src/model.hc's real file-loading.
 //
 // The `path == None` fallback shape is already exercised indirectly by
 // every `init_editor(None)` call across the other test files; these
@@ -54,7 +54,7 @@ test "load_buffer with no path returns an empty scratch buffer" {
   assert(status == None)
 }
 
-// ------------------- M8: --tabsize override precedence -------------------
+// ------------------- --tabsize override precedence -------------------
 
 test "set_config_value overrides a value already present" {
   let cfg0 = default_config()
@@ -69,7 +69,7 @@ test "set_config_value adds a value when none was present" {
   assert(get_config_int(cfg1, "tabsize", 8) == 2)
 }
 
-// ------------------- M8: +LINE:COL clamping -------------------------------
+// ------------------- +LINE:COL clamping -------------------------------
 
 test "clamp_position keeps an in-range position unchanged" {
   let lines = ["hello", "world"]

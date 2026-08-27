@@ -1,4 +1,4 @@
-// keys_test.hc — pure tests for `decode_key` (M7 native Terminal handler).
+// keys_test.hc — pure tests for `decode_key` (native Terminal handler).
 //
 // No tty, no FFI — `decode_key` only sees the int codes `term_ffi.read_key`
 // contracts to produce (see src/term_ffi.kk / src/term_ffi_inline.c).

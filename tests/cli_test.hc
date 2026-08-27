@@ -47,7 +47,7 @@ test "no arguments leaves the [FILE] positional unset" {
   assert(path == None)
 }
 
-// ------------------- M8: --config / --no-config / --tabsize / --readonly
+// ----------------- --config / --no-config / --tabsize / --readonly -----
 
 test "--config <path> is available as an option" {
   let spec = make_spec()
@@ -120,7 +120,7 @@ test "flags and the [FILE] positional coexist" {
   assert(path == Some("notes.txt"))
 }
 
-// ------------------- M8: +LINE:COL positional --------------------------
+// ------------------- +LINE:COL positional -----------------------------
 
 test "extract_position_arg pulls a +LINE token out of argv" {
   let result: (maybe<string>, list<string>) = extract_position_arg(["+10", "notes.txt"])

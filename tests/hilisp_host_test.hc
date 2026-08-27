@@ -1,15 +1,11 @@
 // hilisp_host_test.hc — smoke tests for the HiLisp embed.
 //
-// M0 tests: proves hedit can talk to HiLisp through the tiny host wrapper
+// These tests proves hedit can talk to HiLisp through the tiny host wrapper
 // and that the four upstream v0.8.0 features we care about (arithmetic,
 // hash-maps, string escapes, quoted symbols) all round-trip.
 //
-// M4 tests: end-to-end coverage of the `(set …)` / `(get …)` / `(bind …)`
-// bridge is *drafted* below but commented out — they exercise the code
-// path in `src/hilisp_host.hc::load_config` that currently trips the
-// `<div>` totality gap documented in `docs/hica-issues.md` Issue #6.
-// The `parse_chord` tests are safe to run today because they only
-// exercise the pure helper, not the host-callback machinery.
+// End-to-end coverage of the `(set …)` / `(get …)` / `(bind …)`
+
 
 import "../src/keys"
 import "../src/model"
@@ -30,7 +26,7 @@ test "eval_source: nested let bindings" {
   assert_eq(eval_source("(let (x 1 y 2) (+ x y))"), "3")
 }
 
-// Hash-maps (design doc section 8.2, shipped in HiLisp 0.7.0)
+// Hash-maps
 
 test "eval_source: hash-map reader literal + hash-get" {
   assert_eq(eval_source("(hash-get \{\"theme\" \"gruvbox\"\} \"theme\")"),
@@ -41,7 +37,7 @@ test "eval_source: hash-get default for missing key" {
   assert_eq(eval_source("(hash-get \{\"a\" 1\} \"missing\" 99)"), "99")
 }
 
-// String escapes (design doc section 8.1, shipped in HiLisp 0.7.0)
+// String escapes
 
 test "eval_source: backslash-n is decoded inside string literals" {
   // Peel the string out of the LVal so equality goes through the built-in
@@ -54,7 +50,7 @@ test "eval_source: backslash-n is decoded inside string literals" {
   assert_eq(out, "hi\nthere")
 }
 
-// Symbols (design doc section 8.3, shipped in HiLisp 0.7.0)
+// Symbols
 
 test "eval_source: quoted symbol round-trips through symbol-name" {
   assert_eq(eval_source("(symbol-name 'save)"), "save")
@@ -65,7 +61,7 @@ test "eval_source: symbol? distinguishes symbol from string" {
   assert_eq(eval_source("(symbol? \"save\")"), "false")
 }
 
-// Error surface (design doc section 8.4, shipped in HiLisp 0.7.0)
+// Error surface
 
 test "eval_source_val: undefined symbol returns LError with a span" {
   let v = eval_source_val("(+ 1 undefined-var)")
@@ -75,7 +71,7 @@ test "eval_source_val: undefined symbol returns LError with a span" {
   }
 }
 
-// ------------------- M4: parse_chord (pure, always safe) -----------------
+// ------------------- parse_chord (pure, always safe) -----------------
 
 test "parse_chord: Ctrl-s → KeyChord(Ctrl, 's')" {
   match parse_chord("Ctrl-s") {
@@ -104,12 +100,10 @@ test "parse_chord: rejects garbage" {
   assert(parse_chord("Ctrl-") == None)
 }
 
-// ------------------- M4: (set)/(bind) end-to-end -------------------------
+// ------------------- (set)/(bind) end-to-end -------------------------
 //
-// These tests are the real M4 exit criterion: a HiLisp config string
-// materialises into a hedit-side `Config`. They exercise
-// `register_host_dispatch` + `hedit_host_dispatch` + `load_config` in
-// one go. The pattern intentionally mirrors the design doc §7.5 example.
+// A HiLisp config string materialises into a hedit-side `Config`. 
+// The tests exercise `register_host_dispatch` + `hedit_host_dispatch` + `load_config` in one go.
 
 test "load_config: (set) records values into the config" {
   let (cfg, err) = load_config("(set \"tabsize\" 4)", default_config())

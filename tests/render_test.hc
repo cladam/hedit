@@ -1,4 +1,4 @@
-// render_test.hc — pure tests for render_editor_to_buffer (M2).
+// render_test.hc — pure tests for render_editor_to_buffer.
 //
 // All tests are headless: no Terminal handler, no file I/O.
 // We build EditorState values directly and assert on the ScreenBuffer shape.
@@ -16,7 +16,7 @@ fun last_or(xs: list<string>, default: string) : string =>
     [_, ..rest] => last_or(rest, default)
   }
 
-// ------------------- test 1: structural height --------------------------
+// ------------------- structural height --------------------------
 
 test "render height equals screen_size height" {
   let state = EditorState { ...init_editor(None), screen_size: (80, 24) }
@@ -26,7 +26,7 @@ test "render height equals screen_size height" {
   assert(length(buf.lines) == 24)
 }
 
-// ------------------- test 2: content row --------------------------------
+// ------------------- content row --------------------------------
 
 test "typed content appears in the first content row after the tabline" {
   let s0 = EditorState { ...init_editor(None), screen_size: (40, 10) }
@@ -37,7 +37,7 @@ test "typed content appears in the first content row after the tabline" {
   assert(first_content == "hi")
 }
 
-// ------------------- test 2b: tabline row --------------------------------
+// ------------------- tabline row --------------------------------
 
 test "tabline shows a single bracketed scratch tab with one buffer open" {
   let s0 = EditorState { ...init_editor(None), screen_size: (40, 10) }
@@ -54,7 +54,7 @@ test "tabline lists every open buffer, active one bracketed" {
   assert(tabline == "[scratch]|scratch")
 }
 
-// ------------------- test 3: status line --------------------------------
+// ------------------- status line --------------------------------
 
 test "status line shows path and dirty flag when buffer is dirty" {
   let s0 = init_editor(Some("/tmp/test.txt"))
@@ -65,7 +65,7 @@ test "status line shows path and dirty flag when buffer is dirty" {
   assert(status == "/tmp/test.txt [+]")
 }
 
-// ------------------- test 4: explicit status message --------------------
+// ------------------- explicit status message --------------------
 
 test "explicit status_message overrides the default path line" {
   let s0 = set_status_message(init_editor(None), "File saved")

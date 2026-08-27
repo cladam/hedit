@@ -28,15 +28,15 @@
 
 | Function | Signature | Description |
 | --- | --- | --- |
-| `render_help_buffer` | `fun render_help_buffer(state: EditorState) : ScreenBuffer` | *(No documentation provided)* |
-| `render_editor_to_buffer` | `fun render_editor_to_buffer(state: EditorState) : ScreenBuffer` | *(No documentation provided)* |
+| `render_help_buffer` | `fun render_help_buffer(state: EditorState) : ScreenBuffer` | Build the full-screen help overlay ScreenBuffer listing every currently-bound chord. |
+| `render_editor_to_buffer` | `fun render_editor_to_buffer(state: EditorState) : ScreenBuffer` | Build the ScreenBuffer for the current frame, dispatching on `state.show_help` ahead of the normal render pass. |
 
 
 ---
 
 # Domain Data Models & Type Dictionary
 
-*(No structs or enums defined in this module)*
+*(No structs, enums or effects defined in this module)*
 
 ---
 
@@ -65,7 +65,7 @@
 ## Function Context
 - **Name:** `render_normal_buffer`
 - **Signature:** `fun render_normal_buffer(state: EditorState) : ScreenBuffer`
-- **Location:** `src/render.hc:97`
+- **Location:** `src/render.hc:91`
 - **Debt Score:** 10 (Critical)
 
 ## Detected FP Anti-Patterns
@@ -132,19 +132,19 @@ fun render_normal_buffer(state: EditorState) : ScreenBuffer {
 
 This index maps symbol names to their original file ranges, for tool and human reference.
 
-- [`fit_to_width`](../../src/render.hc#L13)
-- [`take_or_pad`](../../src/render.hc#L17)
-- [`drop_n`](../../src/render.hc#L29)
-- [`scroll_offset`](../../src/render.hc#L43)
-- [`buffer_tab_name`](../../src/render.hc#L48)
-- [`build_tabline`](../../src/render.hc#L54)
-- [`prompt_label`](../../src/render.hc#L62)
-- [`prompt_prefix_len`](../../src/render.hc#L72)
-- [`prompt_cursor_col`](../../src/render.hc#L80)
-- [`render_normal_buffer`](../../src/render.hc#L97)
-- [`format_binding`](../../src/render.hc#L148)
-- [`render_help_buffer`](../../src/render.hc#L151)
-- [`render_editor_to_buffer`](../../src/render.hc#L169)
+- [`fit_to_width`](../../src/render.hc#L10) — Truncate `s` to at most `w` characters (no-op if already shorter).
+- [`take_or_pad`](../../src/render.hc#L14) — First `n` elements of `xs`, padding with `pad` when `xs` is exhausted.
+- [`drop_n`](../../src/render.hc#L26) — Drop the first `n` elements of `xs` (no-op past the end).
+- [`scroll_offset`](../../src/render.hc#L40) — The vertical scroll offset (first visible buffer line).
+- [`buffer_tab_name`](../../src/render.hc#L45) — Display name for a buffer's tab: its path, or "scratch" for an unnamed in-memory buffer.
+- [`build_tabline`](../../src/render.hc#L50) — One tabline entry per open buffer (active buffer first), joined with "|". The active tab is bracketed (`[scratch]`).
+- [`prompt_label`](../../src/render.hc#L58) — Status-row label for an active Save-As/Open prompt (M9), replacing the normal path/dirty-flag or status-message row while typing.
+- [`prompt_prefix_len`](../../src/render.hc#L67) — Length of the fixed label prefix in front of the typed text — needed to place the real cursor at the right screen column.
+- [`prompt_cursor_col`](../../src/render.hc#L75) — The prompt's own cursor column within its typed text.
+- [`render_normal_buffer`](../../src/render.hc#L91) — Build a ScreenBuffer from `state`'s normal (non-help) editing view.
+- [`format_binding`](../../src/render.hc#L143) — One row: "Ctrl-s  ->  save".
+- [`render_help_buffer`](../../src/render.hc#L148) — Build the full-screen help overlay ScreenBuffer listing every currently-bound chord.
+- [`render_editor_to_buffer`](../../src/render.hc#L166) — Build the ScreenBuffer for the current frame, dispatching on `state.show_help` ahead of the normal render pass.
 ---
 
 # Project Architecture & Export Directory: `config_loader.hc`
@@ -161,18 +161,18 @@ This index maps symbol names to their original file ranges, for tool and human r
 
 | Function | Signature | Description |
 | --- | --- | --- |
-| `candidate_paths` | `fun candidate_paths(xdg: maybe<string>, home: maybe<string>) : list<string>` | *(No documentation provided)* |
-| `read_first` | `fun read_first(paths: list<string>) : (string, maybe<string>)` | *(No documentation provided)* |
-| `load_user_config` | `fun load_user_config(cfg0: Config) : (Config, maybe<string>)` | *(No documentation provided)* |
-| `load_config_from_path` | `fun load_config_from_path(cfg0: Config, p: string) : (Config, maybe<string>)` | *(No documentation provided)* |
-| `load_user_config_opts` | `fun load_user_config_opts(cfg0: Config, explicit_path: maybe<string>, skip: bool) : (Config, maybe<string>)` | *(No documentation provided)* |
+| `candidate_paths` | `fun candidate_paths(xdg: maybe<string>, home: maybe<string>) : list<string>` | Compose the two candidate config paths in priority order. |
+| `read_first` | `fun read_first(paths: list<string>) : (string, maybe<string>)` | Try each candidate path in order; the first readable file wins, returned as `(content, Some(path))`. `("", None)` on total miss. |
+| `load_user_config` | `fun load_user_config(cfg0: Config) : (Config, maybe<string>)` | Resolve `$XDG_CONFIG_HOME`/`$HOME`, walk the candidate paths, and evaluate the first one found through `hilisp_host::load_config`. Returns `cfg0` unchanged with `None` status if neither candidate exists. |
+| `load_config_from_path` | `fun load_config_from_path(cfg0: Config, p: string) : (Config, maybe<string>)` | `--config <path>`: load exactly that file instead of walking `candidate_paths`. A missing/unreadable path surfaces as a status message rather than a silent fallback. |
+| `load_user_config_opts` | `fun load_user_config_opts(cfg0: Config, explicit_path: maybe<string>, skip: bool) : (Config, maybe<string>)` | CLI-aware entry point used by `main.hc`: `--no-config` skips loading entirely, `--config <path>` loads exactly that file, and absent both, falls back to the normal XDG/HOME search. |
 
 
 ---
 
 # Domain Data Models & Type Dictionary
 
-*(No structs or enums defined in this module)*
+*(No structs, enums or effects defined in this module)*
 
 ---
 
@@ -205,15 +205,15 @@ This index maps symbol names to their original file ranges, for tool and human r
 
 This index maps symbol names to their original file ranges, for tool and human reference.
 
-- [`opt_path`](../../src/config_loader.hc#L31)
-- [`xdg_candidate`](../../src/config_loader.hc#L37)
-- [`home_candidate`](../../src/config_loader.hc#L44)
-- [`candidate_paths`](../../src/config_loader.hc#L53)
-- [`read_first`](../../src/config_loader.hc#L60)
-- [`apply_config_src`](../../src/config_loader.hc#L87)
-- [`load_user_config`](../../src/config_loader.hc#L95)
-- [`load_config_from_path`](../../src/config_loader.hc#L110)
-- [`load_user_config_opts`](../../src/config_loader.hc#L120)
+- [`opt_path`](../../src/config_loader.hc#L11) — Wrap `dir + suffix` in a singleton list, or `[]` if `dir` is `None`.
+- [`xdg_candidate`](../../src/config_loader.hc#L16) — The XDG candidate path: `$XDG_CONFIG_HOME/hedit/init.hl` if set, else `$HOME/.config/hedit/init.hl`, else `[]`.
+- [`home_candidate`](../../src/config_loader.hc#L23) — The `$HOME/.hedit.hl` candidate path, or `[]` if `$HOME` is unset.
+- [`candidate_paths`](../../src/config_loader.hc#L29) — Compose the two candidate config paths in priority order.
+- [`read_first`](../../src/config_loader.hc#L34) — Try each candidate path in order; the first readable file wins, returned as `(content, Some(path))`. `("", None)` on total miss.
+- [`apply_config_src`](../../src/config_loader.hc#L46) — Evaluate `src` (already read from `p`) through `hilisp_host::load_config` and shape the resulting status message.
+- [`load_user_config`](../../src/config_loader.hc#L57) — Resolve `$XDG_CONFIG_HOME`/`$HOME`, walk the candidate paths, and evaluate the first one found through `hilisp_host::load_config`. Returns `cfg0` unchanged with `None` status if neither candidate exists.
+- [`load_config_from_path`](../../src/config_loader.hc#L71) — `--config <path>`: load exactly that file instead of walking `candidate_paths`. A missing/unreadable path surfaces as a status message rather than a silent fallback.
+- [`load_user_config_opts`](../../src/config_loader.hc#L80) — CLI-aware entry point used by `main.hc`: `--no-config` skips loading entirely, `--config <path>` loads exactly that file, and absent both, falls back to the normal XDG/HOME search.
 ---
 
 # Project Architecture & Export Directory: `keys.hc`
@@ -226,15 +226,15 @@ This index maps symbol names to their original file ranges, for tool and human r
 
 | Function | Signature | Description |
 | --- | --- | --- |
-| `decode_key` | `fun decode_key(code: int) : Event` | *(No documentation provided)* |
+| `decode_key` | `fun decode_key(code: int) : Event` | Decode a raw key code from the native `Terminal` handler (`term_ffi.hedit_read_key`'s contract, see src/term_ffi.kk) into an `Event`. |
 
 ### Public Enums / ADTs
 
-- **`Modifier`**: *(No documentation provided)*
-- **`SpecialKey`**: *(No documentation provided)*
-- **`Key`**: *(No documentation provided)*
-- **`MouseAction`**: *(No documentation provided)*
-- **`Event`**: *(No documentation provided)*
+- **`Modifier`**: A modifier key that can be combined with a base char (Ctrl-s, Alt-x, ...).
+- **`SpecialKey`**: A non-printable key that doesn't map to a single `char`.
+- **`Key`**: A single keypress the terminal handler delivers to us.
+- **`MouseAction`**: A mouse button / wheel action.
+- **`Event`**: Anything the outside world can deliver into the editor's event loop.
 
 
 ---
@@ -244,6 +244,8 @@ This index maps symbol names to their original file ranges, for tool and human r
 ## Algebraic Data Types (Enums)
 
 ### Type `Modifier` `pub`
+A modifier key that can be combined with a base char (Ctrl-s, Alt-x, ...).
+
 #### Variants
 - `Ctrl`
 - `Alt`
@@ -251,6 +253,8 @@ This index maps symbol names to their original file ranges, for tool and human r
 - `Shift`
 
 ### Type `SpecialKey` `pub`
+A non-printable key that doesn't map to a single `char`.
+
 #### Variants
 - `Enter`
 - `Backspace`
@@ -262,12 +266,16 @@ This index maps symbol names to their original file ranges, for tool and human r
 - `ArrowRight`
 
 ### Type `Key` `pub`
+A single keypress the terminal handler delivers to us.
+
 #### Variants
 - `KChar(c: char)`
 - `KSpecial(k: SpecialKey)`
 - `KShortcut(m: Modifier, c: char)`
 
 ### Type `MouseAction` `pub`
+A mouse button / wheel action.
+
 #### Variants
 - `Press`
 - `Release`
@@ -276,6 +284,8 @@ This index maps symbol names to their original file ranges, for tool and human r
 - `ScrollDown`
 
 ### Type `Event` `pub`
+Anything the outside world can deliver into the editor's event loop.
+
 #### Variants
 - `KeyEvent(k: Key)`
 - `MouseEvent(a: MouseAction, x: int, y: int)`
@@ -306,7 +316,7 @@ This index maps symbol names to their original file ranges, for tool and human r
 
 This index maps symbol names to their original file ranges, for tool and human reference.
 
-- [`decode_key`](../../src/keys.hc#L62)
+- [`decode_key`](../../src/keys.hc#L58) — Decode a raw key code from the native `Terminal` handler (`term_ffi.hedit_read_key`'s contract, see src/term_ffi.kk) into an `Event`.
 ---
 
 # Project Architecture & Export Directory: `actions.hc`
@@ -323,53 +333,53 @@ This index maps symbol names to their original file ranges, for tool and human r
 
 | Function | Signature | Description |
 | --- | --- | --- |
-| `insert_char` | `fun insert_char(state: EditorState, c: char) : EditorState` | *(No documentation provided)* |
-| `insert_newline` | `fun insert_newline(state: EditorState) : EditorState` | *(No documentation provided)* |
-| `move_line_start` | `fun move_line_start(state: EditorState) : EditorState` | *(No documentation provided)* |
-| `move_line_end` | `fun move_line_end(state: EditorState) : EditorState` | *(No documentation provided)* |
-| `delete_backward` | `fun delete_backward(state: EditorState) : EditorState` | *(No documentation provided)* |
-| `delete_forward` | `fun delete_forward(state: EditorState) : EditorState` | *(No documentation provided)* |
-| `move_left` | `fun move_left(state: EditorState) : EditorState` | *(No documentation provided)* |
-| `move_right` | `fun move_right(state: EditorState) : EditorState` | *(No documentation provided)* |
-| `move_up` | `fun move_up(state: EditorState) : EditorState` | *(No documentation provided)* |
-| `move_down` | `fun move_down(state: EditorState) : EditorState` | *(No documentation provided)* |
-| `current_line` | `fun current_line(state: EditorState) : string` | *(No documentation provided)* |
-| `paste_text` | `fun paste_text(state: EditorState, text: string) : EditorState` | *(No documentation provided)* |
-| `kill_line_text` | `fun kill_line_text(state: EditorState) : string` | *(No documentation provided)* |
-| `kill_line` | `fun kill_line(state: EditorState) : EditorState` | *(No documentation provided)* |
-| `kill_word_back_text` | `fun kill_word_back_text(state: EditorState) : string` | *(No documentation provided)* |
-| `delete_word_back` | `fun delete_word_back(state: EditorState) : EditorState` | *(No documentation provided)* |
-| `move_word_back` | `fun move_word_back(state: EditorState) : EditorState` | *(No documentation provided)* |
-| `move_word_forward` | `fun move_word_forward(state: EditorState) : EditorState` | *(No documentation provided)* |
-| `kill_word_forward_text` | `fun kill_word_forward_text(state: EditorState) : string` | *(No documentation provided)* |
-| `delete_word_forward` | `fun delete_word_forward(state: EditorState) : EditorState` | *(No documentation provided)* |
-| `kill_whole_line_text` | `fun kill_whole_line_text(state: EditorState) : string` | *(No documentation provided)* |
-| `kill_whole_line` | `fun kill_whole_line(state: EditorState) : EditorState` | *(No documentation provided)* |
-| `new_buffer_action` | `fun new_buffer_action(state: EditorState) : EditorState` | *(No documentation provided)* |
-| `cycle_next_buffer` | `fun cycle_next_buffer(state: EditorState) : EditorState` | *(No documentation provided)* |
-| `cycle_prev_buffer` | `fun cycle_prev_buffer(state: EditorState) : EditorState` | *(No documentation provided)* |
-| `close_buffer_action` | `fun close_buffer_action(state: EditorState) : EditorState` | *(No documentation provided)* |
-| `prompt_insert_char` | `fun prompt_insert_char(state: EditorState, c: char) : EditorState` | *(No documentation provided)* |
-| `prompt_backspace` | `fun prompt_backspace(state: EditorState) : EditorState` | *(No documentation provided)* |
-| `prompt_cancel` | `fun prompt_cancel(state: EditorState) : EditorState` | *(No documentation provided)* |
-| `prompt_move_start` | `fun prompt_move_start(state: EditorState) : EditorState` | *(No documentation provided)* |
-| `prompt_move_end` | `fun prompt_move_end(state: EditorState) : EditorState` | *(No documentation provided)* |
-| `prompt_move_left` | `fun prompt_move_left(state: EditorState) : EditorState` | *(No documentation provided)* |
-| `prompt_move_right` | `fun prompt_move_right(state: EditorState) : EditorState` | *(No documentation provided)* |
-| `prompt_delete_forward` | `fun prompt_delete_forward(state: EditorState) : EditorState` | *(No documentation provided)* |
-| `prompt_kill_text` | `fun prompt_kill_text(state: EditorState) : string` | *(No documentation provided)* |
-| `prompt_truncate` | `fun prompt_truncate(state: EditorState) : EditorState` | *(No documentation provided)* |
-| `open_file_prompt` | `fun open_file_prompt(state: EditorState) : EditorState` | *(No documentation provided)* |
-| `resolve_action` | `fun resolve_action(state: EditorState, evt: Event) : Action` | *(No documentation provided)* |
-| `apply_action` | `fun apply_action(state: EditorState, action: Action) : EditorState` | *(No documentation provided)* |
-| `handle_action` | `fun handle_action(state: EditorState, evt: Event) : EditorState` | *(No documentation provided)* |
+| `insert_char` | `fun insert_char(state: EditorState, c: char) : EditorState` | Insert `c` at the cursor's column and advance the cursor by one. |
+| `insert_newline` | `fun insert_newline(state: EditorState) : EditorState` | Split the current line at the cursor into two lines, cursor moves to column 0 of the new (second) line. |
+| `move_line_start` | `fun move_line_start(state: EditorState) : EditorState` | Move the cursor to column 0 of its current line. |
+| `move_line_end` | `fun move_line_end(state: EditorState) : EditorState` | Move the cursor to the end of its current line. |
+| `delete_backward` | `fun delete_backward(state: EditorState) : EditorState` | Delete the char before the cursor, merging with the previous line at column 0. A no-op at the very start of the buffer. |
+| `delete_forward` | `fun delete_forward(state: EditorState) : EditorState` | Delete the char under the cursor, merging the next line up into this one at the end of a non-last line. A no-op at the very end of the buffer. |
+| `move_left` | `fun move_left(state: EditorState) : EditorState` | Move the cursor left one column, wrapping onto the end of the previous line at a line boundary. |
+| `move_right` | `fun move_right(state: EditorState) : EditorState` | Move the cursor right one column, wrapping onto the start of the next line at a line boundary. |
+| `move_up` | `fun move_up(state: EditorState) : EditorState` | Move the cursor up one line, clamping the column to the target line's length rather than tracking a "sticky" column. |
+| `move_down` | `fun move_down(state: EditorState) : EditorState` | Move the cursor down one line, clamping the column to the target line's length rather than tracking a "sticky" column. |
+| `current_line` | `fun current_line(state: EditorState) : string` | Return the text of the cursor's current line, or "" if the buffer has no cursors or no lines. |
+| `paste_text` | `fun paste_text(state: EditorState, text: string) : EditorState` | Append `text` to the end of the cursor's line and advance the cursor by `length(text)`. |
+| `kill_line_text` | `fun kill_line_text(state: EditorState) : string` | Return the text from the cursor to the end of the current line. |
+| `kill_line` | `fun kill_line(state: EditorState) : EditorState` | Truncate the current line at the cursor. |
+| `kill_word_back_text` | `fun kill_word_back_text(state: EditorState) : string` | Return the whitespace-delimited word before the cursor. |
+| `delete_word_back` | `fun delete_word_back(state: EditorState) : EditorState` | Delete the whitespace-delimited word before the cursor, moving the cursor to the start of the removed span. |
+| `move_word_back` | `fun move_word_back(state: EditorState) : EditorState` | Move the cursor one whitespace-delimited word back. |
+| `move_word_forward` | `fun move_word_forward(state: EditorState) : EditorState` | Move the cursor one whitespace-delimited word forward. |
+| `kill_word_forward_text` | `fun kill_word_forward_text(state: EditorState) : string` | Return the whitespace-delimited word after the cursor. |
+| `delete_word_forward` | `fun delete_word_forward(state: EditorState) : EditorState` | Delete the whitespace-delimited word after the cursor. The cursor column is unchanged (still valid at the truncation point). |
+| `kill_whole_line_text` | `fun kill_whole_line_text(state: EditorState) : string` | Return the full text of the cursor's current line. |
+| `kill_whole_line` | `fun kill_whole_line(state: EditorState) : EditorState` | Clear the current line's content; the line itself stays (an empty line, not removed from the buffer). Cursor moves to column 0. |
+| `new_buffer_action` | `fun new_buffer_action(state: EditorState) : EditorState` | Push the active buffer onto the background ring and make a fresh, empty scratch buffer active. |
+| `cycle_next_buffer` | `fun cycle_next_buffer(state: EditorState) : EditorState` | Rotate to the next open buffer. A no-op with 0 or 1 open buffers. |
+| `cycle_prev_buffer` | `fun cycle_prev_buffer(state: EditorState) : EditorState` | Rotate to the previous open buffer. A no-op with 0 or 1 open buffers. |
+| `close_buffer_action` | `fun close_buffer_action(state: EditorState) : EditorState` | Close the active buffer and activate the next background buffer. |
+| `prompt_insert_char` | `fun prompt_insert_char(state: EditorState, c: char) : EditorState` | Insert `c` at the prompt's cursor column, advancing the cursor by one. |
+| `prompt_backspace` | `fun prompt_backspace(state: EditorState) : EditorState` | Delete the char before the prompt's cursor. A no-op at column 0. |
+| `prompt_cancel` | `fun prompt_cancel(state: EditorState) : EditorState` | Dismiss the active prompt. |
+| `prompt_move_start` | `fun prompt_move_start(state: EditorState) : EditorState` | Move the prompt's cursor to column 0. |
+| `prompt_move_end` | `fun prompt_move_end(state: EditorState) : EditorState` | Move the prompt's cursor to the end of the typed text. |
+| `prompt_move_left` | `fun prompt_move_left(state: EditorState) : EditorState` | Move the prompt's cursor left one column. |
+| `prompt_move_right` | `fun prompt_move_right(state: EditorState) : EditorState` | Move the prompt's cursor right one column. |
+| `prompt_delete_forward` | `fun prompt_delete_forward(state: EditorState) : EditorState` | Delete the char under the prompt's cursor. A no-op at the end of the typed text. |
+| `prompt_kill_text` | `fun prompt_kill_text(state: EditorState) : string` | Return the prompt's typed text from the cursor to the end. |
+| `prompt_truncate` | `fun prompt_truncate(state: EditorState) : EditorState` | Truncate the prompt's typed text at the cursor. |
+| `open_file_prompt` | `fun open_file_prompt(state: EditorState) : EditorState` | Open the "open file" prompt with empty text. |
+| `resolve_action` | `fun resolve_action(state: EditorState, evt: Event) : Action` | Resolve a raw event to a semantic Action, dispatching by editor mode (help overlay, active prompt, or normal editing). |
+| `apply_action` | `fun apply_action(state: EditorState, action: Action) : EditorState` | Apply an Action to state, producing the next EditorState. |
+| `handle_action` | `fun handle_action(state: EditorState, evt: Event) : EditorState` | Resolve and apply an event against state in one step. |
 
 
 ---
 
 # Domain Data Models & Type Dictionary
 
-*(No structs or enums defined in this module)*
+*(No structs, enums or effects defined in this module)*
 
 ---
 
@@ -449,62 +459,62 @@ This index maps symbol names to their original file ranges, for tool and human r
 
 This index maps symbol names to their original file ranges, for tool and human reference.
 
-- [`list_set`](../../src/actions.hc#L22)
-- [`list_get`](../../src/actions.hc#L31)
-- [`list_split_at`](../../src/actions.hc#L41)
-- [`list_remove_at`](../../src/actions.hc#L51)
-- [`head_cursor`](../../src/actions.hc#L63)
-- [`clamp_col`](../../src/actions.hc#L70)
-- [`insert_char`](../../src/actions.hc#L78)
-- [`insert_newline`](../../src/actions.hc#L101)
-- [`move_line_start`](../../src/actions.hc#L122)
-- [`move_line_end`](../../src/actions.hc#L131)
-- [`delete_backward`](../../src/actions.hc#L143)
-- [`delete_forward`](../../src/actions.hc#L177)
-- [`move_left`](../../src/actions.hc#L205)
-- [`move_right`](../../src/actions.hc#L219)
-- [`move_up`](../../src/actions.hc#L232)
-- [`move_down`](../../src/actions.hc#L241)
-- [`current_line`](../../src/actions.hc#L254)
-- [`paste_text`](../../src/actions.hc#L264)
-- [`kill_line_text`](../../src/actions.hc#L298)
-- [`kill_line`](../../src/actions.hc#L307)
-- [`is_space_char`](../../src/actions.hc#L318)
-- [`drop_while`](../../src/actions.hc#L324)
-- [`word_back_col`](../../src/actions.hc#L333)
-- [`word_forward_col`](../../src/actions.hc#L344)
-- [`kill_word_back_text`](../../src/actions.hc#L352)
-- [`delete_word_back`](../../src/actions.hc#L362)
-- [`move_word_back`](../../src/actions.hc#L378)
-- [`move_word_forward`](../../src/actions.hc#L389)
-- [`kill_word_forward_text`](../../src/actions.hc#L400)
-- [`delete_word_forward`](../../src/actions.hc#L410)
-- [`kill_whole_line_text`](../../src/actions.hc#L424)
-- [`kill_whole_line`](../../src/actions.hc#L433)
-- [`new_buffer_action`](../../src/actions.hc#L455)
-- [`cycle_next_buffer`](../../src/actions.hc#L467)
-- [`cycle_prev_buffer`](../../src/actions.hc#L475)
-- [`close_buffer_action`](../../src/actions.hc#L484)
-- [`prompt_text`](../../src/actions.hc#L504)
-- [`prompt_cursor`](../../src/actions.hc#L512)
-- [`with_prompt`](../../src/actions.hc#L521)
-- [`prompt_insert_char`](../../src/actions.hc#L529)
-- [`prompt_backspace`](../../src/actions.hc#L538)
-- [`prompt_cancel`](../../src/actions.hc#L550)
-- [`prompt_move_start`](../../src/actions.hc#L554)
-- [`prompt_move_end`](../../src/actions.hc#L560)
-- [`prompt_move_left`](../../src/actions.hc#L567)
-- [`prompt_move_right`](../../src/actions.hc#L574)
-- [`prompt_delete_forward`](../../src/actions.hc#L583)
-- [`prompt_kill_text`](../../src/actions.hc#L597)
-- [`prompt_truncate`](../../src/actions.hc#L603)
-- [`open_file_prompt`](../../src/actions.hc#L611)
-- [`resolve_prompt_action`](../../src/actions.hc#L632)
-- [`resolve_help_action`](../../src/actions.hc#L655)
-- [`resolve_normal_action`](../../src/actions.hc#L668)
-- [`resolve_action`](../../src/actions.hc#L686)
-- [`apply_action`](../../src/actions.hc#L703)
-- [`handle_action`](../../src/actions.hc#L751)
+- [`list_set`](../../src/actions.hc#L14) — Return a copy of `xs` with the element at `idx` replaced by `new_val`.
+- [`list_get`](../../src/actions.hc#L23) — Return the element of `xs` at `idx`, or `default` if out of range.
+- [`list_split_at`](../../src/actions.hc#L33) — Return a copy of `xs` with the element at `idx` replaced by two elements `a` and `b`.
+- [`list_remove_at`](../../src/actions.hc#L42) — Return a copy of `xs` with the element at `idx` removed.
+- [`head_cursor`](../../src/actions.hc#L54) — Return the buffer's primary cursor (multi-cursor is future work), defaulting to (0, 0) if the buffer has none.
+- [`clamp_col`](../../src/actions.hc#L61) — Clamp `col` to a valid column within the line at `line_idx`.
+- [`insert_char`](../../src/actions.hc#L69) — Insert `c` at the cursor's column and advance the cursor by one.
+- [`insert_newline`](../../src/actions.hc#L92) — Split the current line at the cursor into two lines, cursor moves to column 0 of the new (second) line.
+- [`move_line_start`](../../src/actions.hc#L113) — Move the cursor to column 0 of its current line.
+- [`move_line_end`](../../src/actions.hc#L122) — Move the cursor to the end of its current line.
+- [`delete_backward`](../../src/actions.hc#L133) — Delete the char before the cursor, merging with the previous line at column 0. A no-op at the very start of the buffer.
+- [`delete_forward`](../../src/actions.hc#L166) — Delete the char under the cursor, merging the next line up into this one at the end of a non-last line. A no-op at the very end of the buffer.
+- [`move_left`](../../src/actions.hc#L193) — Move the cursor left one column, wrapping onto the end of the previous line at a line boundary.
+- [`move_right`](../../src/actions.hc#L209) — Move the cursor right one column, wrapping onto the start of the next line at a line boundary.
+- [`move_up`](../../src/actions.hc#L224) — Move the cursor up one line, clamping the column to the target line's length rather than tracking a "sticky" column.
+- [`move_down`](../../src/actions.hc#L235) — Move the cursor down one line, clamping the column to the target line's length rather than tracking a "sticky" column.
+- [`current_line`](../../src/actions.hc#L247) — Return the text of the cursor's current line, or "" if the buffer has no cursors or no lines.
+- [`paste_text`](../../src/actions.hc#L256) — Append `text` to the end of the cursor's line and advance the cursor by `length(text)`.
+- [`kill_line_text`](../../src/actions.hc#L283) — Return the text from the cursor to the end of the current line.
+- [`kill_line`](../../src/actions.hc#L291) — Truncate the current line at the cursor.
+- [`is_space_char`](../../src/actions.hc#L303) — Return whether `c` is a space or tab character.
+- [`drop_while`](../../src/actions.hc#L307) — Return the suffix of `chs` after dropping the leading run of elements matching `pred`.
+- [`word_back_col`](../../src/actions.hc#L315) — Return the column one whitespace-delimited word back from `col` (readline/bash-style `unix-word-rubout`).
+- [`word_forward_col`](../../src/actions.hc#L324) — Return the column one whitespace-delimited word forward from `col`.
+- [`kill_word_back_text`](../../src/actions.hc#L332) — Return the whitespace-delimited word before the cursor.
+- [`delete_word_back`](../../src/actions.hc#L342) — Delete the whitespace-delimited word before the cursor, moving the cursor to the start of the removed span.
+- [`move_word_back`](../../src/actions.hc#L358) — Move the cursor one whitespace-delimited word back.
+- [`move_word_forward`](../../src/actions.hc#L369) — Move the cursor one whitespace-delimited word forward.
+- [`kill_word_forward_text`](../../src/actions.hc#L380) — Return the whitespace-delimited word after the cursor.
+- [`delete_word_forward`](../../src/actions.hc#L390) — Delete the whitespace-delimited word after the cursor. The cursor column is unchanged (still valid at the truncation point).
+- [`kill_whole_line_text`](../../src/actions.hc#L404) — Return the full text of the cursor's current line.
+- [`kill_whole_line`](../../src/actions.hc#L411) — Clear the current line's content; the line itself stays (an empty line, not removed from the buffer). Cursor moves to column 0.
+- [`new_buffer_action`](../../src/actions.hc#L429) — Push the active buffer onto the background ring and make a fresh, empty scratch buffer active.
+- [`cycle_next_buffer`](../../src/actions.hc#L440) — Rotate to the next open buffer. A no-op with 0 or 1 open buffers.
+- [`cycle_prev_buffer`](../../src/actions.hc#L447) — Rotate to the previous open buffer. A no-op with 0 or 1 open buffers.
+- [`close_buffer_action`](../../src/actions.hc#L456) — Close the active buffer and activate the next background buffer.
+- [`prompt_text`](../../src/actions.hc#L472) — Return the text typed so far in `p`.
+- [`prompt_cursor`](../../src/actions.hc#L480) — Return the cursor column within `p`'s typed text.
+- [`with_prompt`](../../src/actions.hc#L489) — Return a copy of `p` with updated text and cursor column, preserving its variant.
+- [`prompt_insert_char`](../../src/actions.hc#L497) — Insert `c` at the prompt's cursor column, advancing the cursor by one.
+- [`prompt_backspace`](../../src/actions.hc#L506) — Delete the char before the prompt's cursor. A no-op at column 0.
+- [`prompt_cancel`](../../src/actions.hc#L519) — Dismiss the active prompt.
+- [`prompt_move_start`](../../src/actions.hc#L523) — Move the prompt's cursor to column 0.
+- [`prompt_move_end`](../../src/actions.hc#L529) — Move the prompt's cursor to the end of the typed text.
+- [`prompt_move_left`](../../src/actions.hc#L536) — Move the prompt's cursor left one column.
+- [`prompt_move_right`](../../src/actions.hc#L543) — Move the prompt's cursor right one column.
+- [`prompt_delete_forward`](../../src/actions.hc#L552) — Delete the char under the prompt's cursor. A no-op at the end of the typed text.
+- [`prompt_kill_text`](../../src/actions.hc#L565) — Return the prompt's typed text from the cursor to the end.
+- [`prompt_truncate`](../../src/actions.hc#L571) — Truncate the prompt's typed text at the cursor.
+- [`open_file_prompt`](../../src/actions.hc#L579) — Open the "open file" prompt with empty text.
+- [`resolve_prompt_action`](../../src/actions.hc#L592) — Resolve a raw event to an Action while a Save-As/Open prompt is active, routing keystrokes to the Prompt* actions instead of the normal Insert/Enter/Backspace dispatch.
+- [`resolve_help_action`](../../src/actions.hc#L614) — Resolve a raw event to an Action while the help overlay (M10) is showing: any key closes it again.
+- [`resolve_normal_action`](../../src/actions.hc#L627) — Resolve a raw event to an Action during normal editing, via `state.config.bindings` for user-remappable shortcuts.
+- [`resolve_action`](../../src/actions.hc#L644) — Resolve a raw event to a semantic Action, dispatching by editor mode (help overlay, active prompt, or normal editing).
+- [`apply_action`](../../src/actions.hc#L661) — Apply an Action to state, producing the next EditorState.
+- [`handle_action`](../../src/actions.hc#L708) — Resolve and apply an event against state in one step.
 ---
 
 # Project Architecture & Export Directory: `runtime.hc`
@@ -523,14 +533,56 @@ This index maps symbol names to their original file ranges, for tool and human r
 
 | Function | Signature | Description |
 | --- | --- | --- |
-| `event_loop` | `fun event_loop(state: EditorState) : EditorState` | *(No documentation provided)* |
+| `event_loop` | `fun event_loop(state: EditorState) : EditorState` | Entry point: spawns one `Buffer` instance (fresh undo/redo stacks) and hands off to the tail-recursive `event_loop_step`. |
+
+### Public Effects
+
+- **`Terminal`**: Screen I/O: render a frame, query dimensions/cursor style, and poll
+for the next input event. Arm bodies auto-resume (hica 0.49 syntax).
+  - `fun poll_event() : Event`
+  - `fun render_frame(buf: ScreenBuffer) : ()`
+  - `fun get_dimensions() : (int, int)`
+  - `fun set_cursor_style(style: CursorStyle) : ()`
+- **`Clipboard`**: Cross-platform clipboard abstraction.
+  - `fun get_selection() : string`
+  - `fun set_selection(text: string) : ()`
+- **`Buffer`**: Per-buffer undo/redo history, spawned once per `event_loop` call.
+  - `fun snapshot(b: TextBuffer) : ()`
+  - `fun undo(current: TextBuffer) : maybe<TextBuffer>`
+  - `fun redo(current: TextBuffer) : maybe<TextBuffer>`
 
 
 ---
 
 # Domain Data Models & Type Dictionary
 
-*(No structs or enums defined in this module)*
+## Effects (Capabilities)
+
+### Effect `Terminal` `pub`
+Screen I/O: render a frame, query dimensions/cursor style, and poll
+for the next input event. Arm bodies auto-resume (hica 0.49 syntax).
+
+#### Operations
+- `fun poll_event() : Event`
+- `fun render_frame(buf: ScreenBuffer) : ()`
+- `fun get_dimensions() : (int, int)`
+- `fun set_cursor_style(style: CursorStyle) : ()`
+
+### Effect `Clipboard` `pub`
+Cross-platform clipboard abstraction.
+
+#### Operations
+- `fun get_selection() : string`
+- `fun set_selection(text: string) : ()`
+
+### Effect `Buffer` `pub`
+Per-buffer undo/redo history, spawned once per `event_loop` call.
+
+#### Operations
+- `fun snapshot(b: TextBuffer) : ()`
+- `fun undo(current: TextBuffer) : maybe<TextBuffer>`
+- `fun redo(current: TextBuffer) : maybe<TextBuffer>`
+
 
 ---
 
@@ -562,14 +614,14 @@ This index maps symbol names to their original file ranges, for tool and human r
 
 This index maps symbol names to their original file ranges, for tool and human reference.
 
-- [`apply_write_result`](../../src/runtime.hc#L75)
-- [`save_buffer`](../../src/runtime.hc#L92)
-- [`submit_save_as`](../../src/runtime.hc#L110)
-- [`submit_open_file`](../../src/runtime.hc#L125)
-- [`submit_prompt`](../../src/runtime.hc#L145)
-- [`apply_history`](../../src/runtime.hc#L157)
-- [`event_loop_step`](../../src/runtime.hc#L185)
-- [`event_loop`](../../src/runtime.hc#L262)
+- [`apply_write_result`](../../src/runtime.hc#L57) — Apply a `write_file` result to state: clear dirty + status on success, error status on failure.
+- [`save_buffer`](../../src/runtime.hc#L73) — Write buffer content to disk for the `Save` action.
+- [`submit_save_as`](../../src/runtime.hc#L91) — Write the buffer to a freshly-entered path (Save-As prompt submit, M9), naming the buffer on success so subsequent Ctrl-s saves go straight to disk without re-prompting.
+- [`submit_open_file`](../../src/runtime.hc#L104) — Load a path entered in the Open prompt into a new buffer, backgrounding the current one (same shape as `NewBuffer`).
+- [`submit_prompt`](../../src/runtime.hc#L125) — Dispatch `PromptSubmit` (Enter while a prompt is active) to the right effectful handler.
+- [`apply_history`](../../src/runtime.hc#L137) — Apply an undo/redo result to state: restore the buffer on `Some`, leave state untouched (with a status note) on `None` (empty stack).
+- [`event_loop_step`](../../src/runtime.hc#L155) — One tick of the event loop: query dimensions, render (if the frame changed), poll for the next event, resolve + dispatch it, and recurse. Returns the final `EditorState` once `should_quit` flips true.
+- [`event_loop`](../../src/runtime.hc#L232) — Entry point: spawns one `Buffer` instance (fresh undo/redo stacks) and hands off to the tail-recursive `event_loop_step`.
 ---
 
 # Project Architecture & Export Directory: `model.hc`
@@ -585,43 +637,50 @@ This index maps symbol names to their original file ranges, for tool and human r
 
 | Function | Signature | Description |
 | --- | --- | --- |
-| `default_bindings` | `fun default_bindings() : list<(KeyChord, Action)>` | *(No documentation provided)* |
-| `lookup_binding` | `fun lookup_binding(kb: list<(KeyChord, Action)>, chord: KeyChord) : Action` | *(No documentation provided)* |
-| `default_config` | `fun default_config() : Config` | *(No documentation provided)* |
-| `get_config` | `fun get_config(cfg: Config, key: string, default: string) : string` | *(No documentation provided)* |
-| `get_config_int` | `fun get_config_int(cfg: Config, key: string, default: int) : int` | *(No documentation provided)* |
-| `set_config_value` | `fun set_config_value(cfg: Config, key: string, value: string) : Config` | *(No documentation provided)* |
-| `default_theme` | `fun default_theme() : Theme` | *(No documentation provided)* |
-| `ilseon_theme` | `fun ilseon_theme() : Theme` | *(No documentation provided)* |
-| `resolve_theme_with_status` | `fun resolve_theme_with_status(cfg: Config) : (Theme, maybe<string>)` | *(No documentation provided)* |
-| `resolve_theme` | `fun resolve_theme(cfg: Config) : Theme` | *(No documentation provided)* |
-| `new_buffer` | `fun new_buffer(bid: int, path: maybe<string>) : TextBuffer` | *(No documentation provided)* |
-| `clamp_position` | `fun clamp_position(lines: list<string>, pos: Position) : Position` | *(No documentation provided)* |
-| `set_initial_position` | `fun set_initial_position(buf: TextBuffer, pos: maybe<Position>) : TextBuffer` | *(No documentation provided)* |
-| `init_editor` | `fun init_editor(path: maybe<string>) : EditorState` | *(No documentation provided)* |
-| `init_editor_with_config` | `fun init_editor_with_config(path: maybe<string>, cfg: Config) : EditorState` | *(No documentation provided)* |
-| `init_editor_with_buffer` | `fun init_editor_with_buffer(buf: TextBuffer, cfg: Config) : EditorState` | *(No documentation provided)* |
-| `load_buffer` | `fun load_buffer(new_bid: int, path: maybe<string>) : (TextBuffer, maybe<string>)` | *(No documentation provided)* |
-| `open_buffers` | `fun open_buffers(s: EditorState) : list<TextBuffer>` | *(No documentation provided)* |
-| `set_status_message` | `fun set_status_message(s: EditorState, msg: string) : EditorState` | *(No documentation provided)* |
-| `clear_status_message` | `fun clear_status_message(s: EditorState) : EditorState` | *(No documentation provided)* |
+| `default_bindings` | `fun default_bindings() : list<(KeyChord, Action)>` | Default keybindings, every binding is overridable via HiLisp `(bind ...)`. |
+| `lookup_binding` | `fun lookup_binding(kb: list<(KeyChord, Action)>, chord: KeyChord) : Action` | Resolve a `KeyChord` against a bindings map. Unbound chords resolve to `Ignore`. |
+| `default_config` | `fun default_config() : Config` | The default `Config`: default bindings, no HiLisp values, not readonly. |
+| `get_config` | `fun get_config(cfg: Config, key: string, default: string) : string` | Look up a `(set key value)` value from the config, or `default` if absent. |
+| `get_config_int` | `fun get_config_int(cfg: Config, key: string, default: int) : int` | Numeric convenience over `get_config`: reads `key`, parses as int, falling back to `default` on a missing key or non-numeric content. |
+| `set_config_value` | `fun set_config_value(cfg: Config, key: string, value: string) : Config` | Set (or override) a single `(key, value)` config entry. |
+| `default_theme` | `fun default_theme() : Theme` | hedit's built-in default theme. |
+| `ilseon_theme` | `fun ilseon_theme() : Theme` | A dark, low-sensory preset (`(set "theme" "ilseon")`), using the same RGB values as std/term's ilseon palette (github.com/cladam/ilseon). |
+| `resolve_theme_with_status` | `fun resolve_theme_with_status(cfg: Config) : (Theme, maybe<string>)` | Resolve `Config.values` into a concrete `Theme` plus an optional status message when an unrecognised `theme` preset name falls back to `default_theme()`. |
+| `resolve_theme` | `fun resolve_theme(cfg: Config) : Theme` | Resolve `Config.values` into a concrete `Theme`, discarding any unknown-preset warning. |
+| `new_buffer` | `fun new_buffer(bid: int, path: maybe<string>) : TextBuffer` | A fresh buffer with one empty line and one cursor at (0, 0). |
+| `clamp_position` | `fun clamp_position(lines: list<string>, pos: Position) : Position` | Clamp a `+LINE:COL`-derived `Position` into a buffer's actual bounds so an out-of-range startup position can never crash. |
+| `set_initial_position` | `fun set_initial_position(buf: TextBuffer, pos: maybe<Position>) : TextBuffer` | Apply an optional `+LINE:COL` startup position to every cursor on a freshly loaded buffer. `None` leaves the buffer untouched. |
+| `init_editor` | `fun init_editor(path: maybe<string>) : EditorState` | Initial editor state with a default `Config`. `path` is `None` for an unnamed scratch buffer. |
+| `init_editor_with_config` | `fun init_editor_with_config(path: maybe<string>, cfg: Config) : EditorState` | Same as `init_editor` but takes a caller-supplied `Config` (typically `default_config()` merged with the user's HiLisp `init.hl`, built by `hilisp_host.hc::load_config`). |
+| `init_editor_with_buffer` | `fun init_editor_with_buffer(buf: TextBuffer, cfg: Config) : EditorState` | Same as `init_editor_with_config`, but takes an already-built `TextBuffer` (typically the result of `load_buffer`) instead of constructing an empty one from a path. |
+| `load_buffer` | `fun load_buffer(new_bid: int, path: maybe<string>) : (TextBuffer, maybe<string>)` | Load a buffer's content from disk. `None` (no file given) and a failed read both fall back to `new_buffer`'s empty-scratch shape; this never crashes. On failure the second element carries a status message the caller can hand to `set_status_message`. |
+| `open_buffers` | `fun open_buffers(s: EditorState) : list<TextBuffer>` | All currently-open buffers, active buffer first — the order a tabline should render them in. |
+| `set_status_message` | `fun set_status_message(s: EditorState, msg: string) : EditorState` | Set the status line message. |
+| `clear_status_message` | `fun clear_status_message(s: EditorState) : EditorState` | Clear the status line message. |
 
 ### Public Structs
 
-- **`Position`**: *(No documentation provided)*
-- **`Cursor`**: *(No documentation provided)*
-- **`TextBuffer`**: *(No documentation provided)*
-- **`KeyChord`**: *(No documentation provided)*
-- **`Config`**: *(No documentation provided)*
-- **`Theme`**: *(No documentation provided)*
-- **`EditorState`**: *(No documentation provided)*
-- **`ScreenBuffer`**: *(No documentation provided)*
+- **`Position`**: A caret position inside a `TextBuffer`.
+- **`Cursor`**: One cursor. `cid` avoids clashing with the `TextBuffer.id` accessor
+Koka generates.
+- **`TextBuffer`**: A buffer of text lines plus its cursors and dirty flag.
+- **`KeyChord`**: A key chord: a modifier + a printable char. Bare `KChar`s route
+straight to `Insert`, so bindings only need to cover `KShortcut`s.
+- **`Config`**: Config bundle carried through the editor.
+- **`Theme`**: hedit's chrome color palette (tabline, status line, cursor line).
+- **`EditorState`**: Full editor state. `buffer` is always the active buffer;
+`background_buffers` holds the rest of the open buffers as a
+rotation ring with no separate active index to keep in sync.
+- **`ScreenBuffer`**: The pixel-free "screen buffer" the Terminal handler flushes.
 
 ### Public Enums / ADTs
 
-- **`Action`**: *(No documentation provided)*
-- **`CursorStyle`**: *(No documentation provided)*
-- **`Prompt`**: *(No documentation provided)*
+- **`Action`**: A semantic editor operation that `resolve_action`/`apply_action`
+dispatch on, decoupled from the raw keystroke that triggered it.
+- **`CursorStyle`**: Cursor-shape hint forwarded to the Terminal handler.
+- **`Prompt`**: A minimal single-line input widget (M9). `NoPrompt` is the normal-
+editing state; `SaveAsPrompt`/`OpenPrompt` carry the text typed so
+far. Only one prompt can be active at a time.
 
 
 ---
@@ -631,18 +690,25 @@ This index maps symbol names to their original file ranges, for tool and human r
 ## Structs (Data Models)
 
 ### Struct `Position` `pub`
+A caret position inside a `TextBuffer`.
+
 | Field | Type | Description |
 | --- | --- | --- |
 | `line` | `int` | *(Field)* |
 | `col` | `int` | *(Field)* |
 
 ### Struct `Cursor` `pub`
+One cursor. `cid` avoids clashing with the `TextBuffer.id` accessor
+Koka generates.
+
 | Field | Type | Description |
 | --- | --- | --- |
 | `cid` | `int` | *(Field)* |
 | `pos` | `Position` | *(Field)* |
 
 ### Struct `TextBuffer` `pub`
+A buffer of text lines plus its cursors and dirty flag.
+
 | Field | Type | Description |
 | --- | --- | --- |
 | `bid` | `int` | *(Field)* |
@@ -652,12 +718,17 @@ This index maps symbol names to their original file ranges, for tool and human r
 | `is_dirty` | `bool` | *(Field)* |
 
 ### Struct `KeyChord` `pub`
+A key chord: a modifier + a printable char. Bare `KChar`s route
+straight to `Insert`, so bindings only need to cover `KShortcut`s.
+
 | Field | Type | Description |
 | --- | --- | --- |
 | `m` | `Modifier` | *(Field)* |
 | `c` | `char` | *(Field)* |
 
 ### Struct `Config` `pub`
+Config bundle carried through the editor.
+
 | Field | Type | Description |
 | --- | --- | --- |
 | `bindings` | `list<(KeyChord, Action)>` | *(Field)* |
@@ -665,6 +736,8 @@ This index maps symbol names to their original file ranges, for tool and human r
 | `readonly` | `bool` | *(Field)* |
 
 ### Struct `Theme` `pub`
+hedit's chrome color palette (tabline, status line, cursor line).
+
 | Field | Type | Description |
 | --- | --- | --- |
 | `tabline_fg` | `(int, int, int)` | *(Field)* |
@@ -676,6 +749,10 @@ This index maps symbol names to their original file ranges, for tool and human r
 | `cursor_line_bg` | `(int, int, int)` | *(Field)* |
 
 ### Struct `EditorState` `pub`
+Full editor state. `buffer` is always the active buffer;
+`background_buffers` holds the rest of the open buffers as a
+rotation ring with no separate active index to keep in sync.
+
 | Field | Type | Description |
 | --- | --- | --- |
 | `buffer` | `TextBuffer` | *(Field)* |
@@ -689,6 +766,8 @@ This index maps symbol names to their original file ranges, for tool and human r
 | `show_help` | `bool` | *(Field)* |
 
 ### Struct `ScreenBuffer` `pub`
+The pixel-free "screen buffer" the Terminal handler flushes.
+
 | Field | Type | Description |
 | --- | --- | --- |
 | `width` | `int` | *(Field)* |
@@ -700,6 +779,9 @@ This index maps symbol names to their original file ranges, for tool and human r
 ## Algebraic Data Types (Enums)
 
 ### Type `Action` `pub`
+A semantic editor operation that `resolve_action`/`apply_action`
+dispatch on, decoupled from the raw keystroke that triggered it.
+
 #### Variants
 - `Quit`
 - `Save`
@@ -743,12 +825,18 @@ This index maps symbol names to their original file ranges, for tool and human r
 - `Ignore`
 
 ### Type `CursorStyle` `pub`
+Cursor-shape hint forwarded to the Terminal handler.
+
 #### Variants
 - `Block`
 - `Bar`
 - `Underscore`
 
 ### Type `Prompt` `pub`
+A minimal single-line input widget (M9). `NoPrompt` is the normal-
+editing state; `SaveAsPrompt`/`OpenPrompt` carry the text typed so
+far. Only one prompt can be active at a time.
+
 #### Variants
 - `NoPrompt`
 - `SaveAsPrompt(text: string, cursor: int)`
@@ -805,34 +893,34 @@ This index maps symbol names to their original file ranges, for tool and human r
 
 This index maps symbol names to their original file ranges, for tool and human reference.
 
-- [`default_bindings`](../../src/model.hc#L122)
-- [`lookup_binding`](../../src/model.hc#L154)
-- [`default_config`](../../src/model.hc#L174)
-- [`get_config`](../../src/model.hc#L180)
-- [`parse_or`](../../src/model.hc#L192)
-- [`get_config_int`](../../src/model.hc#L198)
-- [`set_config_value`](../../src/model.hc#L207)
-- [`default_theme`](../../src/model.hc#L230)
-- [`ilseon_theme`](../../src/model.hc#L244)
-- [`theme_preset`](../../src/model.hc#L255)
-- [`parse_rgb`](../../src/model.hc#L265)
-- [`get_rgb_override`](../../src/model.hc#L272)
-- [`apply_theme_overrides`](../../src/model.hc#L281)
-- [`resolve_theme_with_status`](../../src/model.hc#L295)
-- [`resolve_theme`](../../src/model.hc#L304)
-- [`new_buffer`](../../src/model.hc#L365)
-- [`nth_line`](../../src/model.hc#L377)
-- [`clamp_position`](../../src/model.hc#L386)
-- [`set_initial_position`](../../src/model.hc#L396)
-- [`init_editor`](../../src/model.hc#L408)
-- [`init_editor_with_config`](../../src/model.hc#L418)
-- [`init_editor_with_buffer`](../../src/model.hc#L426)
-- [`split_lines`](../../src/model.hc#L442)
-- [`load_existing_buffer`](../../src/model.hc#L451)
-- [`load_buffer`](../../src/model.hc#L470)
-- [`open_buffers`](../../src/model.hc#L478)
-- [`set_status_message`](../../src/model.hc#L483)
-- [`clear_status_message`](../../src/model.hc#L486)
+- [`default_bindings`](../../src/model.hc#L102) — Default keybindings, every binding is overridable via HiLisp `(bind ...)`.
+- [`lookup_binding`](../../src/model.hc#L133) — Resolve a `KeyChord` against a bindings map. Unbound chords resolve to `Ignore`.
+- [`default_config`](../../src/model.hc#L153) — The default `Config`: default bindings, no HiLisp values, not readonly.
+- [`get_config`](../../src/model.hc#L158) — Look up a `(set key value)` value from the config, or `default` if absent.
+- [`parse_or`](../../src/model.hc#L168) — Parse `v` as an int, falling back to `fallback` if it isn't numeric.
+- [`get_config_int`](../../src/model.hc#L176) — Numeric convenience over `get_config`: reads `key`, parses as int, falling back to `default` on a missing key or non-numeric content.
+- [`set_config_value`](../../src/model.hc#L186) — Set (or override) a single `(key, value)` config entry.
+- [`default_theme`](../../src/model.hc#L211) — hedit's built-in default theme.
+- [`ilseon_theme`](../../src/model.hc#L225) — A dark, low-sensory preset (`(set "theme" "ilseon")`), using the same RGB values as std/term's ilseon palette (github.com/cladam/ilseon).
+- [`theme_preset`](../../src/model.hc#L237) — Look up a built-in theme preset by name.
+- [`parse_rgb`](../../src/model.hc#L246) — Parse a "R,G,B" override string into a color triple, falling back to `fallback` on any malformed or missing component.
+- [`get_rgb_override`](../../src/model.hc#L254) — Look up a single `theme.<slot>` RGB override from config.
+- [`apply_theme_overrides`](../../src/model.hc#L263) — Apply every `theme.<slot>` override on top of a resolved preset.
+- [`resolve_theme_with_status`](../../src/model.hc#L276) — Resolve `Config.values` into a concrete `Theme` plus an optional status message when an unrecognised `theme` preset name falls back to `default_theme()`.
+- [`resolve_theme`](../../src/model.hc#L287) — Resolve `Config.values` into a concrete `Theme`, discarding any unknown-preset warning.
+- [`new_buffer`](../../src/model.hc#L342) — A fresh buffer with one empty line and one cursor at (0, 0).
+- [`nth_line`](../../src/model.hc#L354) — `line`-th element of `lines`, or "" past the end.
+- [`clamp_position`](../../src/model.hc#L362) — Clamp a `+LINE:COL`-derived `Position` into a buffer's actual bounds so an out-of-range startup position can never crash.
+- [`set_initial_position`](../../src/model.hc#L371) — Apply an optional `+LINE:COL` startup position to every cursor on a freshly loaded buffer. `None` leaves the buffer untouched.
+- [`init_editor`](../../src/model.hc#L383) — Initial editor state with a default `Config`. `path` is `None` for an unnamed scratch buffer.
+- [`init_editor_with_config`](../../src/model.hc#L392) — Same as `init_editor` but takes a caller-supplied `Config` (typically `default_config()` merged with the user's HiLisp `init.hl`, built by `hilisp_host.hc::load_config`).
+- [`init_editor_with_buffer`](../../src/model.hc#L398) — Same as `init_editor_with_config`, but takes an already-built `TextBuffer` (typically the result of `load_buffer`) instead of constructing an empty one from a path.
+- [`split_lines`](../../src/model.hc#L413) — Split file content into lines, dropping one trailing newline artifact so this round-trips exactly with `runtime.hc::save_buffer`.
+- [`load_existing_buffer`](../../src/model.hc#L423) — Read `p` from disk into a fresh buffer, or fall back to an empty one with an error status.
+- [`load_buffer`](../../src/model.hc#L441) — Load a buffer's content from disk. `None` (no file given) and a failed read both fall back to `new_buffer`'s empty-scratch shape; this never crashes. On failure the second element carries a status message the caller can hand to `set_status_message`.
+- [`open_buffers`](../../src/model.hc#L449) — All currently-open buffers, active buffer first — the order a tabline should render them in.
+- [`set_status_message`](../../src/model.hc#L455) — Set the status line message.
+- [`clear_status_message`](../../src/model.hc#L459) — Clear the status line message.
 ---
 
 # Project Architecture & Export Directory: `hilisp_host.hc`
@@ -850,24 +938,24 @@ This index maps symbol names to their original file ranges, for tool and human r
 
 | Function | Signature | Description |
 | --- | --- | --- |
-| `eval_all` | `fun eval_all(tokens: list<Token>, env: Env, last: LVal) : (LVal, Env)` | *(No documentation provided)* |
-| `eval_source` | `fun eval_source(src: string) : string` | *(No documentation provided)* |
-| `eval_source_val` | `fun eval_source_val(src: string) : LVal` | *(No documentation provided)* |
-| `parse_chord` | `fun parse_chord(s: string) : maybe<KeyChord>` | *(No documentation provided)* |
-| `chord_to_str` | `fun chord_to_str(chord: KeyChord) : string` | *(No documentation provided)* |
-| `action_to_string` | `fun action_to_string(a: Action) : string` | *(No documentation provided)* |
-| `config_from_env` | `fun config_from_env(env: Env, fallback: Config) : Config` | *(No documentation provided)* |
-| `env_with_config` | `fun env_with_config(env: Env, cfg: Config) : Env` | *(No documentation provided)* |
-| `hedit_host_dispatch` | `fun hedit_host_dispatch(name: string, args: list<LVal>, env: Env) : (LVal, Env)` | *(No documentation provided)* |
-| `make_hedit_env` | `fun make_hedit_env(cfg0: Config) : Env` | *(No documentation provided)* |
-| `load_config` | `fun load_config(src: string, cfg0: Config) : (Config, maybe<string>)` | *(No documentation provided)* |
+| `eval_all` | `fun eval_all(tokens: list<Token>, env: Env, last: LVal) : (LVal, Env)` | Evaluate every top-level form in `tokens` against `env`, threading env through, and return the final value + updated env. |
+| `eval_source` | `fun eval_source(src: string) : string` | Evaluate `src` in a fresh env and return the final value's display string. |
+| `eval_source_val` | `fun eval_source_val(src: string) : LVal` | Evaluate `src` in a fresh env and return the final `LVal`. |
+| `parse_chord` | `fun parse_chord(s: string) : maybe<KeyChord>` | Parse `"Ctrl-s"`-style chord strings (docs/hedit-design.md §7.5) into a `KeyChord`. |
+| `chord_to_str` | `fun chord_to_str(chord: KeyChord) : string` | Inverse of `parse_chord`. |
+| `action_to_string` | `fun action_to_string(a: Action) : string` | Render an `Action` as its `(bind ...)`-facing symbol name. |
+| `config_from_env` | `fun config_from_env(env: Env, fallback: Config) : Config` | Extract the env's hash entries back into a hedit-side `Config`. |
+| `env_with_config` | `fun env_with_config(env: Env, cfg: Config) : Env` | Seed `env` with `cfg`'s bindings + values under the well-known keys. |
+| `hedit_host_dispatch` | `fun hedit_host_dispatch(name: string, args: list<LVal>, env: Env) : (LVal, Env)` | Dispatch a `host/...` op name to its hedit-side handler. |
+| `make_hedit_env` | `fun make_hedit_env(cfg0: Config) : Env` | Build a HiLisp env seeded with core HiLisp builtins, the hedit host-dispatch callback, the initial `Config` snapshot, and the `set`/`get`/`bind` aliases. |
+| `load_config` | `fun load_config(src: string, cfg0: Config) : (Config, maybe<string>)` | Evaluate a HiLisp source string as a hedit config file, returning the merged `Config` plus a status message (`None` on clean load, `Some(msg)` on an `LError`). |
 
 
 ---
 
 # Domain Data Models & Type Dictionary
 
-*(No structs or enums defined in this module)*
+*(No structs, enums or effects defined in this module)*
 
 ---
 
@@ -920,35 +1008,35 @@ This index maps symbol names to their original file ranges, for tool and human r
 
 This index maps symbol names to their original file ranges, for tool and human reference.
 
-- [`eval_all`](../../src/hilisp_host.hc#L49)
-- [`eval_source`](../../src/hilisp_host.hc#L66)
-- [`eval_source_val`](../../src/hilisp_host.hc#L73)
-- [`mod_to_string`](../../src/hilisp_host.hc#L82)
-- [`parse_mod`](../../src/hilisp_host.hc#L90)
-- [`single_char_of`](../../src/hilisp_host.hc#L101)
-- [`parse_chord`](../../src/hilisp_host.hc#L111)
-- [`chord_to_str`](../../src/hilisp_host.hc#L127)
-- [`action_to_string`](../../src/hilisp_host.hc#L133)
-- [`string_to_action`](../../src/hilisp_host.hc#L177)
-- [`bindings_key`](../../src/hilisp_host.hc#L215)
-- [`values_key`](../../src/hilisp_host.hc#L217)
-- [`bindings_to_hash`](../../src/hilisp_host.hc#L221)
-- [`binding_to_entry`](../../src/hilisp_host.hc#L224)
-- [`values_to_hash`](../../src/hilisp_host.hc#L232)
-- [`value_to_entry`](../../src/hilisp_host.hc#L235)
-- [`config_from_env`](../../src/hilisp_host.hc#L244)
-- [`entries_to_bindings`](../../src/hilisp_host.hc#L256)
-- [`entries_to_values`](../../src/hilisp_host.hc#L267)
-- [`env_with_config`](../../src/hilisp_host.hc#L276)
-- [`value_to_string`](../../src/hilisp_host.hc#L300)
-- [`hedit_host_dispatch`](../../src/hilisp_host.hc#L322)
-- [`host_set`](../../src/hilisp_host.hc#L331)
-- [`host_get`](../../src/hilisp_host.hc#L346)
-- [`bind_ok`](../../src/hilisp_host.hc#L366)
-- [`host_bind`](../../src/hilisp_host.hc#L378)
-- [`preamble`](../../src/hilisp_host.hc#L395)
-- [`make_hedit_env`](../../src/hilisp_host.hc#L406)
-- [`load_config`](../../src/hilisp_host.hc#L423)
+- [`eval_all`](../../src/hilisp_host.hc#L28) — Evaluate every top-level form in `tokens` against `env`, threading env through, and return the final value + updated env.
+- [`eval_source`](../../src/hilisp_host.hc#L46) — Evaluate `src` in a fresh env and return the final value's display string.
+- [`eval_source_val`](../../src/hilisp_host.hc#L54) — Evaluate `src` in a fresh env and return the final `LVal`.
+- [`mod_to_string`](../../src/hilisp_host.hc#L64) — Render a `Modifier` as its `(bind ...)` chord-string name.
+- [`parse_mod`](../../src/hilisp_host.hc#L73) — Parse a `(bind ...)` chord-string modifier name back into a `Modifier`.
+- [`single_char_of`](../../src/hilisp_host.hc#L83) — Pull the single char out of a 1-char string, or `None` otherwise.
+- [`parse_chord`](../../src/hilisp_host.hc#L93) — Parse `"Ctrl-s"`-style chord strings (docs/hedit-design.md §7.5) into a `KeyChord`.
+- [`chord_to_str`](../../src/hilisp_host.hc#L110) — Inverse of `parse_chord`.
+- [`action_to_string`](../../src/hilisp_host.hc#L117) — Render an `Action` as its `(bind ...)`-facing symbol name.
+- [`string_to_action`](../../src/hilisp_host.hc#L162) — Inverse of `action_to_string`; unrecognised names resolve to `None`.
+- [`bindings_key`](../../src/hilisp_host.hc#L200) — The env key under which the bindings alist is stored.
+- [`values_key`](../../src/hilisp_host.hc#L203) — The env key under which the `(set ...)` values alist is stored.
+- [`bindings_to_hash`](../../src/hilisp_host.hc#L207) — Serialise a `Config.bindings` alist into an `LHash` keyed by `"Modifier-c"` chord strings, values = LStr(action-name).
+- [`binding_to_entry`](../../src/hilisp_host.hc#L211) — Serialise a single `(KeyChord, Action)` pair into a hash entry.
+- [`values_to_hash`](../../src/hilisp_host.hc#L219) — Serialise the `(set k v)` values alist into an `LHash`.
+- [`value_to_entry`](../../src/hilisp_host.hc#L223) — Serialise a single `(key, value)` pair into a hash entry.
+- [`config_from_env`](../../src/hilisp_host.hc#L232) — Extract the env's hash entries back into a hedit-side `Config`.
+- [`entries_to_bindings`](../../src/hilisp_host.hc#L246) — Decode a hash's entries into a hedit-side bindings alist, dropping any entry that doesn't parse as a chord + known action.
+- [`entries_to_values`](../../src/hilisp_host.hc#L258) — Decode a hash's entries into a hedit-side `(key, value)` alist.
+- [`env_with_config`](../../src/hilisp_host.hc#L268) — Seed `env` with `cfg`'s bindings + values under the well-known keys.
+- [`value_to_string`](../../src/hilisp_host.hc#L288) — Stringify an `LVal` for storage in `Config.values`.
+- [`hedit_host_dispatch`](../../src/hilisp_host.hc#L311) — Dispatch a `host/...` op name to its hedit-side handler.
+- [`host_set`](../../src/hilisp_host.hc#L320) — `(set key value)` — record a string-typed value.
+- [`host_get`](../../src/hilisp_host.hc#L335) — `(get key)` — look up a value; returns nil when missing so `(if (get "foo") ...)` reads naturally.
+- [`bind_ok`](../../src/hilisp_host.hc#L354) — Record a binding once chord & action have both parsed, using the same canonical chord string the user typed.
+- [`host_bind`](../../src/hilisp_host.hc#L366) — `(bind "Ctrl-x" 'save)` — replace (or add) a binding.
+- [`preamble`](../../src/hilisp_host.hc#L385) — The HiLisp preamble that aliases `host/set`/`host/get`/`host/bind` to the idiomatic `set`/`get`/`bind` names.
+- [`make_hedit_env`](../../src/hilisp_host.hc#L393) — Build a HiLisp env seeded with core HiLisp builtins, the hedit host-dispatch callback, the initial `Config` snapshot, and the `set`/`get`/`bind` aliases.
+- [`load_config`](../../src/hilisp_host.hc#L410) — Evaluate a HiLisp source string as a hedit config file, returning the merged `Config` plus a status message (`None` on clean load, `Some(msg)` on an `LError`).
 ---
 
 # Project Architecture & Export Directory: `cli_spec.hc`
@@ -965,16 +1053,16 @@ This index maps symbol names to their original file ranges, for tool and human r
 
 | Function | Signature | Description |
 | --- | --- | --- |
-| `make_spec` | `fun make_spec() : CliSpec` | *(No documentation provided)* |
-| `parse_position_arg` | `fun parse_position_arg(a: string) : maybe<Position>` | *(No documentation provided)* |
-| `extract_position_arg` | `fun extract_position_arg(args: list<string>) : (maybe<string>, list<string>)` | *(No documentation provided)* |
+| `make_spec` | `fun make_spec() : CliSpec` | Build hedit's `std/cli` spec. |
+| `parse_position_arg` | `fun parse_position_arg(a: string) : maybe<Position>` | Parse a `+LINE[:COL]` token into a 0-indexed `Position`. Malformed tokens (non-numeric, too many `:` parts) resolve to `None` rather than erroring. |
+| `extract_position_arg` | `fun extract_position_arg(args: list<string>) : (maybe<string>, list<string>)` | Pull the first `+`-prefixed token out of argv, leaving everything else untouched for `cli_parse_args`. |
 
 
 ---
 
 # Domain Data Models & Type Dictionary
 
-*(No structs or enums defined in this module)*
+*(No structs, enums or effects defined in this module)*
 
 ---
 
@@ -1003,11 +1091,11 @@ This index maps symbol names to their original file ranges, for tool and human r
 
 This index maps symbol names to their original file ranges, for tool and human reference.
 
-- [`make_spec`](../../src/cli_spec.hc#L16)
-- [`with_parsed_line`](../../src/cli_spec.hc#L30)
-- [`parse_line_col`](../../src/cli_spec.hc#L36)
-- [`parse_position_arg`](../../src/cli_spec.hc#L42)
-- [`extract_position_arg`](../../src/cli_spec.hc#L62)
+- [`make_spec`](../../src/cli_spec.hc#L10) — Build hedit's `std/cli` spec.
+- [`with_parsed_line`](../../src/cli_spec.hc#L22) — Parse the `:COL` part of a `+LINE:COL` token, given the already-parsed 1-indexed line number `n`.
+- [`parse_line_col`](../../src/cli_spec.hc#L29) — Parse a `+LINE:COL` token's two numeric parts into a `Position`.
+- [`parse_position_arg`](../../src/cli_spec.hc#L38) — Parse a `+LINE[:COL]` token into a 0-indexed `Position`. Malformed tokens (non-numeric, too many `:` parts) resolve to `None` rather than erroring.
+- [`extract_position_arg`](../../src/cli_spec.hc#L58) — Pull the first `+`-prefixed token out of argv, leaving everything else untouched for `cli_parse_args`.
 ---
 
 # Project Architecture & Export Directory: `main.hc`
@@ -1025,13 +1113,56 @@ This index maps symbol names to their original file ranges, for tool and human r
 - `std/term`
 - `term_ffi` (extern)
 
-*(No public API exported)*
+## Public API Catalog
+
+### Public Effects
+
+- **`Terminal`**: Screen I/O: render a frame, query dimensions/cursor style, and poll
+for the next input event. Arm bodies auto-resume (hica 0.49 syntax).
+  - `fun poll_event() : Event`
+  - `fun render_frame(buf: ScreenBuffer) : ()`
+  - `fun get_dimensions() : (int, int)`
+  - `fun set_cursor_style(style: CursorStyle) : ()`
+- **`Clipboard`**: Cross-platform clipboard abstraction.
+  - `fun get_selection() : string`
+  - `fun set_selection(text: string) : ()`
+- **`Buffer`**: Per-buffer undo/redo history, spawned once per `event_loop` call.
+  - `fun snapshot(b: TextBuffer) : ()`
+  - `fun undo(current: TextBuffer) : maybe<TextBuffer>`
+  - `fun redo(current: TextBuffer) : maybe<TextBuffer>`
+
 
 ---
 
 # Domain Data Models & Type Dictionary
 
-*(No structs or enums defined in this module)*
+## Effects (Capabilities)
+
+### Effect `Terminal` `pub`
+Screen I/O: render a frame, query dimensions/cursor style, and poll
+for the next input event. Arm bodies auto-resume (hica 0.49 syntax).
+
+#### Operations
+- `fun poll_event() : Event`
+- `fun render_frame(buf: ScreenBuffer) : ()`
+- `fun get_dimensions() : (int, int)`
+- `fun set_cursor_style(style: CursorStyle) : ()`
+
+### Effect `Clipboard` `pub`
+Cross-platform clipboard abstraction.
+
+#### Operations
+- `fun get_selection() : string`
+- `fun set_selection(text: string) : ()`
+
+### Effect `Buffer` `pub`
+Per-buffer undo/redo history, spawned once per `event_loop` call.
+
+#### Operations
+- `fun snapshot(b: TextBuffer) : ()`
+- `fun undo(current: TextBuffer) : maybe<TextBuffer>`
+- `fun redo(current: TextBuffer) : maybe<TextBuffer>`
+
 
 ---
 
@@ -1073,21 +1204,21 @@ This index maps symbol names to their original file ranges, for tool and human r
 
 This index maps symbol names to their original file ranges, for tool and human reference.
 
-- [`combine_with`](../../src/main.hc#L57)
-- [`combine_status`](../../src/main.hc#L66)
-- [`enable_raw_mode`](../../src/main.hc#L76)
-- [`disable_raw_mode`](../../src/main.hc#L80)
-- [`rgb_fg_code`](../../src/main.hc#L91)
-- [`rgb_bg_code`](../../src/main.hc#L94)
-- [`wrap_fg_bg`](../../src/main.hc#L97)
-- [`wrap_bg`](../../src/main.hc#L100)
-- [`colorize_tabline_row`](../../src/main.hc#L107)
-- [`colorize_status_row`](../../src/main.hc#L118)
-- [`colorize_cursor_row`](../../src/main.hc#L121)
-- [`style_frame_lines`](../../src/main.hc#L127)
-- [`style_frame_lines_go`](../../src/main.hc#L132)
-- [`render_native`](../../src/main.hc#L163)
-- [`apply_tabsize_override`](../../src/main.hc#L174)
-- [`apply_readonly_override`](../../src/main.hc#L182)
-- [`run_editor`](../../src/main.hc#L185)
-- [`main`](../../src/main.hc#L219)
+- [`combine_with`](../../src/main.hc#L19) — Combine a status message `x` (config/file load result) with an optional second one `b` (e.g. the theme resolver's warning).
+- [`combine_status`](../../src/main.hc#L31) — Combine two optional status messages (either, both, or neither may be present) into the single message primed onto `EditorState.status_message` for the first render tick.
+- [`enable_raw_mode`](../../src/main.hc#L42) — Put the terminal into raw mode via `stty` (through hica's built-in `exec`) rather than a hand-written termios FFI.
+- [`disable_raw_mode`](../../src/main.hc#L47) — Restore normal terminal mode (`stty sane`).
+- [`rgb_fg_code`](../../src/main.hc#L60) — The ANSI SGR foreground true-color code for `c`.
+- [`rgb_bg_code`](../../src/main.hc#L64) — The ANSI SGR background true-color code for `c`.
+- [`wrap_fg_bg`](../../src/main.hc#L68) — Wrap `s` in an ANSI SGR foreground+background pair, reset afterward.
+- [`wrap_bg`](../../src/main.hc#L72) — Wrap `s` in an ANSI SGR background-only code, reset afterward.
+- [`colorize_tabline_row`](../../src/main.hc#L78) — Colorize a rendered tabline row: the active tab (leading "[name]" segment) gets `active_tab_fg`/`active_tab_bg`, the rest of the row gets the plain `tabline_fg`/`tabline_bg` pair.
+- [`colorize_status_row`](../../src/main.hc#L90) — Colorize a rendered status-line row.
+- [`colorize_cursor_row`](../../src/main.hc#L94) — Colorize a rendered content row that the cursor currently sits on.
+- [`style_frame_lines`](../../src/main.hc#L101) — Style the tabline (first row), status line (last row), and the row the cursor currently sits on (everything else, plain).
+- [`style_frame_lines_go`](../../src/main.hc#L107) — Recursive worker for `style_frame_lines`, tracking the current row index.
+- [`render_native`](../../src/main.hc#L134) — Full-redraw a `ScreenBuffer` to the real terminal via ANSI escapes, including moving the terminal's real cursor to `buf.cursor_row`/`buf.cursor_col`.
+- [`apply_tabsize_override`](../../src/main.hc#L145) — `--tabsize <n>`: applied to Config.values after init.hl has loaded, so it always wins over a config-file setting.
+- [`apply_readonly_override`](../../src/main.hc#L153) — `--readonly`: can only turn the flag on (there's no "un-readonly" CLI flag — omit it and the default `false` stands).
+- [`run_editor`](../../src/main.hc#L159) — Build the initial `EditorState` from parsed CLI args (config, theme, target file, `+LINE:COL` start position), then install the native Terminal/Clipboard handlers and run `event_loop`.
+- [`main`](../../src/main.hc#L195) — hedit's entry point: parse argv, then dispatch to `--help`/`--version` or `run_editor`.

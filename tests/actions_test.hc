@@ -2,7 +2,7 @@
 //
 // No I/O, no effect handlers — just feed events through the pipeline and
 // assert on the resulting `Action` / `EditorState`. Each `test` block has
-// its own inference scope (SKILL §14) so generic helpers stay unconstrained.
+// its own inference scope so generic helpers stay unconstrained.
 
 import "../src/keys"
 import "../src/model"
@@ -23,7 +23,7 @@ test "typing appends chars to the active line" {
   assert(s2.buffer.is_dirty == true)
 }
 
-// ------------------- Enter / Backspace / arrow movement (M7 revisit) ----
+// ------------------- Enter / Backspace / arrow movement  --------------
 
 test "typing inserts at the cursor column, not always at end of line" {
   let s0 = init_editor(None)
@@ -233,7 +233,7 @@ test "resolve_action maps every KChar to Insert" {
   assert(resolve_action(s0, KeyEvent(KChar('Z'))) == Insert('Z'))
 }
 
-// ------------------- Copy/Paste resolution (Clipboard land in M3) ------
+// ------------------- Copy/Paste resolution ---------------------
 
 test "resolve_action maps Ctrl-c to Copy via default_bindings" {
   let s0 = init_editor(None)
@@ -280,7 +280,7 @@ test "current_line returns the head cursor line" {
   assert(current_line(s2) == "hi")
 }
 
-// ------------------- Undo/Redo resolution (Buffer effect lands in M5) --
+// ------------------- Undo/Redo resolution  ---------------------
 
 test "resolve_action maps Ctrl-z to Undo via default_bindings" {
   let s0 = init_editor(None)
@@ -328,7 +328,7 @@ test "custom bindings override defaults — Ctrl-x becomes Quit" {
   assert(resolve_action(s1, KeyEvent(KShortcut(Ctrl, 'q'))) == Ignore)
 }
 
-// ------------------- Multi-buffer navigation (M5.5) ---------------------
+// ------------------- Multi-buffer navigation  --------------------------
 //
 // `EditorState.buffer` is always the active buffer; `open_buffers`
 // returns the full ring (active first). `NewBuffer` only ever creates an
@@ -399,7 +399,7 @@ test "CloseBuffer on the last remaining buffer is a no-op with a status message"
   assert(s1.status_message == Some("Can't close the last buffer"))
 }
 
-// ------------------- Save-As / Open prompt (M9) --------------------------
+// ------------------- Save-As / Open prompt --------------------------
 
 test "resolve_action maps Ctrl-o to OpenFile via default_bindings" {
   let s0 = init_editor(None)
@@ -435,9 +435,7 @@ test "a resize event still resolves to Resize while a prompt is active" {
 
 // A closed/EOF'd stdin decodes to the same synthetic Ctrl-q event as a
 // real keypress (see keys.hc::decode_key) — without this, a prompt left
-// open when input ends would spin `event_loop` forever instead of
-// exiting (this reproduced as a real segfault via scripted stdin, see
-// docs/effects-journal.md M9 Log).
+// open when input ends would spin `event_loop` forever instead of exiting.
 test "Ctrl-q still resolves to Quit even while a prompt is active" {
   let s0 = init_editor(None)
   let s1 = apply_action(s0, OpenFile)
@@ -478,7 +476,7 @@ test "apply_action leaves state untouched for PromptSubmit (handled in event_loo
   assert(s3.prompt == OpenPrompt("x", 1))
 }
 
-// ------------------- Stage 1 prompt cursor movement -----------------------
+// ------------------- Prompt cursor movement -----------------------
 
 test "PromptMoveStart/PromptMoveLeft/PromptMoveRight/PromptMoveEnd move the cursor" {
   let s0 = init_editor(None)
@@ -530,7 +528,7 @@ test "prompt_kill_text/prompt_truncate kill from the cursor to the end" {
   assert(s7.prompt == OpenPrompt("a", 1))
 }
 
-// ------------------- Help overlay (M10) -----------------------------------
+// ------------------- Help overlay -----------------------------------
 
 test "resolve_action maps Ctrl-g to ToggleHelp via default_bindings" {
   let s0 = init_editor(None)
