@@ -1,0 +1,4 @@
+; greeter — the minimal reference plugin.
+; Shows a welcome message in the status bar the first time any buffer
+; (including the initial scratch buffer) finishes loading.
+(on 'buffer-open (fn (path) "Welcome to hedit!"))

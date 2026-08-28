@@ -1,0 +1,4 @@
+; word-count — a slightly-less-trivial reference plugin.
+; Reports the saved path back to the user after every successful save,
+; using the status-bar return-value convention.
+(on 'post-save (fn (path) (str "saved " path)))

@@ -11,6 +11,7 @@ import "config_loader"
 import "cli_spec"
 import "std/cli"
 import "std/term"
+import "../lib/hilisp/src/lisp"
 
 extern import "term_ffi"
 
@@ -158,7 +159,7 @@ fun apply_readonly_override(cfg: Config, ro: bool) : Config =>
 /// Terminal/Clipboard handlers and run `event_loop`.
 fun run_editor(r: CliResult, pos_arg: maybe<string>) {
   let cfg0             = default_config()
-  let (cfg1, cfg_status) = load_user_config_opts(cfg0, get_opt(r, "config"), has_flag(r, "no-config"))
+  let (cfg1, hl_env, cfg_status) = load_user_config_opts(cfg0, get_opt(r, "config"), has_flag(r, "no-config"))
   let cfg2             = apply_tabsize_override(cfg1, get_opt(r, "tabsize"))
   let cfg              = apply_readonly_override(cfg2, has_flag(r, "readonly"))
   let (theme, theme_status) = resolve_theme_with_status(cfg)
@@ -168,8 +169,11 @@ fun run_editor(r: CliResult, pos_arg: maybe<string>) {
     Some(a) => parse_position_arg(a)
   }
   let loaded_buf = set_initial_position(loaded_buf0, start_pos)
+  let buf_path = match loaded_buf.path { Some(p) => p, None => "" }
+  let (hook_results, hl_env2) = fire_hook(hl_env, "buffer-open", [LStr(buf_path)])
   let s0 = init_editor_with_buffer(loaded_buf, cfg)
-  let s1 = match combine_status(combine_status(cfg_status, load_status), theme_status) {
+  let all_status = combine_status(combine_status(combine_status(cfg_status, load_status), theme_status), hook_status(hook_results))
+  let s1 = match all_status {
     None      => s0,
     Some(msg) => set_status_message(s0, msg)
   }
@@ -184,7 +188,7 @@ fun run_editor(r: CliResult, pos_arg: maybe<string>) {
       get_dimensions()     => (term_cols(), term_rows()),
       set_cursor_style(_s) => ()
     } in {
-      event_loop(s1)
+      event_loop_with_env(s1, hl_env2)
     }
   }
   disable_raw_mode()

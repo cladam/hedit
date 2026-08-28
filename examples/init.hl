@@ -81,4 +81,14 @@
 ;; silence a default without giving it a new job:
 ;; (bind "Ctrl-w" 'ignore)
 
+;; ---------------------------------------------------------------------
+;; Plugins — (plugin "name") opts into <config-root>/plugins/<name>/plugin.hl
+;; ---------------------------------------------------------------------
+;;
+;; Each name resolves relative to *this* file's own directory (the
+;; config root that won the XDG/HOME search, or --config's path). See
+;; examples/plugins/ for the greeter/word-count reference plugins.
+;; (plugin "greeter")
+;; (plugin "word-count")
+
 

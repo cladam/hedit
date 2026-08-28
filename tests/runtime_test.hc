@@ -486,3 +486,100 @@ test "ctrl-o opens an Open prompt; typing a path + Enter loads a new buffer" {
   let bg_lines = map(final.background_buffers, buf_lines)
   assert(bg_lines == [["a"]])
 }
+
+// ------------------- M11: plugin hooks fired from event_loop -----------
+
+test "M11: a pre-action hook returning false blocks Save (no write observed)" {
+  let tmp_path = "/tmp/hedit_test_m11_pre_action_block_save.txt"
+  let s0 = init_editor(Some(tmp_path))
+  let (_, hl_env, _) = load_config_with_env(
+    "(on 'pre-action (fn (name) (not (= name \"save\"))))", default_config())
+  let final = handle Terminal {
+    poll_event() => match events {
+      []          => KeyEvent(KShortcut(Ctrl, 'q')),
+      [e, ..rest] => { events = rest; e }
+    },
+    render_frame(_buf)   => (),
+    get_dimensions()     => (80, 24),
+    set_cursor_style(_s) => ()
+  } with var events = [
+    KeyEvent(KChar('h')),
+    KeyEvent(KShortcut(Ctrl, 's')),
+    KeyEvent(KShortcut(Ctrl, 'q'))
+  ] in {
+    event_loop_with_env(s0, hl_env)
+  }
+  let content = read_file(tmp_path)
+  let was_written = match content { Ok(_) => true, Err(_) => false }
+  assert(!was_written)
+  assert(final.buffer.is_dirty == true) // the insert happened, only Save was blocked
+}
+
+test "M11: a post-save hook's LStr return becomes the next status message" {
+  let tmp_path = "/tmp/hedit_test_m11_post_save_status.txt"
+  let s0 = init_editor(Some(tmp_path))
+  let (_, hl_env, _) = load_config_with_env(
+    "(on 'post-save (fn (path) (str \"saved \" path)))", default_config())
+  let final = handle Terminal {
+    poll_event() => match events {
+      []          => KeyEvent(KShortcut(Ctrl, 'q')),
+      [e, ..rest] => { events = rest; e }
+    },
+    render_frame(_buf)   => (),
+    get_dimensions()     => (80, 24),
+    set_cursor_style(_s) => ()
+  } with var events = [
+    KeyEvent(KChar('h')),
+    KeyEvent(KShortcut(Ctrl, 's')),
+    KeyEvent(KShortcut(Ctrl, 'q'))
+  ] in {
+    event_loop_with_env(s0, hl_env)
+  }
+  assert(final.status_message == Some("saved " + tmp_path))
+}
+
+test "M11: a pre-save hook returning false blocks Save-As too" {
+  let (_, hl_env, _) = load_config_with_env(
+    "(on 'pre-save (fn (path) false))", default_config())
+  let dest_path = "/tmp/hedit_test_m11_pre_save_block_save_as.txt"
+  let path_events = map(chars(dest_path), (c) => KeyEvent(KChar(c)))
+  let events = [KeyEvent(KShortcut(Ctrl, 's'))] + path_events + [
+    KeyEvent(KSpecial(Enter)),
+    KeyEvent(KShortcut(Ctrl, 'q'))
+  ]
+  let final = handle Terminal {
+    poll_event() => match ev {
+      []          => KeyEvent(KShortcut(Ctrl, 'q')),
+      [e, ..rest] => { ev = rest; e }
+    },
+    render_frame(_buf)   => (),
+    get_dimensions()     => (80, 24),
+    set_cursor_style(_s) => ()
+  } with var ev = events in {
+    event_loop_with_env(init_editor(None), hl_env)
+  }
+  assert(final.prompt == NoPrompt)
+  let content = read_file(dest_path)
+  let was_written = match content { Ok(_) => true, Err(_) => false }
+  assert(!was_written)
+}
+
+test "M11: buffer-open hook fires on NewBuffer with an empty path" {
+  let (_, hl_env, _) = load_config_with_env(
+    "(on 'buffer-open (fn (path) (str \"opened:\" path)))", default_config())
+  let final = handle Terminal {
+    poll_event() => match events {
+      []          => KeyEvent(KShortcut(Ctrl, 'q')),
+      [e, ..rest] => { events = rest; e }
+    },
+    render_frame(_buf)   => (),
+    get_dimensions()     => (80, 24),
+    set_cursor_style(_s) => ()
+  } with var events = [
+    KeyEvent(KShortcut(Meta, 'o')),
+    KeyEvent(KShortcut(Ctrl, 'q'))
+  ] in {
+    event_loop_with_env(init_editor(None), hl_env)
+  }
+  assert(final.status_message == Some("opened:"))
+}
