@@ -45,7 +45,7 @@ See [`examples/init.hl`](examples/init.hl) for all available options
 | `(set key value)` | Set a configuration value |
 | `(get key)` | Read a configuration value |
 | `(bind keystroke action)` | Map a keystroke to a named built-in action |
-| `(plugin "name")` | Opt into loading `plug/<name>/plugin.hl` (see Plugins below) |
+| `(plugin "name")` | Opt into loading `plugins/<name>/plugin.hl` (see Plugins below) |
 | `(on 'event (fn (...) ...))` | Register a hook for a lifecycle event (see Plugins below) |
 
 ### Plugins
@@ -61,12 +61,12 @@ one of `$XDG_CONFIG_HOME/hedit/init.hl`, `$HOME/.config/hedit/init.hl`,
 or `$HOME/.hedit.hl` you're using):
 
 ```lisp
-;; ~/.config/hedit/plug/greeter/plugin.hl
+;; ~/.config/hedit/plugins/greeter/plugin.hl
 (on 'buffer-open (fn (path) "Welcome to hedit!"))
 ```
 
 **2. Wire it up** with `(plugin "name")` in `init.hl` — this is the
-step that's easy to forget, since creating the `plug/` folder alone
+step that's easy to forget, since creating the `plugins/` folder alone
 does nothing:
 
 ```lisp
