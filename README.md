@@ -45,9 +45,63 @@ See [`examples/init.hl`](examples/init.hl) for all available options
 | `(set key value)` | Set a configuration value |
 | `(get key)` | Read a configuration value |
 | `(bind keystroke action)` | Map a keystroke to a named built-in action |
+| `(plugin "name")` | Opt into loading `plug/<name>/plugin.hl` (see Plugins below) |
+| `(on 'event (fn (...) ...))` | Register a hook for a lifecycle event (see Plugins below) |
 
-Upcoming plugin discovery, event hooks (`on 'buffer-open`, `on 'save`, ...), buffer introspection/mutation (`current-buffer`,
-`insert-text`, ...), will also be written in HiLisp, as additional built-ins on the same interpreter.
+### Plugins
+
+A plugin is just another `.hl` file — there's no separate plugin
+format or manager. `hedit` never auto-discovers plugins by scanning a
+folder; you opt in by name from `init.hl`, and hedit resolves that
+name to a file next to `init.hl` itself.
+
+**1. Write the plugin file** at `plugins/<name>/plugin.hl`, in the *same
+directory* as the `init.hl` that will load it (i.e. next to whichever
+one of `$XDG_CONFIG_HOME/hedit/init.hl`, `$HOME/.config/hedit/init.hl`,
+or `$HOME/.hedit.hl` you're using):
+
+```lisp
+;; ~/.config/hedit/plug/greeter/plugin.hl
+(on 'buffer-open (fn (path) "Welcome to hedit!"))
+```
+
+**2. Wire it up** with `(plugin "name")` in `init.hl` — this is the
+step that's easy to forget, since creating the `plug/` folder alone
+does nothing:
+
+```lisp
+;; ~/.config/hedit/init.hl
+(plugin "greeter")
+```
+
+**Available hooks**, registered with `(on 'event (fn (...) ...))`
+(more than one plugin/hook can register for the same event; they run
+in registration order):
+
+| Event | Args | Fires |
+|---|---|---|
+| `'buffer-open` | `(path)` | A buffer finished loading (`""` for a scratch buffer); on startup and on new-buffer/open |
+| `'pre-save` | `(path)` | Before writing a named buffer to disk |
+| `'post-save` | `(path)` | After a successful save |
+| `'pre-action` | `(action-name)` | Before every resolved action (the same name `(bind ...)` targets) |
+| `'quit` | `()` | Once, best-effort, right before hedit exits |
+
+Two conventions apply across all hooks instead of new builtins:
+
+- **Cancel:** if any `pre-save`/`pre-action` hook returns `false`, the
+  save/action is skipped. `Quit` is the one exception — it always
+  proceeds no matter what a `pre-action` hook returns, so a plugin can
+  never trap the editor open.
+- **Status:** if a hook returns a string, it becomes the next
+  status-bar message.
+
+A broken or missing `plugin.hl` surfaces a one-line status message
+naming the plugin and never blocks `init.hl` or any other plugin from
+loading.
+
+See [`examples/plugins/`](examples/plugins) for two reference plugins
+(`greeter`, `word-count`) and [`examples/init.hl`](examples/init.hl)
+for the `(plugin ...)` opt-in syntax.
 
 ## Quick Install
 

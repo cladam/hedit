@@ -5,7 +5,7 @@
 /// `hilisp_host.hc::load_config_with_env`, which does the actual eval/merge.
 //
 // Also resolves & loads `(plugin "name")` opt-ins recorded by `init.hl`:
-// each name maps to `<config-root>/plug/<name>/plugin.hl`, evaluated into
+// each name maps to `<config-root>/plugins/<name>/plugin.hl`, evaluated into
 // the *same* `Env` init.hl populated (so plugins see prior `(set ...)`/
 // `(bind ...)` calls, and later plugins see earlier ones). A broken or
 // missing plugin file surfaces as a status message, not a crash, and
@@ -60,10 +60,10 @@ fun config_dir_of(path: string) : string {
   }
 }
 
-/// `<base_dir>/plug/<name>/plugin.hl` — the fixed layout every
+/// `<base_dir>/plugins/<name>/plugin.hl` — the fixed layout every
 /// `(plugin "name")` opt-in resolves to.
 fun plugin_path(base_dir: string, name: string) : string =>
-  base_dir + "/plug/" + name + "/plugin.hl"
+  base_dir + "/plugins/" + name + "/plugin.hl"
 
 /// Evaluate one already-read plugin source into `env0`, prefixing any
 /// `LError` status with the plugin's name.
@@ -101,7 +101,7 @@ fun load_plugins_go(cfg0:Config, env0:Env, base_dir: string, names: list<string>
   }
 
 /// Load every `(plugin "name")` opt-in recorded on `env0` from
-/// `<base_dir>/plug/<name>/plugin.hl`, in declaration order.
+/// `<base_dir>/plugins/<name>/plugin.hl`, in declaration order.
 pub fun load_plugins(cfg0:Config, env0:Env, base_dir: string, names: list<string>) : (Config, Env, list<string>) =>
   load_plugins_go(cfg0, env0, base_dir, names, [])
 

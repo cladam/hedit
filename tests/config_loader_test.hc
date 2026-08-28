@@ -52,10 +52,10 @@ test "skip=true wins even when an explicit path is also given" {
 
 // ------------------- plugin resolution & loading (M11) -----------------
 
-test "load_user_config_opts: a (plugin ...) opt-in loads plug/<name>/plugin.hl into the same env" {
+test "load_user_config_opts: a (plugin ...) opt-in loads plugins/<name>/plugin.hl into the same env" {
   let init_path = "/tmp/hedit_test_m11_plugins_ok/init.hl"
   write_file(init_path, "(plugin \"greeter\")")
-  write_file("/tmp/hedit_test_m11_plugins_ok/plug/greeter/plugin.hl",
+  write_file("/tmp/hedit_test_m11_plugins_ok/plugins/greeter/plugin.hl",
              "(on 'buffer-open (fn (path) \"Welcome to hedit!\"))")
   let cfg0 = default_config()
   let (_, env, status) = load_user_config_opts(cfg0, Some(init_path), false)
@@ -86,8 +86,8 @@ test "load_user_config_opts: a missing plugin name surfaces a status message, no
 test "load_user_config_opts: a broken plugin doesn't block a good one loaded after it" {
   let init_path = "/tmp/hedit_test_m11_plugins_mixed/init.hl"
   write_file(init_path, "(plugin \"broken\") (plugin \"greeter\")")
-  write_file("/tmp/hedit_test_m11_plugins_mixed/plug/broken/plugin.hl", "(this-is-not-defined)")
-  write_file("/tmp/hedit_test_m11_plugins_mixed/plug/greeter/plugin.hl",
+  write_file("/tmp/hedit_test_m11_plugins_mixed/plugins/broken/plugin.hl", "(this-is-not-defined)")
+  write_file("/tmp/hedit_test_m11_plugins_mixed/plugins/greeter/plugin.hl",
              "(on 'buffer-open (fn (path) \"Welcome to hedit!\"))")
   let cfg0 = default_config()
   let (_, env, status) = load_user_config_opts(cfg0, Some(init_path), false)
