@@ -6,7 +6,6 @@
 //
 // End-to-end coverage of the `(set …)` / `(get …)` / `(bind …)`
 
-
 import "../src/keys"
 import "../src/model"
 import "../src/hilisp_host"
@@ -102,7 +101,7 @@ test "parse_chord: rejects garbage" {
 
 // ------------------- (set)/(bind) end-to-end -------------------------
 //
-// A HiLisp config string materialises into a hedit-side `Config`. 
+// A HiLisp config string materialises into a hedit-side `Config`.
 // The tests exercise `register_host_dispatch` + `hedit_host_dispatch` + `load_config` in one go.
 
 test "load_config: (set) records values into the config" {
@@ -179,4 +178,63 @@ test "load_config: unknown action surfaces as status message" {
     Some(msg) => assert(str_length(msg) > 0),
     None      => assert(false)
   }
+}
+
+// ------------------- (plugin)/(on)/fire_hook (M11) --------------------
+
+test "load_config_with_env: (plugin) records an ordered name list" {
+  let src = "(plugin \"greeter\") (plugin \"word-count\")"
+  let (_, env, err) = load_config_with_env(src, default_config())
+  assert(err == None)
+  assert(plugin_names_from_env(env) == ["greeter", "word-count"])
+}
+
+test "fire_hook: no hooks registered is a no-op returning []" {
+  let (_, env, _) = load_config_with_env("(plugin \"greeter\")", default_config())
+  let (results, _) = fire_hook(env, "buffer-open", [LStr("")])
+  assert(results == [])
+}
+
+test "fire_hook: a single hook receives its args and returns a value" {
+  let src = "(on 'buffer-open (fn (path) (str \"opened \" path)))"
+  let (_, env, err) = load_config_with_env(src, default_config())
+  assert(err == None)
+  let (results, _) = fire_hook(env, "buffer-open", [LStr("foo.txt")])
+  match results {
+    [LStr(s)] => assert_eq(s, "opened foo.txt"),
+    _         => assert(false)
+  }
+}
+
+test "fire_hook: multiple hooks on the same event all fire in order" {
+  let src = "(on 'post-save (fn (p) \"first\")) (on 'post-save (fn (p) \"second\"))"
+  let (_, env, err) = load_config_with_env(src, default_config())
+  assert(err == None)
+  let (results, _) = fire_hook(env, "post-save", [LStr("f.txt")])
+  match results {
+    [LStr(a), LStr(b)] => {
+      assert_eq(a, "first")
+      assert_eq(b, "second")
+    },
+    _ => assert(false)
+  }
+}
+
+test "hook_cancels: true iff any hook result is (false)" {
+  assert(hook_cancels([LStr("ok"), LBool(false)]) == true)
+  assert(hook_cancels([LStr("ok"), LBool(true)]) == false)
+  assert(hook_cancels([]) == false)
+}
+
+test "hook_status: last LStr result wins" {
+  assert(hook_status([LBool(true), LStr("first"), LStr("second")]) == Some("second"))
+  assert(hook_status([LBool(true)]) == None)
+  assert(hook_status([]) == None)
+}
+
+test "fire_hook: pre-action hook returning false trips hook_cancels" {
+  let src = "(on 'pre-action (fn (name) false))"
+  let (_, env, _) = load_config_with_env(src, default_config())
+  let (results, _) = fire_hook(env, "pre-action", [LStr("save")])
+  assert(hook_cancels(results))
 }

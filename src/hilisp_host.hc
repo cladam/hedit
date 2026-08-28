@@ -1,4 +1,4 @@
-/// HiLisp bridge into hedit. 
+/// HiLisp bridge into hedit.
 /// Builds a HiLisp `Env` seeded with hedit's `(set ...)`/`(get ...)`/`(bind ...)` host
 /// builtins (routed through HiLisp's `host/...` dispatch, then aliased
 /// to the plain names via a preamble), and evaluates `init.hl` source
@@ -202,6 +202,13 @@ fun bindings_key() : string => "__hedit_bindings"
 /// The env key under which the `(set ...)` values alist is stored.
 fun values_key() : string   => "__hedit_values"
 
+/// The env key under which the `(on 'event (fn ...))` hook registry
+/// (event-name -> `LList` of closures) is stored.
+fun hooks_key() : string => "__hedit_hooks"
+
+/// The env key under which the ordered `(plugin "name")` list is stored.
+fun plugins_key() : string => "__hedit_plugins"
+
 /// Serialise a `Config.bindings` alist into an `LHash` keyed by
 /// `"Modifier-c"` chord strings, values = LStr(action-name).
 fun bindings_to_hash(kb: list<(KeyChord, Action)>) : LVal =>
@@ -310,10 +317,12 @@ fun value_to_string(v: LVal) : string =>
 /// Dispatch a `host/...` op name to its hedit-side handler.
 pub fun hedit_host_dispatch(name: string, args: list<LVal>, env: Env) : (LVal, Env) =>
   match name {
-    "host/set"  => host_set(args, env),
-    "host/get"  => host_get(args, env),
-    "host/bind" => host_bind(args, env),
-    _           => (lerror("host/unknown", "unknown hedit host op: " + name), env)
+    "host/set"    => host_set(args, env),
+    "host/get"    => host_get(args, env),
+    "host/bind"   => host_bind(args, env),
+    "host/on"     => host_on(args, env),
+    "host/plugin" => host_plugin(args, env),
+    _             => (lerror("host/unknown", "unknown hedit host op: " + name), env)
   }
 
 /// `(set key value)` — record a string-typed value.
@@ -374,18 +383,129 @@ fun host_bind(args: list<LVal>, env: Env) : (LVal, Env) =>
     _ => (lerror("host/bad-args", "bind expects (chord-string 'action)"), env)
   }
 
+// ------------------- Plugin / hook registry (M11) -----------------------
+//
+// `(plugin "name")` records an opt-in plugin name (an ordered `LList` of
+// `LStr`s, since load order matters and there's no dedup need). `(on
+// 'event (fn ...))` appends a closure to `__hedit_hooks[event-name]` — an
+// `LHash` whose values are themselves `LList`s of closures, so more than
+// one plugin can hook the same event. `fire_hook` (called from
+// `runtime.hc::event_loop`) looks up and calls every closure registered
+// for an event, in registration order, threading `env` through each call
+// via HiLisp's own `apply`.
+
+/// `(plugin "name")` — append a plugin name to the ordered load list.
+fun host_plugin(args: list<LVal>, env: Env) : (LVal, Env) =>
+  match args {
+    [LStr(name)] => {
+      let cur = match env_get(env, plugins_key()) {
+        LList(items) => items,
+        _            => []
+      }
+      (LNil, env_set(env, plugins_key(), LList(cur + [LStr(name)])))
+    },
+    _ => (lerror("host/bad-args", "plugin expects (name)"), env)
+  }
+
+/// Decode the plugin-name `LList` back into a plain `list<string>`,
+/// dropping any malformed (non-`LStr`) entry rather than failing.
+fun lvals_to_names(items: list<LVal>) : list<string> =>
+  match items {
+    [] => [],
+    [LStr(s), ..rest] => [s] + lvals_to_names(rest),
+    [_, ..rest]       => lvals_to_names(rest)
+  }
+
+/// Extract the ordered `(plugin "name")` list recorded on `env`.
+pub fun plugin_names_from_env(env: Env) : list<string> =>
+  match env_get(env, plugins_key()) {
+    LList(items) => lvals_to_names(items),
+    _            => []
+  }
+
+/// `(on 'event (fn (...) ...))` — append a closure to the hook list
+/// registered for `event`.
+fun host_on(args: list<LVal>, env: Env) : (LVal, Env) =>
+  match args {
+    [LSym(event_name, _), closure] => {
+      let cur = match env_get(env, hooks_key()) {
+        LHash(entries) => entries,
+        _              => []
+      }
+      let existing = match map_get(cur, event_name) {
+        Some(LList(items)) => items,
+        _                  => []
+      }
+      let updated = map_set(cur, event_name, LList(existing + [closure]))
+      (LNil, env_set(env, hooks_key(), LHash(updated)))
+    },
+    _ => (lerror("host/bad-args", "on expects ('event-name (fn ...))"), env)
+  }
+
+/// Call every hook registered for `event`, in registration order,
+/// threading `env` through each call. Returns every closure's return
+/// value (see `hook_cancels`/`hook_status` for the conventions built on
+/// top of that list) alongside the final `Env`.
+pub fun fire_hook(env: Env, event: string, args: list<LVal>) : (list<LVal>, Env) {
+  let hooks = match env_get(env, hooks_key()) {
+    LHash(entries) => entries,
+    _              => []
+  }
+  let closures = match map_get(hooks, event) {
+    Some(LList(items)) => items,
+    _                   => []
+  }
+  call_hooks(closures, args, env)
+}
+
+/// Recursive worker for `fire_hook`: apply each closure in turn,
+/// threading `env` and collecting every return value in order.
+fun call_hooks(closures: list<LVal>, args: list<LVal>, env: Env) : (list<LVal>, Env) =>
+  match closures {
+    [] => ([], env),
+    [f, ..rest] => {
+      let (result, env2)  = apply(f, args, env)
+      let (results, env3) = call_hooks(rest, args, env2)
+      ([result] + results, env3)
+    }
+  }
+
+/// The `pre-save`/`pre-action` cancel convention: `true` iff any hook
+/// result is `LBool(False)`.
+pub fun hook_cancels(results: list<LVal>) : bool =>
+  match results {
+    [] => false,
+    [LBool(false), ..rest] => true,
+    [_, ..rest]            => hook_cancels(rest)
+  }
+
+/// The status-bar convention: the last `LStr` result, if any (later
+/// hooks' status wins over earlier ones).
+pub fun hook_status(results: list<LVal>) : maybe<string> =>
+  match results {
+    [] => None,
+    [LStr(s), ..rest] => match hook_status(rest) {
+      Some(later) => Some(later),
+      None        => Some(s)
+    },
+    [_, ..rest] => hook_status(rest)
+  }
+
 // ------------------- HiLisp preamble -----------------------------------
 //
 // Registered on the env before evaluating user code. Aliases the raw
 // `host/set` name to plain `set` (and friends) so authors write the
 // idiomatic form documented in the README.
 
-/// The HiLisp preamble that aliases `host/set`/`host/get`/`host/bind`
-/// to the idiomatic `set`/`get`/`bind` names.
+/// The HiLisp preamble that aliases `host/set`/`host/get`/`host/bind`/
+/// `host/on`/`host/plugin` to the idiomatic `set`/`get`/`bind`/`on`/
+/// `plugin` names.
 fun preamble() : string =>
-  "(def set  (fn (k v) (host/set k v))) " +
-  "(def get  (fn (k)   (host/get k)))   " +
-  "(def bind (fn (k a) (host/bind k a)))"
+  "(def set    (fn (k v) (host/set k v)))    " +
+  "(def get    (fn (k)   (host/get k)))      " +
+  "(def bind   (fn (k a) (host/bind k a)))   " +
+  "(def on     (fn (e f) (host/on e f)))     " +
+  "(def plugin (fn (n)   (host/plugin n)))"
 
 /// Build a HiLisp env seeded with core HiLisp builtins, the hedit
 /// host-dispatch callback, the initial `Config` snapshot, and the
@@ -408,12 +528,32 @@ pub fun make_hedit_env(cfg0:Config) : Env {
 // — a broken (bind ...) at line 40 shouldn't lose the 39 preceding
 // lines' worth of config.
 pub fun load_config(src: string, cfg0:Config) : (Config, maybe<string>) {
-  let env0    = make_hedit_env(cfg0)
+  let (cfg, _, status) = load_config_with_env(src, cfg0)
+  (cfg, status)
+}
+
+/// Evaluate `src` against an already-built `env0` (typically a prior
+/// `load_config_env`'s output `Env`, so `init.hl` and each `plugin.hl`
+/// accumulate into the *same* env), returning the merged `Config`, the
+/// resulting `Env` (carrying any newly-registered `(on ...)` hooks), and
+/// a status message.
+// Split out of `load_config_with_env` so `config_loader.hc` can fold this
+/// over a list of plugin sources without rebuilding a fresh env each time.
+pub fun load_config_env(src: string, cfg0:Config, env0:Env) : (Config, Env, maybe<string>) {
   let tokens  = tokenise(src)
   let (result, env1) = eval_all(tokens, env0, LNil)
   let cfg2    = config_from_env(env1, cfg0)
   match result {
-    LError(_, _, _, _) => (cfg2, Some(lval_display(result))),
-    _                  => (cfg2, None)
+    LError(_, _, _, _) => (cfg2, env1, Some(lval_display(result))),
+    _                  => (cfg2, env1, None)
   }
+}
+
+/// Same as `load_config`, but also returns the resulting `Env` so a
+/// caller (`config_loader.hc`) can keep loading `(plugin "name")`
+/// files into it, and later thread it into `EditorState.hilisp_env`
+/// for `runtime.hc::fire_hook`.
+pub fun load_config_with_env(src: string, cfg0:Config) : (Config, Env, maybe<string>) {
+  let env0 = make_hedit_env(cfg0)
+  load_config_env(src, cfg0, env0)
 }
