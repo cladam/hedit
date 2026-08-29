@@ -150,12 +150,12 @@ Full reference with every chord: [`docs/hedit-cheatsheets.md`](docs/hedit-cheats
 (or press `Ctrl-g`/`Meta-h` inside hedit for a live overlay).
 
 - File: `Ctrl-s` save, `Ctrl-o` open-file prompt, `Ctrl-q` quit
-- Readline-style editing: `Ctrl-a`/`Ctrl-e` line start/end, `Ctrl-b`/`Ctrl-f`
-  left/right, `Ctrl-d` delete-forward, `Ctrl-k` kill-line, `Ctrl-w`
+- Readline-style editing: `Ctrl-a`/`Ctrl-e` line start/end, `Ctrl-d` delete-forward, `Ctrl-k` kill-line, `Ctrl-w`
   kill-word-back, `Meta-f`/`Meta-b` word forward/back, `Meta-d`
   kill-word-forward, `Meta-l` kill-whole-line
 - Clipboard & history: `Ctrl-c`/`Ctrl-v` copy/paste, `Ctrl-y` yank
   (same clipboard slot as paste), `Ctrl-z` undo, `Ctrl-r` redo
+- Search: `Ctrl-f` open search prompt, `Ctrl-Right` next occurance, `Ctrl-Left` previous occurance.
 - Buffers: `Meta-o`/`Meta-n`/`Meta-p`/`Meta-w` new/next/prev/close buffer
 - Help: `Ctrl-g`/`Meta-h` toggle the keybindings overlay
 

@@ -23,7 +23,6 @@ hedit --help / --version
 | Key         | Does                              |
 |------------ |----------------------------------- |
 | Arrow keys  | Move up/down/left/right (wraps at line ends) |
-| Ctrl-b / Ctrl-f | Move left/right (same as ArrowLeft/ArrowRight) |
 | Ctrl-a / Ctrl-e | Move to start/end of the current line |
 | Meta-f / Meta-b | Move forward/back one word |
 
@@ -49,7 +48,21 @@ hedit --help / --version
 | Ctrl-r   | Redo                                                 |
 
 **Not yet:** selections (so cut/copy is whole-line only, not
-arbitrary ranges), search, replace, delete-line (`dd`-style).
+arbitrary ranges), replace, delete-line (`dd`-style).
+
+## Find
+
+| Key        | Does                                                                |
+|----------- |----------------------------------------------------------------------|
+| Ctrl-f     | Open the find bar. Type to search — matches highlight live.         |
+| Ctrl-Right | Jump to the next match (wraps past the last one).                    |
+| Ctrl-Left  | Jump to the previous match (wraps before the first one).              |
+| Enter      | Close the find bar and jump to the next match (search stays active). |
+| Esc        | Cancel and drop the search (clears highlights).                      |
+
+Search is plain-substring, case-sensitive, whole-buffer. Ctrl-Right/
+Ctrl-Left keep working after Enter closes the bar, until Esc drops the
+search.
 
 ## File operations
 

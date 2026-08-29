@@ -54,15 +54,23 @@
 (bind "Ctrl-o" 'open-file)
 (bind "Ctrl-g" 'toggle-help)
 
-;; Readline-style cursor/line editing.
+;; Readline-style cursor/line editing. Ctrl-b/Ctrl-f are NOT hedit
+;; defaults (removed in M12 — use ArrowLeft/ArrowRight instead; Ctrl-f
+;; now opens Find, see below), but still valid rebind targets if you'd
+;; rather have them back:
+;; (bind "Ctrl-b" 'move-left)
+;; (bind "Ctrl-f" 'move-right)
 (bind "Ctrl-a" 'move-line-start)
 (bind "Ctrl-e" 'move-line-end)
-(bind "Ctrl-b" 'move-left)
-(bind "Ctrl-f" 'move-right)
 (bind "Ctrl-d" 'delete-forward)
 (bind "Ctrl-k" 'kill-line)
 (bind "Ctrl-w" 'kill-word-back)
 (bind "Ctrl-y" 'paste)   ; yank — hedit has one clipboard slot, so this is Paste
+
+;; Find: type to search, matches highlight live; Ctrl-Right/
+;; Ctrl-Left (fixed, not rebindable — no `char` payload to key a
+;; binding on) jump to the next/previous match; Esc cancels the search.
+(bind "Ctrl-f" 'start-find)
 
 ;; Word-level motion/kill (Meta = Alt on most terminals).
 (bind "Meta-f" 'move-word-forward)
