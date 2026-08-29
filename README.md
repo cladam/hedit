@@ -8,8 +8,7 @@ algebraic effects and Perceus-based memory management (FBIP).
 
 `hedit` uses **[HiLisp](https://github.com/cladam/hica-lisp)** (a small Lisp
 interpreter written in `hica`) as its **configuration and plugin language**.
-There is no second scripting runtime planned: settings, keybindings, and
-(later) plugins are all authored as `.hl` files evaluated by the same embedded
+Settings, keybindings, and plugins are all written as `.hl` files evaluated by the embedded
 HiLisp interpreter.
 
 HiLisp lives as a git submodule under `lib/hilisp/` and is compiled together
@@ -50,10 +49,8 @@ See [`examples/init.hl`](examples/init.hl) for all available options
 
 ### Plugins
 
-A plugin is just another `.hl` file — there's no separate plugin
-format or manager. `hedit` never auto-discovers plugins by scanning a
-folder; you opt in by name from `init.hl`, and hedit resolves that
-name to a file next to `init.hl` itself.
+A plugin is a regular `.hl` file, `hedit` doesn't auto-discovers plugins, 
+you opt in by name from `init.hl`, and hedit resolves that name to a file next to `init.hl` itself.
 
 **1. Write the plugin file** at `plugins/<name>/plugin.hl`, in the *same
 directory* as the `init.hl` that will load it (i.e. next to whichever
@@ -65,9 +62,7 @@ or `$HOME/.hedit.hl` you're using):
 (on 'buffer-open (fn (path) "Welcome to hedit!"))
 ```
 
-**2. Wire it up** with `(plugin "name")` in `init.hl` — this is the
-step that's easy to forget, since creating the `plugins/` folder alone
-does nothing:
+**2. Wire it up** with `(plugin "name")` in `init.hl`: 
 
 ```lisp
 ;; ~/.config/hedit/init.hl
