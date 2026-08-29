@@ -207,7 +207,7 @@ fun run_editor(r: CliResult, pos_arg: maybe<string>) {
   }
   let loaded_buf = set_initial_position(loaded_buf0, start_pos)
   let buf_path = match loaded_buf.path { Some(p) => p, None => "" }
-  let (hook_results, hl_env2) = fire_hook(hl_env, "buffer-open", [LStr(buf_path)])
+  let (hook_results, hl_env2) = fire_hook(env_with_buffer_stats(hl_env, loaded_buf), "buffer-open", [LStr(buf_path)])
   let s0 = init_editor_with_buffer(loaded_buf, cfg)
   let all_status = combine_status(combine_status(combine_status(cfg_status, load_status), theme_status), hook_status(hook_results))
   let s1 = match all_status {

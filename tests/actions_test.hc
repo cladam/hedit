@@ -680,4 +680,23 @@ test "Ctrl-Right/Ctrl-Left also resolve to FindNext/FindPrev while FindPrompt is
   assert(resolve_action(s0, KeyEvent(KCtrlSpecial(ArrowLeft))) == FindPrev)
 }
 
+// ------------------- buffer stats (M13) --------------------------------
+
+test "line_count counts every line, including a single empty scratch line" {
+  assert(line_count(init_editor(None).buffer) == 1)
+  assert(line_count(with_lines(["a", "b", "c"]).buffer) == 3)
+  assert(line_count(with_lines([]).buffer) == 0)
+}
+
+test "word_count counts whitespace-delimited words across every line" {
+  assert(word_count(with_lines(["one two", "three"]).buffer) == 3)
+  assert(word_count(with_lines(["  leading  spaces  "]).buffer) == 2)
+  assert(word_count(with_lines([""]).buffer) == 0)
+}
+
+test "char_count sums line lengths, not counting newlines" {
+  assert(char_count(with_lines(["abc", "de"]).buffer) == 5)
+  assert(char_count(with_lines([""]).buffer) == 0)
+}
+
 

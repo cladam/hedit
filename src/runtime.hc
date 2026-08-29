@@ -139,7 +139,8 @@ fun apply_hook_status(state: EditorState, results: list<LVal>) : EditorState =>
 /// loading (`path` is `""` for a scratch buffer), threading `Env` and
 /// applying the status-bar convention to `next_state`.
 fun run_buffer_open(next_state: EditorState, path: string, hl_env: Env) : (EditorState, Env) {
-  let (results, hl_env1) = fire_hook(hl_env, "buffer-open", [LStr(path)])
+  let stats_env = env_with_buffer_stats(hl_env, next_state.buffer)
+  let (results, hl_env1) = fire_hook(stats_env, "buffer-open", [LStr(path)])
   (apply_hook_status(next_state, results), hl_env1)
 }
 
@@ -154,7 +155,8 @@ fun run_save(sized: EditorState, hl_env: Env) : (EditorState, Env) =>
     match sized.buffer.path {
       None    => (save_buffer(sized), hl_env),
       Some(p) => {
-        let (pre_results, hl_env1) = fire_hook(hl_env, "pre-save", [LStr(p)])
+        let stats_env = env_with_buffer_stats(hl_env, sized.buffer)
+        let (pre_results, hl_env1) = fire_hook(stats_env, "pre-save", [LStr(p)])
         if hook_cancels(pre_results) {
           (blocked_state(sized, "save", pre_results), hl_env1)
         } else {
@@ -171,7 +173,8 @@ fun run_save(sized: EditorState, hl_env: Env) : (EditorState, Env) =>
 /// submit (success, failure, or a `pre-save` cancel) — matching
 /// `submit_save_as`'s own behavior.
 fun run_save_as(sized: EditorState, path: string, hl_env: Env) : (EditorState, Env) {
-  let (pre_results, hl_env1) = fire_hook(hl_env, "pre-save", [LStr(path)])
+  let stats_env = env_with_buffer_stats(hl_env, sized.buffer)
+  let (pre_results, hl_env1) = fire_hook(stats_env, "pre-save", [LStr(path)])
   if hook_cancels(pre_results) {
     (blocked_state(EditorState { ...sized, prompt: NoPrompt }, "save", pre_results), hl_env1)
   } else {
@@ -306,7 +309,7 @@ fun is_quit(action: Action) : bool =>
 // registrations live on it).
 fun event_loop_step(state: EditorState, buf_ref: ref<Buffer>, last_frame: maybe<ScreenBuffer>, hl_env: Env) {
   if state.should_quit {
-    let (_, _) = fire_hook(hl_env, "quit", [])
+    let (_, _) = fire_hook(env_with_buffer_stats(hl_env, state.buffer), "quit", [])
     state
   } else {
     let dims  = get_dimensions()
@@ -317,7 +320,8 @@ fun event_loop_step(state: EditorState, buf_ref: ref<Buffer>, last_frame: maybe<
     let next_frame = if changed { Some(frame) } else { last_frame }
     let evt    = poll_event()
     let action = resolve_action(sized, evt)
-    let (pre_results, hl_env1) = fire_hook(hl_env, "pre-action", [LStr(action_to_string(action))])
+    let stats_env = env_with_buffer_stats(hl_env, sized.buffer)
+    let (pre_results, hl_env1) = fire_hook(stats_env, "pre-action", [LStr(action_to_string(action))])
     let (next, hl_env2) =
       if hook_cancels(pre_results) && !is_quit(action) { (blocked_state(sized, action_to_string(action), pre_results), hl_env1) }
       else { dispatch_action(sized, action, buf_ref, hl_env1) }

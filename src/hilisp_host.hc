@@ -17,6 +17,7 @@
 
 import "keys"
 import "model"
+import "actions"
 import "../lib/hilisp/src/lisp"
 
 // ------------------- eval loop -----------------------------------------
@@ -215,6 +216,28 @@ fun hooks_key() : string => "__hedit_hooks"
 /// The env key under which the ordered `(plugin "name")` list is stored.
 fun plugins_key() : string => "__hedit_plugins"
 
+/// The env key under which the current buffer's line/word/char counts
+/// are stashed as an `LHash`, refreshed before every hook firing (see
+/// `env_with_buffer_stats`) so `(buffer-stats)` never sees stale data.
+fun buffer_stats_key() : string => "__hedit_buffer_stats"
+
+/// Serialise `buf`'s line/word/char counts into `env` under the
+/// well-known stats key. Called from every `fire_hook` call site in
+/// `runtime.hc`, right before firing, so `(buffer-stats)` always
+/// reflects the buffer active at the moment a hook runs.
+// Return-type annotation omitted: `line_count`/`word_count`/`char_count`
+// are cross-file recursive helpers (actions.hc) and an explicit `: Env`
+// here mis-infers "expected effect: total" (repo-memory div/effect
+// annotation gotcha).
+pub fun env_with_buffer_stats(env: Env, buf: TextBuffer) {
+  let stats = LHash([
+    ("lines", LNum(line_count(buf))),
+    ("words", LNum(word_count(buf))),
+    ("chars", LNum(char_count(buf)))
+  ])
+  env_set(env, buffer_stats_key(), stats)
+}
+
 /// Serialise a `Config.bindings` alist into an `LHash` keyed by
 /// `"Modifier-c"` chord strings, values = LStr(action-name).
 fun bindings_to_hash(kb: list<(KeyChord, Action)>) : LVal =>
@@ -323,12 +346,13 @@ fun value_to_string(v: LVal) : string =>
 /// Dispatch a `host/...` op name to its hedit-side handler.
 pub fun hedit_host_dispatch(name: string, args: list<LVal>, env: Env) : (LVal, Env) =>
   match name {
-    "host/set"    => host_set(args, env),
-    "host/get"    => host_get(args, env),
-    "host/bind"   => host_bind(args, env),
-    "host/on"     => host_on(args, env),
-    "host/plugin" => host_plugin(args, env),
-    _             => (lerror("host/unknown", "unknown hedit host op: " + name), env)
+    "host/set"           => host_set(args, env),
+    "host/get"           => host_get(args, env),
+    "host/bind"          => host_bind(args, env),
+    "host/on"            => host_on(args, env),
+    "host/plugin"        => host_plugin(args, env),
+    "host/buffer-stats"  => host_buffer_stats(args, env),
+    _                    => (lerror("host/unknown", "unknown hedit host op: " + name), env)
   }
 
 /// `(set key value)` — record a string-typed value.
@@ -387,6 +411,26 @@ fun host_bind(args: list<LVal>, env: Env) : (LVal, Env) =>
         (Some(_), Some(_)) => bind_ok(env, chord_str, action_name)
       },
     _ => (lerror("host/bad-args", "bind expects (chord-string 'action)"), env)
+  }
+
+// ------------------- Buffer stats (M13, read-only) ----------------------
+
+/// An all-zero stats hash — the `(buffer-stats)` fallback before
+/// anything has stashed real counts on `env` (e.g. the very first hook
+/// of a run, if one ever fires before `event_loop_step`'s first tick).
+fun zero_buffer_stats() : LVal =>
+  LHash([("lines", LNum(0)), ("words", LNum(0)), ("chars", LNum(0))])
+
+/// `(buffer-stats)` — a read-only lookup of the current buffer's
+/// line/word/char counts. Pure lookup of `env`, same shape as
+/// `host_get`, so the host callback stays total.
+fun host_buffer_stats(args: list<LVal>, env: Env) : (LVal, Env) =>
+  match args {
+    [] => match env_get(env, buffer_stats_key()) {
+      LHash(entries) => (LHash(entries), env),
+      _              => (zero_buffer_stats(), env)
+    },
+    _ => (lerror("host/bad-args", "buffer-stats expects no args"), env)
   }
 
 // ------------------- Plugin / hook registry (M11) -----------------------
@@ -504,14 +548,15 @@ pub fun hook_status(results: list<LVal>) : maybe<string> =>
 // idiomatic form documented in the README.
 
 /// The HiLisp preamble that aliases `host/set`/`host/get`/`host/bind`/
-/// `host/on`/`host/plugin` to the idiomatic `set`/`get`/`bind`/`on`/
-/// `plugin` names.
+/// `host/on`/`host/plugin`/`host/buffer-stats` to the idiomatic
+/// `set`/`get`/`bind`/`on`/`plugin`/`buffer-stats` names.
 fun preamble() : string =>
   "(def set    (fn (k v) (host/set k v)))    " +
   "(def get    (fn (k)   (host/get k)))      " +
   "(def bind   (fn (k a) (host/bind k a)))   " +
   "(def on     (fn (e f) (host/on e f)))     " +
-  "(def plugin (fn (n)   (host/plugin n)))"
+  "(def plugin (fn (n)   (host/plugin n)))   " +
+  "(def buffer-stats (fn () (host/buffer-stats)))"
 
 /// Build a HiLisp env seeded with core HiLisp builtins, the hedit
 /// host-dispatch callback, the initial `Config` snapshot, and the

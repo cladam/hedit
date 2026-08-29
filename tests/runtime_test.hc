@@ -583,3 +583,30 @@ test "M11: buffer-open hook fires on NewBuffer with an empty path" {
   }
   assert(final.status_message == Some("opened:"))
 }
+
+// ------------------- M13: (buffer-stats) seen from a real hook ---------
+
+test "M13: buffer-stats reflects the just-typed buffer content inside a post-save hook" {
+  let tmp_path = "/tmp/hedit_test_m13_buffer_stats_post_save.txt"
+  let s0 = init_editor(Some(tmp_path))
+  let (_, hl_env, _) = load_config_with_env(
+    "(on 'post-save (fn (path) (str \"chars=\" (hash-get (buffer-stats) \"chars\"))))",
+    default_config())
+  let final = handle Terminal {
+    poll_event() => match events {
+      []          => KeyEvent(KShortcut(Ctrl, 'q')),
+      [e, ..rest] => { events = rest; e }
+    },
+    render_frame(_buf)   => (),
+    get_dimensions()     => (80, 24),
+    set_cursor_style(_s) => ()
+  } with var events = [
+    KeyEvent(KChar('h')),
+    KeyEvent(KChar('i')),
+    KeyEvent(KShortcut(Ctrl, 's')),
+    KeyEvent(KShortcut(Ctrl, 'q'))
+  ] in {
+    event_loop_with_env(s0, hl_env)
+  }
+  assert(final.status_message == Some("chars=2"))
+}

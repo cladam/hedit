@@ -310,6 +310,54 @@ fun drop_while(chs: list<char>, pred: (char) -> bool) : list<char> =>
     [x, ..rest] => if pred(x) { drop_while(rest, pred) } else { chs }
   }
 
+// ------------------- buffer stats (M13, `(buffer-stats)`) ---------------
+//
+// Read-only line/word/char counts, exposed to HiLisp hooks via
+// `hilisp_host.hc::env_with_buffer_stats`/`host_buffer_stats`. Word
+// counting reuses the same whitespace-run-skipping idiom as
+// `word_back_col`/`word_forward_col` above, just applied to a whole
+// line instead of stopping at a cursor column.
+
+/// Count whitespace-delimited words in a single line.
+fun count_words_in_line(line: string) : int => count_words_go(chars(line))
+
+/// Recursive worker: skip a whitespace run, then a non-whitespace run,
+/// counting each non-whitespace run as one word.
+fun count_words_go(cs: list<char>) : int {
+  let no_space = drop_while(cs, is_space_char)
+  match no_space {
+    [] => 0,
+    _  => {
+      let no_word = drop_while(no_space, (c) => !is_space_char(c))
+      1 + count_words_go(no_word)
+    }
+  }
+}
+
+/// Total line count of `buf` — the `(buffer-stats)` `"lines"` field.
+pub fun line_count(buf: TextBuffer) : int => length(buf.lines)
+
+/// Total whitespace-delimited word count across every line of `buf` —
+/// the `(buffer-stats)` `"words"` field.
+pub fun word_count(buf: TextBuffer) : int => sum_words(buf.lines)
+
+fun sum_words(lines: list<string>) : int =>
+  match lines {
+    []          => 0,
+    [l, ..rest] => count_words_in_line(l) + sum_words(rest)
+  }
+
+/// Total character count across every line of `buf`, not counting the
+/// implicit newlines between lines — the `(buffer-stats)` `"chars"`
+/// field.
+pub fun char_count(buf: TextBuffer) : int => sum_chars(buf.lines)
+
+fun sum_chars(lines: list<string>) : int =>
+  match lines {
+    []          => 0,
+    [l, ..rest] => length(l) + sum_chars(rest)
+  }
+
 /// Return the column one whitespace-delimited word back from `col`
 /// (readline/bash-style `unix-word-rubout`).
 fun word_back_col(line: string, col: int) : int {

@@ -247,3 +247,33 @@ test "fire_hook: pre-action hook returning false trips hook_cancels" {
   let (results, _) = fire_hook(env, "pre-action", [LStr("save")])
   assert(hook_cancels(results))
 }
+
+// ------------------- (buffer-stats) (M13) ------------------------------
+
+test "buffer-stats: falls back to zero counts before anything seeds it" {
+  let (_, env, _) = load_config_with_env("(plugin \"greeter\")", default_config())
+  let (result, _) = eval_all(tokenise("(hash-get (buffer-stats) \"lines\")"), env, LNil)
+  assert_eq(lval_show(result), "0")
+}
+
+test "buffer-stats: reflects a seeded buffer's line/word/char counts" {
+  let (_, env0, _) = load_config_with_env("(plugin \"greeter\")", default_config())
+  let buf  = TextBuffer { ...new_buffer(0, None), lines: ["one two", "three"] }
+  let env1 = env_with_buffer_stats(env0, buf)
+  let (lines_v, _) = eval_all(tokenise("(hash-get (buffer-stats) \"lines\")"), env1, LNil)
+  let (words_v, _) = eval_all(tokenise("(hash-get (buffer-stats) \"words\")"), env1, LNil)
+  let (chars_v, _) = eval_all(tokenise("(hash-get (buffer-stats) \"chars\")"), env1, LNil)
+  assert_eq(lval_show(lines_v), "2")
+  assert_eq(lval_show(words_v), "3")
+  assert_eq(lval_show(chars_v), "12")
+}
+
+test "buffer-stats: re-seeding overwrites the previous buffer's counts" {
+  let (_, env0, _) = load_config_with_env("(plugin \"greeter\")", default_config())
+  let buf1 = TextBuffer { ...new_buffer(0, None), lines: ["a"] }
+  let buf2 = TextBuffer { ...new_buffer(0, None), lines: ["a", "b", "c"] }
+  let env1 = env_with_buffer_stats(env0, buf1)
+  let env2 = env_with_buffer_stats(env1, buf2)
+  let (lines_v, _) = eval_all(tokenise("(hash-get (buffer-stats) \"lines\")"), env2, LNil)
+  assert_eq(lval_show(lines_v), "3")
+}
