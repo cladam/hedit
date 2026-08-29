@@ -74,3 +74,36 @@ test "explicit status_message overrides the default path line" {
   let status = last_or(buf.lines, "MISSING")
   assert(status == "File saved")
 }
+
+// ------------------- Find match highlighting (M12) ----------------
+
+fun with_lines_render(lines: list<string>, size: (int, int)) : EditorState {
+  let s0  = init_editor(None)
+  let buf = TextBuffer { ...s0.buffer, lines: lines }
+  EditorState { ...s0, buffer: buf, screen_size: size }
+}
+
+test "no active search means no highlight spans" {
+  let s0 = EditorState { ...init_editor(None), screen_size: (40, 10) }
+  let buf = render_editor_to_buffer(s0)
+  assert(buf.highlights == [])
+}
+
+test "an active search highlights every visible match" {
+  let s0 = with_lines_render(["cat dog cat"], (40, 10))
+  let s1 = apply_action(s0, StartFind)
+  let s2 = apply_action(s1, PromptChar('c'))
+  let s3 = apply_action(s2, PromptChar('a'))
+  let s4 = apply_action(s3, PromptChar('t'))
+  let buf = render_editor_to_buffer(s4)
+  assert(buf.highlights == [(2, 0, 3), (2, 8, 11)])
+}
+
+test "the find prompt label shows the typed query in the status row" {
+  let s0 = EditorState { ...init_editor(None), screen_size: (40, 10) }
+  let s1 = apply_action(s0, StartFind)
+  let s2 = apply_action(s1, PromptChar('c'))
+  let buf = render_editor_to_buffer(s2)
+  let status = last_or(buf.lines, "MISSING")
+  assert(status == "Find: c")
+}

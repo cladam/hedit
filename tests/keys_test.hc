@@ -25,6 +25,11 @@ test "synthetic arrow codes decode to arrow keys" {
   assert(decode_key(1004) == KeyEvent(KSpecial(ArrowLeft)))
 }
 
+test "synthetic Ctrl-arrow codes decode to KCtrlSpecial (M12 find navigation)" {
+  assert(decode_key(1010) == KeyEvent(KCtrlSpecial(ArrowRight)))
+  assert(decode_key(1011) == KeyEvent(KCtrlSpecial(ArrowLeft)))
+}
+
 test "ctrl range decodes to KShortcut(Ctrl, letter)" {
   assert(decode_key(17) == KeyEvent(KShortcut(Ctrl, 'q')))
   assert(decode_key(1) == KeyEvent(KShortcut(Ctrl, 'a')))

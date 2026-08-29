@@ -98,14 +98,12 @@ test "Ctrl-a/Ctrl-e move to the start/end of the line via default_bindings" {
   assert(head_cursor_pos(s4) == Position { line: 0, col: 2 })
 }
 
-test "Ctrl-b/Ctrl-f move the cursor like the arrow keys via default_bindings" {
+test "Ctrl-b is unbound (M12: readline Ctrl-b/Ctrl-f retired in favour of arrows + find)" {
   let s0 = init_editor(None)
   let s1 = handle_action(s0, KeyEvent(KChar('h')))
   let s2 = handle_action(s1, KeyEvent(KChar('i')))
   let s3 = handle_action(s2, KeyEvent(KShortcut(Ctrl, 'b')))
-  assert(head_cursor_pos(s3) == Position { line: 0, col: 1 })
-  let s4 = handle_action(s3, KeyEvent(KShortcut(Ctrl, 'f')))
-  assert(head_cursor_pos(s4) == Position { line: 0, col: 2 })
+  assert(head_cursor_pos(s3) == Position { line: 0, col: 2 })
 }
 
 test "Ctrl-d deletes the char under the cursor (forward-delete)" {
@@ -133,7 +131,7 @@ test "kill_line_text/kill_line kill from the cursor to the end of the line" {
   let s2 = handle_action(s1, KeyEvent(KChar('i')))
   let s3 = handle_action(s2, KeyEvent(KChar('!')))
   let s4 = handle_action(s3, KeyEvent(KShortcut(Ctrl, 'a')))
-  let s5 = handle_action(s4, KeyEvent(KShortcut(Ctrl, 'f')))
+  let s5 = handle_action(s4, KeyEvent(KSpecial(ArrowRight)))
   assert(kill_line_text(s5) == "i!")
   let s6 = kill_line(s5)
   assert(s6.buffer.lines == ["h"])
@@ -567,4 +565,119 @@ test "a resize event still resolves to Resize while help is showing" {
   let s0 = apply_action(init_editor(None), ToggleHelp)
   assert(resolve_action(s0, ResizeEvent(100, 40)) == Resize(100, 40))
 }
+
+// ------------------- Find (M12) --------------------------------------
+
+fun with_lines(lines: list<string>) : EditorState {
+  let s0  = init_editor(None)
+  let buf = TextBuffer { ...s0.buffer, lines: lines }
+  EditorState { ...s0, buffer: buf }
+}
+
+test "resolve_action maps Ctrl-f to StartFind via default_bindings" {
+  let s0 = init_editor(None)
+  assert(resolve_action(s0, KeyEvent(KShortcut(Ctrl, 'f'))) == StartFind)
+}
+
+test "StartFind opens FindPrompt with an empty query and a fresh search" {
+  let s0 = apply_action(init_editor(None), StartFind)
+  assert(s0.prompt == FindPrompt("", 0))
+  assert(s0.search == ActiveSearch("", [], -1))
+}
+
+test "typing into FindPrompt re-scans the buffer for matches" {
+  let s0 = with_lines(["one cat", "two cats", "no match here"])
+  let s1 = apply_action(s0, StartFind)
+  let s2 = apply_action(s1, PromptChar('c'))
+  let s3 = apply_action(s2, PromptChar('a'))
+  let s4 = apply_action(s3, PromptChar('t'))
+  let s5 = s4.search
+  assert(s5 == ActiveSearch("cat", [SearchMatch { line: 0, col: 4 }, SearchMatch { line: 1, col: 4 }], -1))
+}
+
+test "PromptBackspace/PromptDeleteForward in FindPrompt also refresh matches" {
+  let s0 = with_lines(["cats and cats"])
+  let s1 = apply_action(s0, StartFind)
+  let s2 = apply_action(s1, PromptChar('c'))
+  let s3 = apply_action(s2, PromptChar('a'))
+  let s4 = apply_action(s3, PromptChar('t'))
+  let s5 = apply_action(s4, PromptChar('s'))
+  let s6 = apply_action(s5, PromptBackspace)
+  assert(s6.search == ActiveSearch("cat", [SearchMatch { line: 0, col: 0 }, SearchMatch { line: 0, col: 9 }], -1))
+}
+
+test "find_all_matches finds every non-overlapping occurrence, case-sensitive" {
+  assert(find_all_matches(["ababab"], "ab") == [SearchMatch { line: 0, col: 0 }, SearchMatch { line: 0, col: 2 }, SearchMatch { line: 0, col: 4 }])
+  assert(find_all_matches(["Cat cat"], "cat") == [SearchMatch { line: 0, col: 4 }])
+  assert(find_all_matches(["no query"], "") == [])
+}
+
+test "FindNext jumps to the next match, wrapping past the last one" {
+  let s0 = with_lines(["cat dog cat"])
+  let s1 = apply_action(s0, StartFind)
+  let s2 = apply_action(s1, PromptChar('c'))
+  let s3 = apply_action(s2, PromptChar('a'))
+  let s4 = apply_action(s3, PromptChar('t'))
+  let s5 = apply_action(s4, FindNext) // cursor at col 0 -> first match strictly after is col 8
+  assert(head_cursor_pos(s5) == Position { line: 0, col: 8 })
+  let s6 = apply_action(s5, FindNext) // wraps back to col 0
+  assert(head_cursor_pos(s6) == Position { line: 0, col: 0 })
+}
+
+test "FindPrev jumps to the previous match, wrapping before the first one" {
+  let s0 = with_lines(["cat dog cat"])
+  let s1 = apply_action(s0, StartFind)
+  let s2 = apply_action(s1, PromptChar('c'))
+  let s3 = apply_action(s2, PromptChar('a'))
+  let s4 = apply_action(s3, PromptChar('t'))
+  let s5 = apply_action(s4, FindPrev) // cursor at col 0 -> wraps to the last match, col 8
+  assert(head_cursor_pos(s5) == Position { line: 0, col: 8 })
+  let s6 = apply_action(s5, FindPrev) // steps back to col 0
+  assert(head_cursor_pos(s6) == Position { line: 0, col: 0 })
+}
+
+test "FindNext/FindPrev are a no-op with no active search" {
+  let s0 = with_lines(["cat dog cat"])
+  let s1 = apply_action(s0, FindNext)
+  assert(head_cursor_pos(s1) == Position { line: 0, col: 0 })
+  assert(s1.status_message == Some("No active search"))
+}
+
+test "submit_find (Enter) closes the prompt and jumps to the next match" {
+  let s0 = with_lines(["cat dog cat"])
+  let s1 = apply_action(s0, StartFind)
+  let s2 = apply_action(s1, PromptChar('c'))
+  let s3 = apply_action(s2, PromptChar('a'))
+  let s4 = apply_action(s3, PromptChar('t'))
+  let s5 = submit_find(s4)
+  assert(s5.prompt == NoPrompt)
+  assert(head_cursor_pos(s5) == Position { line: 0, col: 8 })
+  // search stays active after Enter so Ctrl-Right/Ctrl-Left keep working
+  let s6 = apply_action(s5, FindNext)
+  assert(head_cursor_pos(s6) == Position { line: 0, col: 0 })
+}
+
+test "PromptCancel (Esc) on FindPrompt clears the search entirely" {
+  let s0 = with_lines(["cat dog cat"])
+  let s1 = apply_action(s0, StartFind)
+  let s2 = apply_action(s1, PromptChar('c'))
+  let s3 = apply_action(s2, PromptChar('a'))
+  let s4 = apply_action(s3, PromptChar('t'))
+  let s5 = apply_action(s4, PromptCancel)
+  assert(s5.prompt == NoPrompt)
+  assert(s5.search == NoSearch)
+}
+
+test "Ctrl-Right/Ctrl-Left resolve to FindNext/FindPrev in normal editing" {
+  let s0 = init_editor(None)
+  assert(resolve_action(s0, KeyEvent(KCtrlSpecial(ArrowRight))) == FindNext)
+  assert(resolve_action(s0, KeyEvent(KCtrlSpecial(ArrowLeft))) == FindPrev)
+}
+
+test "Ctrl-Right/Ctrl-Left also resolve to FindNext/FindPrev while FindPrompt is open" {
+  let s0 = apply_action(init_editor(None), StartFind)
+  assert(resolve_action(s0, KeyEvent(KCtrlSpecial(ArrowRight))) == FindNext)
+  assert(resolve_action(s0, KeyEvent(KCtrlSpecial(ArrowLeft))) == FindPrev)
+}
+
 

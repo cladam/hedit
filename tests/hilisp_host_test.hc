@@ -146,6 +146,15 @@ test "load_config: (bind) rewires Ctrl-o to new-buffer (M5.5)" {
   assert(lookup_binding(cfg.bindings, chord) == NewBuffer)
 }
 
+test "load_config: start-find/find-next/find-prev symbols round-trip (M12)" {
+  let src = "(bind \"Alt-1\" 'start-find) (bind \"Alt-2\" 'find-next) (bind \"Alt-3\" 'find-prev)"
+  let (cfg, err) = load_config(src, default_config())
+  assert(err == None)
+  assert(lookup_binding(cfg.bindings, KeyChord { m: Alt, c: '1' }) == StartFind)
+  assert(lookup_binding(cfg.bindings, KeyChord { m: Alt, c: '2' }) == FindNext)
+  assert(lookup_binding(cfg.bindings, KeyChord { m: Alt, c: '3' }) == FindPrev)
+}
+
 test "load_config: next-buffer/prev-buffer/close-buffer symbols all resolve" {
   let src = "(bind \"Alt-1\" 'next-buffer) (bind \"Alt-2\" 'prev-buffer) (bind \"Alt-3\" 'close-buffer)"
   let (cfg, err) = load_config(src, default_config())
