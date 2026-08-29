@@ -1,12 +1,8 @@
 @project {
     name: "hedit"
-    version: "0.11.0"
+    version: "0.12.0"
     license: "MIT"
     entry: "src/main.hc"
-}
-
-@dependencies {
-    hml: "latest"
 }
 
 @koka { include: "./lib/hilisp/src" }
