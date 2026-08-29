@@ -95,26 +95,63 @@ fun colorize_status_row(theme: Theme, row: string) : string =>
 fun colorize_cursor_row(theme: Theme, row: string) : string =>
   wrap_bg(theme.cursor_line_bg, row)
 
-/// Style the tabline (first row), status line (last row), and the row
-/// the cursor currently sits on (everything else, plain).
+// ------------------- Search-match highlighting -----------------------
+// A row with an active search match gets its match span(s) painted with
+// `theme.search_match_bg` instead of the tabline/status/cursor-line
+// treatment above — simpler and safer than nesting a second background
+// inside an already-wrapped row (no shared SGR reset to reason about),
+// at the cost of the cursor-line tint not showing through on a row that
+// also has a match.
+
+/// `(start, end)` column spans (0-indexed, `end` exclusive) for `row`
+/// (1-indexed) out of every `ScreenBuffer.highlights` triple.
+fun spans_for_row(highlights: list<(int, int, int)>, row: int) : list<(int, int)> =>
+  match highlights {
+    [] => [],
+    [(r, s, e), ..rest] =>
+      if r == row { [(s, e)] + spans_for_row(rest, row) } else { spans_for_row(rest, row) }
+  }
+
+/// Wrap every `(start, end)` span in `row` with `bg`, leaving the text
+/// between/around spans untouched — spans must be in increasing,
+/// non-overlapping order (guaranteed by `render.hc::matches_to_highlights`,
+/// document order).
+fun highlight_row_go(row: string, spans: list<(int, int)>, pos: int, bg: (int, int, int)) : string =>
+  match spans {
+    [] => row[pos: ],
+    [(s, e), ..rest] => {
+      let cs = max(s, pos)
+      let ce = min(e, length(row))
+      if cs >= ce { highlight_row_go(row, rest, pos, bg) }
+      else { row[pos: cs] + wrap_bg(bg, row[cs: ce]) + highlight_row_go(row, rest, ce, bg) }
+    }
+  }
+
+/// Style the tabline (first row), status line (last row), a row with an
+/// active search match (match spans only), or the row the cursor
+/// currently sits on (everything else, plain).
 // `cursor_row` is 1-indexed and already clamped to the visible viewport
 // by render.hc.
-fun style_frame_lines(theme: Theme, lines: list<string>, cursor_row: int) : list<string> {
+fun style_frame_lines(theme: Theme, lines: list<string>, cursor_row: int, highlights: list<(int, int, int)>) : list<string> {
   let total = length(lines)
-  style_frame_lines_go(theme, lines, 0, total, cursor_row)
+  style_frame_lines_go(theme, lines, 0, total, cursor_row, highlights)
 }
 
 /// Recursive worker for `style_frame_lines`, tracking the current row index.
-fun style_frame_lines_go(theme: Theme, lines: list<string>, idx: int, total: int, cursor_row: int) : list<string> =>
+fun style_frame_lines_go(theme: Theme, lines: list<string>, idx: int, total: int, cursor_row: int, highlights: list<(int, int, int)>) : list<string> =>
   match lines {
     [] => [],
     [x, ..rest] => {
-      let styled =
-        if idx == 0 { colorize_tabline_row(theme, x) }
-        else if idx == total - 1 { colorize_status_row(theme, x) }
-        else if idx + 1 == cursor_row { colorize_cursor_row(theme, x) }
-        else { x }
-      [styled] + style_frame_lines_go(theme, rest, idx + 1, total, cursor_row)
+      let row_spans = spans_for_row(highlights, idx + 1)
+      let styled = match row_spans {
+        [] =>
+          if idx == 0 { colorize_tabline_row(theme, x) }
+          else if idx == total - 1 { colorize_status_row(theme, x) }
+          else if idx + 1 == cursor_row { colorize_cursor_row(theme, x) }
+          else { x },
+        _ => highlight_row_go(x, row_spans, 0, theme.search_match_bg)
+      }
+      [styled] + style_frame_lines_go(theme, rest, idx + 1, total, cursor_row, highlights)
     }
   }
 
@@ -133,7 +170,7 @@ fun style_frame_lines_go(theme: Theme, lines: list<string>, idx: int, total: int
 // "\n" doesn't return the cursor to column 0 — join with "\r\n"
 // instead of relying on `println`, or every line staircases rightward.
 fun render_native(theme: Theme, buf: ScreenBuffer) {
-  let styled     = style_frame_lines(theme, buf.lines, buf.cursor_row)
+  let styled     = style_frame_lines(theme, buf.lines, buf.cursor_row, buf.highlights)
   let cleared    = map(styled, (l) => l + term_esc() + "[K")
   let cursor_esc = term_esc() + "[" + show(buf.cursor_row) + ";" + show(buf.cursor_col) + "H"
   let frame = term_esc() + "[H" + join(cleared, "\r\n") + term_esc() + "[J" + cursor_esc

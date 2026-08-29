@@ -155,7 +155,10 @@ pub fun action_to_string(a: Action) : string =>
     PromptMoveRight     => "prompt-move-right",
     PromptDeleteForward => "prompt-delete-forward",
     PromptKillLine      => "prompt-kill-line",
-    ToggleHelp      => "toggle-help"
+    ToggleHelp      => "toggle-help",
+    StartFind       => "start-find",
+    FindNext        => "find-next",
+    FindPrev        => "find-prev"
   }
 
 /// Inverse of `action_to_string`; unrecognised names resolve to `None`.
@@ -184,6 +187,9 @@ fun string_to_action(s: string) : maybe<Action> =>
     "kill-word-back"  => Some(KillWordBack),
     "kill-word-forward" => Some(KillWordForward),
     "kill-whole-line"   => Some(KillWholeLine),
+    "start-find"   => Some(StartFind),
+    "find-next"    => Some(FindNext),
+    "find-prev"    => Some(FindPrev),
     "ignore"       => Some(Ignore),
     _              => None
   }

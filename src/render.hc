@@ -53,13 +53,14 @@ fun build_tabline(state: EditorState) : string {
   join(["[" + active_name + "]"] + bg_names, "|")
 }
 
-/// Status-row label for an active Save-As/Open prompt (M9), replacing
-/// the normal path/dirty-flag or status-message row while typing.
+/// Status-row label for an active Save-As/Open/Find prompt (M9/M12),
+/// replacing the normal path/dirty-flag or status-message row while typing.
 fun prompt_label(p: Prompt) : string =>
   match p {
     NoPrompt           => "",
     SaveAsPrompt(t, _) => "Save as: " + t,
-    OpenPrompt(t, _)   => "Open: " + t
+    OpenPrompt(t, _)   => "Open: " + t,
+    FindPrompt(t, _)   => "Find: " + t
   }
 
 /// Length of the fixed label prefix in front of the typed text —
@@ -68,7 +69,8 @@ fun prompt_prefix_len(p: Prompt) : int =>
   match p {
     NoPrompt           => 0,
     SaveAsPrompt(_, _) => length("Save as: "),
-    OpenPrompt(_, _)   => length("Open: ")
+    OpenPrompt(_, _)   => length("Open: "),
+    FindPrompt(_, _)   => length("Find: ")
   }
 
 /// The prompt's own cursor column within its typed text.
@@ -76,8 +78,55 @@ fun prompt_cursor_col(p: Prompt) : int =>
   match p {
     NoPrompt           => 0,
     SaveAsPrompt(_, c) => c,
-    OpenPrompt(_, c)   => c
+    OpenPrompt(_, c)   => c,
+    FindPrompt(_, c)   => c
   }
+
+// ------------------- Find match highlighting (M12) -------------------------
+// `ScreenBuffer.highlights` carries `(row, start_col, end_col)` triples for
+// every search match currently visible in the viewport — `main.hc`'s
+/// `render_native` paints each span with `theme.search_match_bg`. Kept as
+// plain (row, col) data here (not ANSI) so `ScreenBuffer` stays plain text,
+// matching the existing tabline/status/cursor-line styling split.
+
+/// Matches carried by `state.search`, or `[]` outside an active search.
+fun active_matches(state: EditorState) : list<SearchMatch> =>
+  match state.search {
+    NoSearch                  => [],
+    ActiveSearch(_, matches, _) => matches
+  }
+
+/// The active query's length, or 0 outside an active search.
+fun active_query_len(state: EditorState) : int =>
+  match state.search {
+    NoSearch               => 0,
+    ActiveSearch(q, _, _) => length(q)
+  }
+
+/// Translate one buffer-space `SearchMatch` into a screen-space
+/// `(row, start_col, end_col)` highlight, or `None` if it falls outside
+/// the visible viewport (scrolled off, or past the right edge).
+fun match_to_highlight(m: SearchMatch, offset: int, n_content: int, w: int, qlen: int) : maybe<(int, int, int)> {
+  let row_idx = m.line - offset
+  if row_idx < 0 || row_idx >= n_content || m.col >= w { None }
+  else { Some((row_idx + 2, m.col, min(m.col + qlen, w))) }
+}
+
+/// Every visible match's highlight span, dropping ones scrolled out of view.
+fun matches_to_highlights(matches: list<SearchMatch>, offset: int, n_content: int, w: int, qlen: int) : list<(int, int, int)> =>
+  match matches {
+    [] => [],
+    [m, ..rest] =>
+      match match_to_highlight(m, offset, n_content, w, qlen) {
+        None    => matches_to_highlights(rest, offset, n_content, w, qlen),
+        Some(h) => [h] + matches_to_highlights(rest, offset, n_content, w, qlen)
+      }
+  }
+
+/// The full set of highlight spans for the current frame — `[]` outside
+/// an active search or once every match has scrolled out of view.
+fun search_highlights(state: EditorState, offset: int, n_content: int, w: int) : list<(int, int, int)> =>
+  matches_to_highlights(active_matches(state), offset, n_content, w, active_query_len(state))
 
 /// Build a ScreenBuffer from `state`'s normal (non-help) editing view.
 // `cursor_row`/`cursor_col` are the head cursor's position clamped to the
@@ -126,7 +175,8 @@ fun render_normal_buffer(state: EditorState) : ScreenBuffer {
     height: h,
     lines: [tabline_row] + content_rows + [status_row],
     cursor_row: crow,
-    cursor_col: ccol
+    cursor_col: ccol,
+    highlights: search_highlights(state, offset, n_content, w)
   }
 }
 
@@ -157,7 +207,8 @@ pub fun render_help_buffer(state: EditorState) : ScreenBuffer {
     height: h,
     lines: [title_row] + content_rows + [footer_row],
     cursor_row: 1,
-    cursor_col: 1
+    cursor_col: 1,
+    highlights: []
   }
 }
 

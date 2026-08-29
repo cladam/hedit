@@ -198,7 +198,8 @@ fun run_prompt_submit(sized: EditorState, hl_env: Env) =>
   match sized.prompt {
     NoPrompt              => (sized, hl_env),
     SaveAsPrompt(text, _) => run_save_as(sized, text, hl_env),
-    OpenPrompt(text, _)   => run_open_file(sized, text, hl_env)
+    OpenPrompt(text, _)   => run_open_file(sized, text, hl_env),
+    FindPrompt(_, _)      => (submit_find(sized), hl_env)
   }
 
 // ------------------- the loop ------------------------------------------

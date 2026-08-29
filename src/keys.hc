@@ -27,7 +27,8 @@ pub type SpecialKey {
 pub type Key {
   KChar(c: char),
   KSpecial(k: SpecialKey),
-  KShortcut(m: Modifier, c: char)
+  KShortcut(m: Modifier, c: char),
+  KCtrlSpecial(k: SpecialKey)
 }
 
 /// A mouse button / wheel action.
@@ -54,7 +55,8 @@ pub type Event {
 // arrow codes, decodes multi-byte UTF-8 (åäö etc.) into a single Unicode
 // codepoint, and returns -2 on a read timeout (no key pressed — lets
 // event_loop re-poll dimensions and redraw periodically without waiting
-// on the next keystroke).
+// on the next keystroke). 1010/1011 are Ctrl-Right/Ctrl-Left (M12 find
+// navigation) — the only modifier-parameterised arrows decoded so far.
 pub fun decode_key(code: int) : Event {
   if code == 10 { KeyEvent(KSpecial(Enter)) }
   else if code == 127 { KeyEvent(KSpecial(Backspace)) }
@@ -64,6 +66,8 @@ pub fun decode_key(code: int) : Event {
   else if code == 1002 { KeyEvent(KSpecial(ArrowDown)) }
   else if code == 1003 { KeyEvent(KSpecial(ArrowRight)) }
   else if code == 1004 { KeyEvent(KSpecial(ArrowLeft)) }
+  else if code == 1010 { KeyEvent(KCtrlSpecial(ArrowRight)) }
+  else if code == 1011 { KeyEvent(KCtrlSpecial(ArrowLeft)) }
   else if code == -2 { Tick } // read timeout — no key, just a redraw tick
   else if code == -1 { KeyEvent(KShortcut(Ctrl, 'q')) } // stdin closed — quit gracefully
   else if code >= 1 && code <= 26 { KeyEvent(KShortcut(Ctrl, chr(code + 96))) }

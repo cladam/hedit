@@ -82,6 +82,9 @@ pub type Action {
   PromptDeleteForward,
   PromptKillLine,
   ToggleHelp,
+  StartFind,
+  FindNext,
+  FindPrev,
   Ignore
 }
 
@@ -111,8 +114,7 @@ pub fun default_bindings() : list<(KeyChord, Action)> =>
     (KeyChord { m: Ctrl, c: 'g' }, ToggleHelp),
     (KeyChord { m: Ctrl, c: 'a' }, MoveLineStart),
     (KeyChord { m: Ctrl, c: 'e' }, MoveLineEnd),
-    (KeyChord { m: Ctrl, c: 'b' }, MoveLeft),
-    (KeyChord { m: Ctrl, c: 'f' }, MoveRight),
+    (KeyChord { m: Ctrl, c: 'f' }, StartFind),
     (KeyChord { m: Ctrl, c: 'd' }, DeleteForward),
     (KeyChord { m: Ctrl, c: 'k' }, KillLine),
     (KeyChord { m: Ctrl, c: 'w' }, KillWordBack),
@@ -204,7 +206,8 @@ pub struct Theme {
   status_bg: (int, int, int),
   active_tab_fg: (int, int, int),
   active_tab_bg: (int, int, int),
-  cursor_line_bg: (int, int, int)
+  cursor_line_bg: (int, int, int),
+  search_match_bg: (int, int, int)
 }
 
 /// hedit's built-in default theme.
@@ -216,7 +219,8 @@ pub fun default_theme() : Theme =>
     status_bg: (200, 200, 200),
     active_tab_fg: (255, 215, 0),
     active_tab_bg: (60, 60, 60),
-    cursor_line_bg: (45, 45, 45)
+    cursor_line_bg: (45, 45, 45),
+    search_match_bg: (90, 90, 0)
   }
 
 /// A dark, low-sensory preset (`(set "theme" "ilseon")`), using the
@@ -230,7 +234,8 @@ pub fun ilseon_theme() : Theme =>
     status_bg: (20, 20, 20),
     active_tab_fg: (226, 176, 94),
     active_tab_bg: (40, 40, 40),
-    cursor_line_bg: (30, 30, 30)
+    cursor_line_bg: (30, 30, 30),
+    search_match_bg: (80, 70, 20)
   }
 
 /// Look up a built-in theme preset by name.
@@ -267,7 +272,8 @@ fun apply_theme_overrides(cfg: Config, base: Theme) : Theme {
   let t4 = Theme { ...t3, status_bg: get_rgb_override(cfg, "theme.status-bg", t3.status_bg) }
   let t5 = Theme { ...t4, active_tab_fg: get_rgb_override(cfg, "theme.active-tab-fg", t4.active_tab_fg) }
   let t6 = Theme { ...t5, active_tab_bg: get_rgb_override(cfg, "theme.active-tab-bg", t5.active_tab_bg) }
-  Theme { ...t6, cursor_line_bg: get_rgb_override(cfg, "theme.cursor-line-bg", t6.cursor_line_bg) }
+  let t7 = Theme { ...t6, cursor_line_bg: get_rgb_override(cfg, "theme.cursor-line-bg", t6.cursor_line_bg) }
+  Theme { ...t7, search_match_bg: get_rgb_override(cfg, "theme.search-match-bg", t7.search_match_bg) }
 }
 
 /// Resolve `Config.values` into a concrete `Theme` plus an optional
@@ -304,20 +310,25 @@ pub struct EditorState {
   should_quit: bool,
   config: Config,
   prompt: Prompt,
-  show_help: bool
+  show_help: bool,
+  search: SearchState
 }
 
 /// The pixel-free "screen buffer" the Terminal handler flushes.
 // `cursor_row`/`cursor_col` (1-indexed) are where the native handler
 // positions the terminal's real cursor after a redraw — clamped to the
 // visible viewport by `render_editor_to_buffer`, which scrolls the buffer
-// line by line so the cursor's line is always shown.
+// line by line so the cursor's line is always shown. `highlights` is
+// `(row, start_col, end_col)` triples (1-indexed row, 0-indexed cols)
+// for search-match spans (M12) the Terminal handler paints with
+// `theme.search_match_bg` — empty outside an active search.
 pub struct ScreenBuffer {
   width: int,
   height: int,
   lines: list<string>,
   cursor_row: int,
-  cursor_col: int
+  cursor_col: int,
+  highlights: list<(int, int, int)>
 }
 
 /// Cursor-shape hint forwarded to the Terminal handler.
@@ -328,12 +339,30 @@ pub type CursorStyle {
 }
 
 /// A minimal single-line input widget (M9). `NoPrompt` is the normal-
-/// editing state; `SaveAsPrompt`/`OpenPrompt` carry the text typed so
-/// far. Only one prompt can be active at a time.
+/// editing state; `SaveAsPrompt`/`OpenPrompt`/`FindPrompt` carry the
+/// text typed so far. Only one prompt can be active at a time.
 pub type Prompt {
   NoPrompt,
   SaveAsPrompt(text: string, cursor: int),
-  OpenPrompt(text: string, cursor: int)
+  OpenPrompt(text: string, cursor: int),
+  FindPrompt(text: string, cursor: int)
+}
+
+/// One match of an active search: the line/column where it starts —
+/// its end column is `col + length(query)`.
+pub struct SearchMatch {
+  line: int,
+  col: int
+}
+
+/// Find (M12) state: `NoSearch` outside an active search; `ActiveSearch`
+/// carries the query, every match across the buffer (recomputed on each
+/// keystroke while `FindPrompt` is open), and `current` — the index into
+/// `matches` the cursor last jumped to via `FindNext`/`FindPrev`
+/// (`-1` if no match has been visited yet).
+pub type SearchState {
+  NoSearch,
+  ActiveSearch(query: string, matches: list<SearchMatch>, current: int)
 }
 
 // --- constructors ---------------------------------------------------------
@@ -405,7 +434,8 @@ pub fun init_editor_with_buffer(buf: TextBuffer, cfg: Config) : EditorState =>
     should_quit: false,
     config: cfg,
     prompt: NoPrompt,
-    show_help: false
+    show_help: false,
+    search: NoSearch
   }
 
 /// Split file content into lines, dropping one trailing newline

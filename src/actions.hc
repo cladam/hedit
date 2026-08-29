@@ -284,7 +284,7 @@ pub fun kill_line_text(state: EditorState) : string {
   let buf  = state.buffer
   let cur  = head_cursor(buf)
   let line = list_get(buf.lines, cur.pos.line, "")
-  line[cur.pos.col:]
+  line[cur.pos.col: ]
 }
 
 /// Truncate the current line at the cursor.
@@ -322,7 +322,7 @@ fun word_back_col(line: string, col: int) : int {
 /// Return the column one whitespace-delimited word forward from `col`.
 // Single-line only: a no-op at the end of the line.
 fun word_forward_col(line: string, col: int) : int {
-  let suffix     = chars(line[col:])
+  let suffix     = chars(line[col: ])
   let no_space   = drop_while(suffix, is_space_char)
   let no_word    = drop_while(no_space, (c) => !is_space_char(c))
   col + (length(suffix) - length(no_word))
@@ -334,7 +334,7 @@ pub fun kill_word_back_text(state: EditorState) : string {
   let cur     = head_cursor(buf)
   let line    = list_get(buf.lines, cur.pos.line, "")
   let new_col = word_back_col(line, cur.pos.col)
-  line[new_col:cur.pos.col]
+  line[new_col: cur.pos.col]
 }
 
 /// Delete the whitespace-delimited word before the cursor, moving the
@@ -346,7 +346,7 @@ pub fun delete_word_back(state: EditorState) : EditorState {
   let col      = cur.pos.col
   let line     = list_get(buf.lines, line_idx, "")
   let new_col  = word_back_col(line, col)
-  let updated  = line[0:new_col] + line[col:]
+  let updated  = line[0:new_col] + line[col: ]
   let new_lines   = list_set(buf.lines, line_idx, updated)
   let new_cursors = map(buf.cursors, (cc) =>
     Cursor { ...cc, pos: Position { line: line_idx, col: new_col } })
@@ -382,7 +382,7 @@ pub fun kill_word_forward_text(state: EditorState) : string {
   let cur     = head_cursor(buf)
   let ln      = list_get(buf.lines, cur.pos.line, "")
   let new_col = word_forward_col(ln, cur.pos.col)
-  ln[cur.pos.col:new_col]
+  ln[cur.pos.col: new_col]
 }
 
 /// Delete the whitespace-delimited word after the cursor. The cursor
@@ -394,7 +394,7 @@ pub fun delete_word_forward(state: EditorState) : EditorState {
   let col      = cur.pos.col
   let ln       = list_get(buf.lines, line_idx, "")
   let new_col  = word_forward_col(ln, col)
-  let updated  = ln[0:col] + ln[new_col:]
+  let updated  = ln[0:col] + ln[new_col: ]
   let new_lines = list_set(buf.lines, line_idx, updated)
   let new_buf   = TextBuffer { ...buf, lines: new_lines, is_dirty: true }
   EditorState { ...state, buffer: new_buf }
@@ -473,7 +473,8 @@ fun prompt_text(p: Prompt) : string =>
   match p {
     NoPrompt           => "",
     SaveAsPrompt(t, _) => t,
-    OpenPrompt(t, _)   => t
+    OpenPrompt(t, _)   => t,
+    FindPrompt(t, _)   => t
   }
 
 /// Return the cursor column within `p`'s typed text.
@@ -481,7 +482,8 @@ fun prompt_cursor(p: Prompt) : int =>
   match p {
     NoPrompt           => 0,
     SaveAsPrompt(_, c) => c,
-    OpenPrompt(_, c)   => c
+    OpenPrompt(_, c)   => c,
+    FindPrompt(_, c)   => c
   }
 
 /// Return a copy of `p` with updated text and cursor column,
@@ -490,7 +492,8 @@ fun with_prompt(p: Prompt, t: string, c: int) : Prompt =>
   match p {
     NoPrompt           => NoPrompt,
     SaveAsPrompt(_, _) => SaveAsPrompt(t, c),
-    OpenPrompt(_, _)   => OpenPrompt(t, c)
+    OpenPrompt(_, _)   => OpenPrompt(t, c),
+    FindPrompt(_, _)   => FindPrompt(t, c)
   }
 
 /// Insert `c` at the prompt's cursor column, advancing the cursor by one.
@@ -498,7 +501,7 @@ pub fun prompt_insert_char(state: EditorState, c: char) : EditorState {
   let p   = state.prompt
   let t   = prompt_text(p)
   let col = prompt_cursor(p)
-  let new_t = t[0:col] + char_to_string(c) + t[col:]
+  let new_t = t[0:col] + char_to_string(c) + t[col: ]
   EditorState { ...state, prompt: with_prompt(p, new_t, col + 1) }
 }
 
@@ -508,7 +511,7 @@ pub fun prompt_backspace(state: EditorState) : EditorState {
   let t   = prompt_text(p)
   let col = prompt_cursor(p)
   if col > 0 {
-    let new_t = t[0:col - 1] + t[col:]
+    let new_t = t[0:col - 1] + t[col: ]
     EditorState { ...state, prompt: with_prompt(p, new_t, col - 1) }
   } else {
     state
@@ -564,7 +567,7 @@ pub fun prompt_delete_forward(state: EditorState) : EditorState {
 /// Return the prompt's typed text from the cursor to the end.
 pub fun prompt_kill_text(state: EditorState) : string {
   let p = state.prompt
-  prompt_text(p)[prompt_cursor(p):]
+  prompt_text(p)[prompt_cursor(p): ]
 }
 
 /// Truncate the prompt's typed text at the cursor.
@@ -578,6 +581,150 @@ pub fun prompt_truncate(state: EditorState) : EditorState {
 /// Open the "open file" prompt with empty text.
 pub fun open_file_prompt(state: EditorState) : EditorState =>
   EditorState { ...state, prompt: OpenPrompt("", 0) }
+
+// ------------------- Find (M12) --------------------------------------------
+// Ctrl-f opens `FindPrompt`; every keystroke re-scans the whole buffer for
+// `query` (plain substring, case-sensitive) via `find_all_matches`, so the
+// highlight set `render.hc` paints is always current. Ctrl-Right/Ctrl-Left
+// (`FindNext`/`FindPrev`, decoded from synthetic codes 1010/1011 in
+// `keys.hc`) walk `matches` in document order relative to the cursor,
+// wrapping at either end, and work whether the prompt is still open or was
+// already closed by Enter — only Esc (`PromptCancel`) drops the search
+// entirely.
+
+/// Return the element of `xs` at `idx`, or `default` if out of range —
+/// same shape as `list_get`, specialised to `SearchMatch`.
+fun match_get(xs: list<SearchMatch>, idx: int, default: SearchMatch) : SearchMatch =>
+  match xs {
+    []          => default,
+    [x, ..rest] =>
+      if idx == 0 { x }
+      else { match_get(rest, idx - 1, default) }
+  }
+
+/// Every match of `query` within a single line, scanning forward from
+/// `from_col` (non-overlapping — the next scan starts right after each
+/// match ends). Assumes `query` is non-empty (checked by the caller).
+fun find_in_line(line: string, query: string, line_idx: int, from_col: int) : list<SearchMatch> =>
+  if from_col > length(line) { [] }
+  else {
+    match index_of(line[from_col: ], query) {
+      None => [],
+      Some(rel) => {
+        let col = from_col + rel
+        [SearchMatch { line: line_idx, col: col }] + find_in_line(line, query, line_idx, col + length(query))
+      }
+    }
+  }
+
+/// Every match of `query` across `lines`, in document order.
+fun find_all_matches_go(lines: list<string>, query: string, line_idx: int) : list<SearchMatch> =>
+  match lines {
+    []          => [],
+    [l, ..rest] => find_in_line(l, query, line_idx, 0) + find_all_matches_go(rest, query, line_idx + 1)
+  }
+
+/// Every match of `query` across `lines`, in document order. An empty
+/// `query` yields no matches (nothing to highlight yet).
+pub fun find_all_matches(lines: list<string>, query: string) : list<SearchMatch> =>
+  if query == "" { [] } else { find_all_matches_go(lines, query, 0) }
+
+/// Open the find prompt with an empty query and a fresh search state
+/// (Ctrl-f) — discards whatever search was previously active.
+pub fun start_find(state: EditorState) : EditorState =>
+  EditorState { ...state, prompt: FindPrompt("", 0), search: ActiveSearch("", [], -1) }
+
+/// Re-scan the buffer for the query currently typed into an active
+/// `FindPrompt`, refreshing `state.search`'s matches. A no-op outside
+/// `FindPrompt` (other prompts don't touch `search`).
+fun refresh_find_matches(state: EditorState) : EditorState =>
+  match state.prompt {
+    FindPrompt(q, _) => EditorState { ...state, search: ActiveSearch(q, find_all_matches(state.buffer.lines, q), -1) },
+    _                => state
+  }
+
+/// `true` if match `m` sits strictly before `pos` in document order.
+fun pos_before(m: SearchMatch, pos: Position) : bool =>
+  m.line < pos.line || (m.line == pos.line && m.col < pos.col)
+
+/// `true` if match `m` sits strictly after `pos` in document order.
+fun pos_after(m: SearchMatch, pos: Position) : bool =>
+  m.line > pos.line || (m.line == pos.line && m.col > pos.col)
+
+/// Index of the first match strictly after `pos`, or `None` if every
+/// match is at or before it (caller wraps to the first match).
+fun first_after(matches: list<SearchMatch>, pos: Position, idx: int) : maybe<int> =>
+  match matches {
+    []          => None,
+    [m, ..rest] => if pos_after(m, pos) { Some(idx) } else { first_after(rest, pos, idx + 1) }
+  }
+
+/// Index of the last match strictly before `pos`, or `None` if every
+/// match is at or after it (caller wraps to the last match).
+fun last_before(matches: list<SearchMatch>, pos: Position, idx: int, acc: maybe<int>) : maybe<int> =>
+  match matches {
+    []          => acc,
+    [m, ..rest] => if pos_before(m, pos) { last_before(rest, pos, idx + 1, Some(idx)) } else { last_before(rest, pos, idx + 1, acc) }
+  }
+
+/// The match index `find_next`/`find_prev` should jump to from `pos`:
+/// `dir >= 0` walks forward (wrapping to index 0), `dir < 0` walks
+/// backward (wrapping to the last index).
+fun next_match_index(matches: list<SearchMatch>, pos: Position, dir: int) : int =>
+  if dir >= 0 {
+    match first_after(matches, pos, 0) {
+      Some(i) => i,
+      None    => 0
+    }
+  } else {
+    match last_before(matches, pos, 0, None) {
+      Some(i) => i,
+      None    => max(length(matches) - 1, 0)
+    }
+  }
+
+/// Move every cursor to `matches[idx]` and record it as `search.current`.
+fun jump_to_match(state: EditorState, q: string, matches: list<SearchMatch>, idx: int) : EditorState {
+  let m = match_get(matches, idx, SearchMatch { line: 0, col: 0 })
+  let new_cursors = map(state.buffer.cursors, (cc) => Cursor { ...cc, pos: Position { line: m.line, col: m.col } })
+  let new_buf = TextBuffer { ...state.buffer, cursors: new_cursors }
+  EditorState { ...state, buffer: new_buf, search: ActiveSearch(q, matches, idx) }
+}
+
+/// `FindNext`/`FindPrev` (Ctrl-Right/Ctrl-Left): jump to the next/previous
+/// match relative to the cursor, wrapping at either end. A no-op (with a
+/// status message) when there's no active search or it has no matches.
+fun jump_search(state: EditorState, dir: int) : EditorState =>
+  match state.search {
+    NoSearch => set_status_message(state, "No active search"),
+    ActiveSearch(q, matches, _) =>
+      match matches {
+        [] => set_status_message(state, "No matches for \"" + q + "\""),
+        _  => jump_to_match(state, q, matches, next_match_index(matches, head_cursor(state.buffer).pos, dir))
+      }
+  }
+
+/// Jump to the next match after the cursor (wraps to the first match).
+pub fun find_next(state: EditorState) : EditorState => jump_search(state, 1)
+
+/// Jump to the previous match before the cursor (wraps to the last match).
+pub fun find_prev(state: EditorState) : EditorState => jump_search(state, -1)
+
+/// `FindPrompt` submit (Enter): close the prompt and jump to the next
+/// match from the cursor, same as `FindNext` — leaves the search active
+/// (and its highlights visible) so Ctrl-Right/Ctrl-Left keep working
+/// after the bar closes.
+pub fun submit_find(state: EditorState) : EditorState =>
+  EditorState { ...find_next(state), prompt: NoPrompt }
+
+/// Cancel the active prompt (Esc). Cancelling a `FindPrompt` also drops
+/// the search entirely, clearing every highlight — other prompts are
+/// unaffected (`search` stays whatever it already was, i.e. `NoSearch`).
+pub fun cancel_prompt(state: EditorState) : EditorState =>
+  match state.prompt {
+    FindPrompt(_, _) => EditorState { ...prompt_cancel(state), search: NoSearch },
+    _                => prompt_cancel(state)
+  }
 
 // ------------------- Event -> Action resolution ---------------------------
 
@@ -602,6 +749,8 @@ fun resolve_prompt_action(evt: Event) : Action =>
     KeyEvent(KShortcut(Ctrl, 'f')) => PromptMoveRight,
     KeyEvent(KShortcut(Ctrl, 'd')) => PromptDeleteForward,
     KeyEvent(KShortcut(Ctrl, 'k')) => PromptKillLine,
+    KeyEvent(KCtrlSpecial(ArrowRight)) => FindNext,
+    KeyEvent(KCtrlSpecial(ArrowLeft))  => FindPrev,
     ResizeEvent(w, h)             => Resize(w, h),
     _                             => Ignore
   }
@@ -633,6 +782,8 @@ fun resolve_normal_action(state: EditorState, evt: Event) : Action =>
     KeyEvent(KSpecial(ArrowDown))   => MoveDown,
     KeyEvent(KSpecial(ArrowLeft))   => MoveLeft,
     KeyEvent(KSpecial(ArrowRight))  => MoveRight,
+    KeyEvent(KCtrlSpecial(ArrowRight)) => FindNext,
+    KeyEvent(KCtrlSpecial(ArrowLeft))  => FindPrev,
     KeyEvent(KShortcut(m, c)) =>
       lookup_binding(state.config.bindings, KeyChord { m: m, c: c }),
     ResizeEvent(w, h)         => Resize(w, h),
@@ -688,17 +839,20 @@ pub fun apply_action(state: EditorState, action: Action) : EditorState =>
     PrevBuffer   => cycle_prev_buffer(state),
     CloseBuffer  => close_buffer_action(state),
     OpenFile     => open_file_prompt(state),
-    PromptChar(c)   => prompt_insert_char(state, c),
-    PromptBackspace => prompt_backspace(state),
-    PromptCancel    => prompt_cancel(state),
-    PromptSubmit    => state, // event_loop: <fsys>
+    PromptChar(c)   => refresh_find_matches(prompt_insert_char(state, c)),
+    PromptBackspace => refresh_find_matches(prompt_backspace(state)),
+    PromptCancel    => cancel_prompt(state),
+    PromptSubmit    => match state.prompt { FindPrompt(_, _) => submit_find(state), _ => state }, // event_loop: <fsys> for Save/Open
     PromptMoveStart     => prompt_move_start(state),
     PromptMoveEnd       => prompt_move_end(state),
     PromptMoveLeft      => prompt_move_left(state),
     PromptMoveRight     => prompt_move_right(state),
-    PromptDeleteForward => prompt_delete_forward(state),
+    PromptDeleteForward => refresh_find_matches(prompt_delete_forward(state)),
     PromptKillLine      => state, // event_loop: <Clipboard>
     ToggleHelp      => EditorState { ...state, show_help: !state.show_help },
+    StartFind    => start_find(state),
+    FindNext     => find_next(state),
+    FindPrev     => find_prev(state),
     Ignore       => state
   }
 

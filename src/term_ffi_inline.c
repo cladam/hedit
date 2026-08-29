@@ -16,6 +16,10 @@
 //   printable chars: ASCII value (32-126)
 //   Enter: 10, Backspace: 127, Tab: 9, Esc: 27
 //   Arrow Up: 1001, Down: 1002, Right: 1003, Left: 1004
+//   Ctrl-Right: 1010, Ctrl-Left: 1011 (ESC[1;5C / ESC[1;5D — the only
+//     modifier-parameterised arrow sequences decoded so far, M12 find
+//     navigation) — see decode_key in src/keys.hc, which maps these to
+//     `KCtrlSpecial(ArrowRight/ArrowLeft)`
 //   bare ESC + printable char (Alt/Meta-modified key, e.g. most
 //     terminals' "metaSendsEscape" for Alt-h): 2000 + ASCII value of
 //     the char (2032-2126) — see decode_key in src/keys.hc, which maps
@@ -67,6 +71,18 @@ kk_integer_t hedit_read_key(void) {
                         else if (c3 == 66) key = 1002;  // Down
                         else if (c3 == 67) key = 1003;  // Right
                         else if (c3 == 68) key = 1004;  // Left
+                        else if (c3 == 49) {  // '1' -> maybe "1;5C"/"1;5D" (Ctrl-Right/Left)
+                            unsigned char c4, c5, c6;
+                            if (read(0, &c4, 1) == 1 && c4 == 59 &&        // ';'
+                                read(0, &c5, 1) == 1 && c5 == 53 &&        // '5' = Ctrl modifier
+                                read(0, &c6, 1) == 1) {
+                                if      (c6 == 67) key = 1010;  // Ctrl-Right
+                                else if (c6 == 68) key = 1011;  // Ctrl-Left
+                                else               key = -1;
+                            } else {
+                                key = -1;
+                            }
+                        }
                         else               key = -1;
                     }
                 } else if (c2 >= 32 && c2 <= 126) {
