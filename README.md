@@ -5,8 +5,8 @@ It aims to pair modern editor UX (standard keybindings, mouse, multiple cursors,
 algebraic effects and Perceus-based memory management (FBIP).
 
 <p align="center">
-    <img src="assets/hedit1.png" alt="hedit edit mode" width="480">
-    <img src="assets/hedit2.png" alt="hedit key mappings" width="480">
+    <img src="assets/hedit1.png" alt="hedit edit mode" width="300">
+    <img src="assets/hedit2.png" alt="hedit key mappings" width="300">
 </p>
 
 ## Configuration & plugins: HiLisp
