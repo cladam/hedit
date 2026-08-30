@@ -1,0 +1,21 @@
+; confirm-close — require close-buffer twice in a row before it fires.
+; First press cancels and arms a flag; the very next action, if it's
+; also close-buffer, goes through and disarms it. Any other action in
+; between disarms the flag, so the confirmation window is exactly
+; "the very next keypress".
+(on 'pre-action
+  (fn (name)
+    (if (= name "close-buffer")
+      (if (= (get "close-armed") "true")
+        (do (set "close-armed" "false") true)
+        (do (set "close-armed" "true") false))
+      (do (set "close-armed" "false") true))))
+
+; A second hook supplies the nudge — it reads the flag *after* the
+; hook above has already run this tick, so it only fires on the press
+; that just got blocked.
+(on 'pre-action
+  (fn (name)
+    (if (and (= name "close-buffer") (= (get "close-armed") "true"))
+      "press again to close"
+      nil)))

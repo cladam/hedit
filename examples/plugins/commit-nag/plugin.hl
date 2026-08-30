@@ -1,0 +1,15 @@
+; commit-nag — nags "maybe commit to git?" every 5th successful save.
+; (set)/(get) always round-trip a value through a string, so a
+; counter needs (parse-int (get ...)) to add to, not (get ...) raw.
+(defn nag-count () (if (get "commit-nag-count") (parse-int (get "commit-nag-count")) 0))
+
+(defn divisible-by-5? (n)
+  (if (< n 5) (= n 0) (divisible-by-5? (- n 5))))
+
+(on 'post-save
+  (fn (path)
+    (do
+      (set "commit-nag-count" (+ 1 (nag-count)))
+      (if (divisible-by-5? (parse-int (get "commit-nag-count")))
+        "maybe commit to git?"
+        (str "saved " path)))))

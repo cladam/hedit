@@ -1,0 +1,8 @@
+; protected-paths — refuse to save files matching a small denylist
+; (.env files, id_rsa key files, anything under /etc/).
+(defn protected? (path)
+  (or (ends-with path ".env")
+    (or (ends-with path "id_rsa")
+      (starts-with path "/etc/"))))
+
+(on 'pre-save (fn (path) (if (protected? path) false true)))

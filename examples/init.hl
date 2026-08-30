@@ -95,8 +95,14 @@
 ;;
 ;; Each name resolves relative to *this* file's own directory (the
 ;; config root that won the XDG/HOME search, or --config's path). See
-;; examples/plugins/ for the greeter/word-count reference plugins.
+;; examples/plugins/ for reference plugins.
 ;; (plugin "greeter")
 ;; (plugin "word-count")
+;; (plugin "protected-paths")
+;; (plugin "confirm-close")
+;; (plugin "filetype-tips")
+;; (plugin "session-stats")
+;; (plugin "commit-nag")
+;; (plugin "recent-files")
 
 

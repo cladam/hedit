@@ -610,3 +610,36 @@ test "M13: buffer-stats reflects the just-typed buffer content inside a post-sav
   }
   assert(final.status_message == Some("chars=2"))
 }
+
+// ------------------- M13: confirm-close plugin through event_loop ------
+
+test "M13: confirm-close plugin requires Meta-w twice before the buffer actually closes" {
+  let (_, hl_env, _) = load_config_with_env(
+    "(on 'pre-action (fn (name) (if (= name \"close-buffer\") (if (= (get \"close-armed\") \"true\") (do (set \"close-armed\" \"false\") true) (do (set \"close-armed\" \"true\") false)) (do (set \"close-armed\" \"false\") true)))) " +
+    "(on 'pre-action (fn (name) (if (and (= name \"close-buffer\") (= (get \"close-armed\") \"true\")) \"press again to close\" nil)))",
+    default_config())
+  let final: EditorState = handle Terminal {
+    poll_event() => match events {
+      []          => KeyEvent(KShortcut(Ctrl, 'q')),
+      [e, ..rest] => { events = rest; e }
+    },
+    render_frame(_buf)   => (),
+    get_dimensions()     => (80, 24),
+    set_cursor_style(_s) => ()
+  } with var events = [
+    KeyEvent(KChar('a')),
+    KeyEvent(KShortcut(Meta, 'o')), // buffer "b" active, "a" backgrounded
+    KeyEvent(KChar('b')),
+    KeyEvent(KShortcut(Meta, 'w')), // 1st close-buffer attempt — blocked
+    KeyEvent(KShortcut(Meta, 'w')), // 2nd attempt — goes through
+    KeyEvent(KShortcut(Ctrl, 'q'))
+  ] in {
+    event_loop_with_env(init_editor(None), hl_env)
+  }
+  // "b" was closed on the 2nd attempt and "a" promoted, exactly like the
+  // plain Meta-w test above — proving the first attempt was really blocked
+  // (a single attempt going through would have left "a" backgrounded, not
+  // promoted).
+  assert(final.buffer.lines == ["a"])
+  assert(length(final.background_buffers) == 0)
+}

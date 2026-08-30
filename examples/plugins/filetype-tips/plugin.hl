@@ -1,0 +1,12 @@
+; filetype-tips — a filetype-aware upgrade of the "greeter" example:
+; shows a different one-line tip depending on what just opened.
+(defn tip-for (path)
+  (cond
+    (= path "") "New scratch buffer — Ctrl-s to save it somewhere."
+    (ends-with path ".hl") "HiLisp source."
+    (ends-with path ".kk") "Koka source."
+    (ends-with path ".hc") "hica source — Ctrl-g for the keybinding overlay."
+    (ends-with path ".md") "Markdown — Ctrl-f to search headings."
+    true "Ready to edit."))
+
+(on 'buffer-open (fn (path) (tip-for path)))

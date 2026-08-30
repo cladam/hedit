@@ -698,5 +698,3 @@ test "char_count sums line lengths, not counting newlines" {
   assert(char_count(with_lines(["abc", "de"]).buffer) == 5)
   assert(char_count(with_lines([""]).buffer) == 0)
 }
-
-

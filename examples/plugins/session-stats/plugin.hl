@@ -1,0 +1,11 @@
+; session-stats — a live "saved Nx this session" counter, driven
+; entirely by (set)/(get) — no core support needed beyond the hook.
+; (set)/(get) always round-trip a value through a string, so a
+; counter needs (parse-int (get ...)) to add to, not (get ...) raw.
+(defn save-count () (if (get "save-count") (parse-int (get "save-count")) 0))
+
+(on 'post-save
+  (fn (path)
+    (do
+      (set "save-count" (+ 1 (save-count)))
+      (str "saved " (get "save-count") "x this session"))))

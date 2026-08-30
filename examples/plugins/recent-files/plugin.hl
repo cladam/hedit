@@ -1,0 +1,13 @@
+; recent-files — accumulates opened paths into one comma-joined status
+; line, entirely via (set)/(get) — no real "recent files" UI needed
+; for this to be useful on its own.
+(on 'buffer-open
+  (fn (path)
+    (if (= path "")
+      nil
+      (do
+        (set "recent-files"
+          (if (get "recent-files")
+            (str (get "recent-files") ", " path)
+            path))
+        (str "recently opened: " (get "recent-files"))))))

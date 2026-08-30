@@ -277,3 +277,118 @@ test "buffer-stats: re-seeding overwrites the previous buffer's counts" {
   let (lines_v, _) = eval_all(tokenise("(hash-get (buffer-stats) \"lines\")"), env2, LNil)
   assert_eq(lval_show(lines_v), "3")
 }
+
+// ------------------- example plugins (M13) ------------------------------
+//
+// Each test loads the *exact* HiLisp source shipped in
+// `examples/plugins/<name>/plugin.hl`, so a passing test proves the
+// real file works — not a simplified stand-in.
+
+test "protected-paths: blocks .env/id_rsa/etc paths, allows everything else" {
+  let src =
+    "(defn protected? (path) (or (ends-with path \".env\") (or (ends-with path \"id_rsa\") (starts-with path \"/etc/\")))) " +
+    "(on 'pre-save (fn (path) (if (protected? path) false true)))"
+  let (_, env, err) = load_config_with_env(src, default_config())
+  assert(err == None)
+  let (r1, _) = fire_hook(env, "pre-save", [LStr("secrets.env")])
+  let (r2, _) = fire_hook(env, "pre-save", [LStr("/home/me/.ssh/id_rsa")])
+  let (r3, _) = fire_hook(env, "pre-save", [LStr("/etc/hosts")])
+  let (r4, _) = fire_hook(env, "pre-save", [LStr("notes.txt")])
+  assert(hook_cancels(r1))
+  assert(hook_cancels(r2))
+  assert(hook_cancels(r3))
+  assert(!hook_cancels(r4))
+}
+
+test "confirm-close: requires close-buffer twice in a row, other actions reset it" {
+  let src =
+    "(on 'pre-action (fn (name) (if (= name \"close-buffer\") (if (= (get \"close-armed\") \"true\") (do (set \"close-armed\" \"false\") true) (do (set \"close-armed\" \"true\") false)) (do (set \"close-armed\" \"false\") true)))) " +
+    "(on 'pre-action (fn (name) (if (and (= name \"close-buffer\") (= (get \"close-armed\") \"true\")) \"press again to close\" nil)))"
+  let (_, env0, err) = load_config_with_env(src, default_config())
+  assert(err == None)
+  // First press: cancelled, with a nudge.
+  let (r1, env1) = fire_hook(env0, "pre-action", [LStr("close-buffer")])
+  assert(hook_cancels(r1))
+  assert(hook_status(r1) == Some("press again to close"))
+  // Immediate second press: goes through.
+  let (r2, _) = fire_hook(env1, "pre-action", [LStr("close-buffer")])
+  assert(!hook_cancels(r2))
+  // A different action in between resets the arm — next close-buffer
+  // is treated as a fresh first press.
+  let (r3, env3) = fire_hook(env0, "pre-action", [LStr("close-buffer")])
+  let (_, env4)  = fire_hook(env3, "pre-action", [LStr("save")])
+  let (r5, _)    = fire_hook(env4, "pre-action", [LStr("close-buffer")])
+  assert(hook_cancels(r3))
+  assert(hook_cancels(r5))
+}
+
+test "filetype-tips: a different buffer-open message per extension" {
+  let src =
+    "(defn tip-for (path) (cond (= path \"\") \"New scratch buffer — Ctrl-s to save it somewhere.\" " +
+    "(ends-with path \".hl\") \"HiLisp source.\" (ends-with path \".kk\") \"Koka source.\" " +
+    "(ends-with path \".hc\") \"hica source — Ctrl-g for the keybinding overlay.\" " +
+    "(ends-with path \".md\") \"Markdown — Ctrl-f to search headings.\" true \"Ready to edit.\")) " +
+    "(on 'buffer-open (fn (path) (tip-for path)))"
+  let (_, env, err) = load_config_with_env(src, default_config())
+  assert(err == None)
+  let (r1, _) = fire_hook(env, "buffer-open", [LStr("")])
+  let (r2, _) = fire_hook(env, "buffer-open", [LStr("README.md")])
+  let (r3, _) = fire_hook(env, "buffer-open", [LStr("notes.txt")])
+  assert(hook_status(r1) == Some("New scratch buffer — Ctrl-s to save it somewhere."))
+  assert(hook_status(r2) == Some("Markdown — Ctrl-f to search headings."))
+  assert(hook_status(r3) == Some("Ready to edit."))
+}
+
+test "session-stats: save-count increments across consecutive saves" {
+  let src =
+    "(defn save-count () (if (get \"save-count\") (parse-int (get \"save-count\")) 0)) " +
+    "(on 'post-save (fn (path) (do (set \"save-count\" (+ 1 (save-count))) (str \"saved \" (get \"save-count\") \"x this session\"))))"
+  let (_, env0, err) = load_config_with_env(src, default_config())
+  assert(err == None)
+  let (r1, env1) = fire_hook(env0, "post-save", [LStr("a.txt")])
+  let (r2, env2) = fire_hook(env1, "post-save", [LStr("a.txt")])
+  let (r3, _)    = fire_hook(env2, "post-save", [LStr("a.txt")])
+  assert(hook_status(r1) == Some("saved 1x this session"))
+  assert(hook_status(r2) == Some("saved 2x this session"))
+  assert(hook_status(r3) == Some("saved 3x this session"))
+}
+
+// Fire the commit-nag `post-save` hook `n` times in a row, returning
+// the last firing's results.
+fun fire_n_saves(env: Env, n: int) : (list<LVal>, Env) =>
+  if n <= 1 { fire_hook(env, "post-save", [LStr("x.txt")]) }
+  else {
+    let (_, env2) = fire_hook(env, "post-save", [LStr("x.txt")])
+    fire_n_saves(env2, n - 1)
+  }
+
+test "commit-nag: overrides the status only on the 5th save, not the 1st-4th" {
+  let src =
+    "(defn nag-count () (if (get \"commit-nag-count\") (parse-int (get \"commit-nag-count\")) 0)) " +
+    "(defn divisible-by-5? (n) (if (< n 5) (= n 0) (divisible-by-5? (- n 5)))) " +
+    "(on 'post-save (fn (path) (do (set \"commit-nag-count\" (+ 1 (nag-count))) " +
+    "(if (divisible-by-5? (parse-int (get \"commit-nag-count\"))) \"maybe commit to git?\" (str \"saved \" path)))))"
+  let (_, env0, err) = load_config_with_env(src, default_config())
+  assert(err == None)
+  let (r1, _) = fire_n_saves(env0, 1)
+  let (r4, _) = fire_n_saves(env0, 4)
+  let (r5, _) = fire_n_saves(env0, 5)
+  assert(hook_status(r1) == Some("saved x.txt"))
+  assert(hook_status(r4) == Some("saved x.txt"))
+  assert(hook_status(r5) == Some("maybe commit to git?"))
+}
+
+test "recent-files: accumulates opened paths into one status line" {
+  let src =
+    "(on 'buffer-open (fn (path) (if (= path \"\") nil " +
+    "(do (set \"recent-files\" (if (get \"recent-files\") (str (get \"recent-files\") \", \" path) path)) " +
+    "(str \"recently opened: \" (get \"recent-files\"))))))"
+  let (_, env0, err) = load_config_with_env(src, default_config())
+  assert(err == None)
+  let (r0, env0b) = fire_hook(env0, "buffer-open", [LStr("")])
+  assert(hook_status(r0) == None)
+  let (r1, env1) = fire_hook(env0b, "buffer-open", [LStr("a.txt")])
+  let (r2, _)    = fire_hook(env1, "buffer-open", [LStr("b.txt")])
+  assert(hook_status(r1) == Some("recently opened: a.txt"))
+  assert(hook_status(r2) == Some("recently opened: a.txt, b.txt"))
+}
