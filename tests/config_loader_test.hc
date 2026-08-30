@@ -22,11 +22,8 @@ test "load_user_config_opts with an explicit path loads that file" {
   let cfg0 = default_config()
   let result: (Config, Env, maybe<string>) = load_user_config_opts(cfg0, Some(tmp_path), false)
   assert(get_config(result.0, "tabsize", "4") == "2")
-  let has_status = match result.2 {
-    Some(_) => true,
-    None    => false
-  }
-  assert(has_status)
+  // A clean load is silent (M13.2) — no "Loaded config from …" noise.
+  assert(result.2 == None)
 }
 
 test "load_user_config_opts with a missing explicit path surfaces an error status" {
@@ -59,11 +56,8 @@ test "load_user_config_opts: a (plugin ...) opt-in loads plugins/<name>/plugin.h
              "(on 'buffer-open (fn (path) \"Welcome to hedit!\"))")
   let cfg0 = default_config()
   let (_, env, status) = load_user_config_opts(cfg0, Some(init_path), false)
-  let loaded = match status {
-    Some(msg) => index_of(msg, "Loaded config from") != None,
-    None      => false
-  }
-  assert(loaded)
+  // A clean config + a clean plugin load is silent (M13.2).
+  assert(status == None)
   let (results, _) = fire_hook(env, "buffer-open", [LStr("foo.txt")])
   match results {
     [LStr(s)] => assert_eq(s, "Welcome to hedit!"),

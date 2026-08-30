@@ -123,10 +123,16 @@ fun join_status(base: maybe<string>, extra: list<string>) : maybe<string> =>
 /// `hilisp_host::load_config_with_env`, then resolve & load any
 /// `(plugin ...)` opt-ins it recorded, from `p`'s own directory.
 // Shared by both the XDG/HOME search and `--config`'s explicit path.
+// A clean load is silent (no "Loaded config from …" status) — only
+// an actual problem (a bad form in the config, or a broken plugin) is
+// worth a startup message; the successful case previously persisted
+// on the status line, competing for space with `buffer-open` hook
+// messages (M13.1) for no real benefit once the config author already
+// knows their file loads.
 fun apply_config_src(cfg0:Config, src: string, p: string) : (Config, Env, maybe<string>) {
   let (cfg1, env1, err) = load_config_with_env(src, cfg0)
   let status1 = match err {
-    None      => Some("Loaded config from " + p),
+    None      => None,
     Some(msg) => Some("Config error (" + p + "): " + msg)
   }
   let (cfg2, env2, plugin_errs) = load_plugins(cfg1, env1, config_dir_of(p), plugin_names_from_env(env1))
