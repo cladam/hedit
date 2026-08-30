@@ -4,6 +4,11 @@
 It aims to pair modern editor UX (standard keybindings, mouse, multiple cursors, split views) with `hica`'s
 algebraic effects and Perceus-based memory management (FBIP).
 
+<p align="center">
+    <img src="assets/hedit1.png" alt="hedit edit mode" width="480">
+    <img src="assets/hedit2.png" alt="hedit key mappings" width="480">
+</p>
+
 ## Configuration & plugins: HiLisp
 
 `hedit` uses **[HiLisp](https://github.com/cladam/hica-lisp)** (a small Lisp
@@ -94,8 +99,7 @@ A broken or missing `plugin.hl` surfaces a one-line status message
 naming the plugin and never blocks `init.hl` or any other plugin from
 loading.
 
-See [`examples/plugins/`](examples/plugins) for two reference plugins
-(`greeter`, `word-count`) and [`examples/init.hl`](examples/init.hl)
+See [`examples/plugins/`](examples/plugins) for six reference plugins and [`examples/init.hl`](examples/init.hl)
 for the `(plugin ...)` opt-in syntax.
 
 ## Quick Install
