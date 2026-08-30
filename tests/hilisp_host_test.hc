@@ -235,8 +235,9 @@ test "hook_cancels: true iff any hook result is (false)" {
   assert(hook_cancels([]) == false)
 }
 
-test "hook_status: last LStr result wins" {
-  assert(hook_status([LBool(true), LStr("first"), LStr("second")]) == Some("second"))
+test "hook_status: joins every LStr result in registration order" {
+  assert(hook_status([LBool(true), LStr("first"), LStr("second")]) == Some("first | second"))
+  assert(hook_status([LStr("only")]) == Some("only"))
   assert(hook_status([LBool(true)]) == None)
   assert(hook_status([]) == None)
 }
@@ -337,6 +338,16 @@ test "filetype-tips: a different buffer-open message per extension" {
   assert(hook_status(r1) == Some("New scratch buffer — Ctrl-s to save it somewhere."))
   assert(hook_status(r2) == Some("Markdown — Ctrl-f to search headings."))
   assert(hook_status(r3) == Some("Ready to edit."))
+}
+
+test "greeter + filetype-tips both hooking buffer-open coexist on one status line" {
+  let src =
+    "(on 'buffer-open (fn (path) \"Welcome to hedit!\")) " +
+    "(on 'buffer-open (fn (path) (if (ends-with path \".md\") \"Markdown\" \"Ready to edit.\")))"
+  let (_, env, err) = load_config_with_env(src, default_config())
+  assert(err == None)
+  let (r1, _) = fire_hook(env, "buffer-open", [LStr("README.md")])
+  assert(hook_status(r1) == Some("Welcome to hedit! | Markdown"))
 }
 
 test "session-stats: save-count increments across consecutive saves" {

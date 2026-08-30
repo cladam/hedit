@@ -529,16 +529,25 @@ pub fun hook_cancels(results: list<LVal>) : bool =>
     [_, ..rest]            => hook_cancels(rest)
   }
 
-/// The status-bar convention: the last `LStr` result, if any (later
-/// hooks' status wins over earlier ones).
-pub fun hook_status(results: list<LVal>) : maybe<string> =>
-  match results {
+/// The status-bar convention: every hook's `LStr` return, joined in
+/// registration order with `" | "` — so two plugins hooking the same
+/// event (e.g. `greeter` and `filetype-tips` both on `buffer-open`)
+/// each get to say something instead of one silently overwriting the
+/// other. `None` if no hook returned a string.
+pub fun hook_status(results: list<LVal>) : maybe<string> {
+  let strs = collect_str_results(results)
+  match strs {
     [] => None,
-    [LStr(s), ..rest] => match hook_status(rest) {
-      Some(later) => Some(later),
-      None        => Some(s)
-    },
-    [_, ..rest] => hook_status(rest)
+    _  => Some(join(strs, " | "))
+  }
+}
+
+/// Pull every `LStr` payload out of a hook-results list, preserving order.
+fun collect_str_results(results: list<LVal>) : list<string> =>
+  match results {
+    []                 => [],
+    [LStr(s), ..rest]  => [s] + collect_str_results(rest),
+    [_, ..rest]        => collect_str_results(rest)
   }
 
 // ------------------- HiLisp preamble -----------------------------------
