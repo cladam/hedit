@@ -102,10 +102,14 @@ fun submit_save_as(state: EditorState, path: string) {
 }
 
 /// Load a path entered in the Open prompt into a new buffer,
-/// backgrounding the current one (same shape as `NewBuffer`).
-fun submit_open_file(state: EditorState, path: string) {
+/// backgrounding the current one (same shape as `NewBuffer`). Also
+/// spawns the new buffer's own `Buffer` history instance and conses it
+/// onto `pool` — every open `bid` must have a pool entry (M14).
+fun submit_open_file(state: EditorState, path: string, pool: list<(int, ref<Buffer>)>) {
   let new_bid = state.next_bid
   let (new_buf, load_status) = load_buffer(new_bid, Some(path))
+  let new_ref = spawn_buffer_handler().0
+  let pool1 = [(new_bid, new_ref)] + pool
   let opened = EditorState {
     ...state,
     buffer: new_buf,
@@ -113,10 +117,11 @@ fun submit_open_file(state: EditorState, path: string) {
     next_bid: new_bid + 1,
     prompt: NoPrompt
   }
-  match load_status {
+  let final = match load_status {
     None      => opened,
     Some(msg) => set_status_message(opened, msg)
   }
+  (final, pool1)
 }
 
 /// Apply the `pre-save`/`pre-action` cancel convention's status: a
@@ -185,11 +190,15 @@ fun run_save_as(sized: EditorState, path: string, hl_env: Env) : (EditorState, E
 }
 
 /// Open prompt submit: load the file, then fire `buffer-open` on the
-/// freshly loaded buffer.
+/// freshly loaded buffer. Threads `pool` through unchanged except for
+/// the new entry `submit_open_file` conses on.
 // Return-type annotation omitted: carries <fsys> (Koka rejects pure
 // annotation once the read is behind `submit_open_file`/`load_buffer`).
-fun run_open_file(sized: EditorState, path: string, hl_env: Env) =>
-  run_buffer_open(submit_open_file(sized, path), path, hl_env)
+fun run_open_file(sized: EditorState, path: string, hl_env: Env, pool: list<(int, ref<Buffer>)>) {
+  let (opened, pool1) = submit_open_file(sized, path, pool)
+  let (next, hl_env1) = run_buffer_open(opened, path, hl_env)
+  (next, hl_env1, pool1)
+}
 
 /// Dispatch `PromptSubmit` (Enter while a prompt is active) to the
 /// right hook-aware effectful handler.
@@ -197,12 +206,15 @@ fun run_open_file(sized: EditorState, path: string, hl_env: Env) =>
 // PromptSubmit while a prompt is active) but falls back to a no-op
 // rather than crashing. Return-type annotation omitted: carries
 // <fsys> transitively via `run_open_file`/`run_save_as`.
-fun run_prompt_submit(sized: EditorState, hl_env: Env) =>
+fun run_prompt_submit(sized: EditorState, hl_env: Env, pool: list<(int, ref<Buffer>)>) =>
   match sized.prompt {
-    NoPrompt              => (sized, hl_env),
-    SaveAsPrompt(text, _) => run_save_as(sized, text, hl_env),
-    OpenPrompt(text, _)   => run_open_file(sized, text, hl_env),
-    FindPrompt(_, _)      => (submit_find(sized), hl_env)
+    NoPrompt              => (sized, hl_env, pool),
+    SaveAsPrompt(text, _) => {
+      let (s2, e2) = run_save_as(sized, text, hl_env)
+      (s2, e2, pool)
+    },
+    OpenPrompt(text, _)   => run_open_file(sized, text, hl_env, pool),
+    FindPrompt(_, _)      => (submit_find(sized), hl_env, pool)
   }
 
 // ------------------- the loop ------------------------------------------
@@ -215,69 +227,120 @@ fun apply_history(state: EditorState, result: maybe<TextBuffer>, verb: string) :
     None    => set_status_message(state, "Nothing to " + verb)
   }
 
+/// Look up the `Buffer` history instance for `bid` in the pool. Falls
+/// back to spawning a fresh (empty-history) instance on a miss — should
+/// not happen in practice (every open `bid` gets a pool entry when it's
+/// created), but keeps Undo/Redo from ever crashing on a pool/state
+/// desync instead of silently corrupting another buffer's history.
+fun pool_get(pool: list<(int, ref<Buffer>)>, bid: int) =>
+  match map_get(pool, bid) {
+    Some(r) => r,
+    None    => spawn_buffer_handler().0
+  }
+
+/// Drop the pool entry for a buffer that just closed (M14) — otherwise
+/// closed buffers' handlers pile up for the rest of the session.
+fun pool_drop(pool: list<(int, ref<Buffer>)>, bid: int) : list<(int, ref<Buffer>)> =>
+  match pool {
+    []                     => [],
+    [(pbid, pref), ..rest] =>
+      if pbid == bid { pool_drop(rest, bid) } else { [(pbid, pref)] + pool_drop(rest, bid) }
+  }
+
 /// Dispatch a resolved `Action` (the `pre-action` hook has already
-/// run and not cancelled it) to its effectful handler, threading
-/// `Env` alongside `EditorState` for actions that fire their own
-/// `buffer-open`/`pre-save`/`post-save` hooks.
-// Return-type annotation omitted: carries <fsys>/<Clipboard> transitively
-// via `run_save`/`run_prompt_submit`/etc.
-fun dispatch_action(sized: EditorState, action: Action, buf_ref: ref<Buffer>, hl_env: Env) =>
+/// run and not cancelled it) to its effectful handler, threading `Env`
+/// alongside `EditorState` for actions that fire their own
+/// `buffer-open`/`pre-save`/`post-save` hooks, and the per-buffer
+/// `Buffer` pool (M14) for actions that touch undo/redo history or
+/// change which buffers are open.
+// Return-type annotation omitted: carries <fsys>/<Clipboard>/<Buffer>
+// transitively via `run_save`/`run_prompt_submit`/etc.
+fun dispatch_action(sized: EditorState, action: Action, buf_pool: list<(int, ref<Buffer>)>, hl_env: Env) =>
   match action {
     // Effectful actions handled inline; pure ones fall through.
-    Save      => run_save(sized, hl_env),
+    Save      => {
+      let (s2, e2) = run_save(sized, hl_env)
+      (s2, e2, buf_pool)
+    },
     Copy      => {
       set_selection(current_line(sized))
-      (set_status_message(sized, "Copied line"), hl_env)
+      (set_status_message(sized, "Copied line"), hl_env, buf_pool)
     },
     Paste     => {
+      let buf_ref = pool_get(buf_pool, sized.buffer.bid)
       buf_ref.snapshot(sized.buffer)
-      (paste_text(sized, get_selection()), hl_env)
+      (paste_text(sized, get_selection()), hl_env, buf_pool)
     },
     Insert(_) => {
+      let buf_ref = pool_get(buf_pool, sized.buffer.bid)
       buf_ref.snapshot(sized.buffer)
-      (apply_action(sized, action), hl_env)
+      (apply_action(sized, action), hl_env, buf_pool)
     },
     NewLine        => {
+      let buf_ref = pool_get(buf_pool, sized.buffer.bid)
       buf_ref.snapshot(sized.buffer)
-      (apply_action(sized, action), hl_env)
+      (apply_action(sized, action), hl_env, buf_pool)
     },
     DeleteBackward => {
+      let buf_ref = pool_get(buf_pool, sized.buffer.bid)
       buf_ref.snapshot(sized.buffer)
-      (apply_action(sized, action), hl_env)
+      (apply_action(sized, action), hl_env, buf_pool)
     },
     DeleteForward => {
+      let buf_ref = pool_get(buf_pool, sized.buffer.bid)
       buf_ref.snapshot(sized.buffer)
-      (apply_action(sized, action), hl_env)
+      (apply_action(sized, action), hl_env, buf_pool)
     },
     KillLine  => {
+      let buf_ref = pool_get(buf_pool, sized.buffer.bid)
       buf_ref.snapshot(sized.buffer)
       set_selection(kill_line_text(sized))
-      (kill_line(sized), hl_env)
+      (kill_line(sized), hl_env, buf_pool)
     },
     KillWordBack => {
+      let buf_ref = pool_get(buf_pool, sized.buffer.bid)
       buf_ref.snapshot(sized.buffer)
       set_selection(kill_word_back_text(sized))
-      (delete_word_back(sized), hl_env)
+      (delete_word_back(sized), hl_env, buf_pool)
     },
     KillWordForward => {
+      let buf_ref = pool_get(buf_pool, sized.buffer.bid)
       buf_ref.snapshot(sized.buffer)
       set_selection(kill_word_forward_text(sized))
-      (delete_word_forward(sized), hl_env)
+      (delete_word_forward(sized), hl_env, buf_pool)
     },
     KillWholeLine => {
+      let buf_ref = pool_get(buf_pool, sized.buffer.bid)
       buf_ref.snapshot(sized.buffer)
       set_selection(kill_whole_line_text(sized))
-      (kill_whole_line(sized), hl_env)
+      (kill_whole_line(sized), hl_env, buf_pool)
     },
-    Undo      => (apply_history(sized, buf_ref.undo(sized.buffer), "undo"), hl_env),
-    Redo      => (apply_history(sized, buf_ref.redo(sized.buffer), "redo"), hl_env),
-    PromptSubmit => run_prompt_submit(sized, hl_env),
+    Undo      => {
+      let buf_ref = pool_get(buf_pool, sized.buffer.bid)
+      (apply_history(sized, buf_ref.undo(sized.buffer), "undo"), hl_env, buf_pool)
+    },
+    Redo      => {
+      let buf_ref = pool_get(buf_pool, sized.buffer.bid)
+      (apply_history(sized, buf_ref.redo(sized.buffer), "redo"), hl_env, buf_pool)
+    },
+    PromptSubmit => run_prompt_submit(sized, hl_env, buf_pool),
     PromptKillLine => {
       set_selection(prompt_kill_text(sized))
-      (prompt_truncate(sized), hl_env)
+      (prompt_truncate(sized), hl_env, buf_pool)
     },
-    NewBuffer => run_buffer_open(apply_action(sized, action), "", hl_env),
-    _         => (apply_action(sized, action), hl_env)
+    NewBuffer => {
+      let new_ref = spawn_buffer_handler().0
+      let pool1 = [(sized.next_bid, new_ref)] + buf_pool
+      let (next, hl_env1) = run_buffer_open(apply_action(sized, action), "", hl_env)
+      (next, hl_env1, pool1)
+    },
+    CloseBuffer => {
+      let closed_bid = sized.buffer.bid
+      let next = apply_action(sized, action)
+      let pool1 = if next.buffer.bid == closed_bid { buf_pool } else { pool_drop(buf_pool, closed_bid) }
+      (next, hl_env, pool1)
+    },
+    _         => (apply_action(sized, action), hl_env, buf_pool)
   }
 
 /// `true` for `Quit` only — used to keep `Quit` un-cancellable by a
@@ -307,7 +370,7 @@ fun is_quit(action: Action) : bool =>
 // timeout otherwise. `hl_env` is the HiLisp `Env` threaded through
 // every hook firing (`init.hl` + any loaded plugins' `(on ...)`
 // registrations live on it).
-fun event_loop_step(state: EditorState, buf_ref: ref<Buffer>, last_frame: maybe<ScreenBuffer>, hl_env: Env) {
+fun event_loop_step(state: EditorState, buf_pool: list<(int, ref<Buffer>)>, last_frame: maybe<ScreenBuffer>, hl_env: Env) {
   if state.should_quit {
     let (_, _) = fire_hook(env_with_buffer_stats(hl_env, state.buffer), "quit", [])
     state
@@ -322,21 +385,23 @@ fun event_loop_step(state: EditorState, buf_ref: ref<Buffer>, last_frame: maybe<
     let action = resolve_action(sized, evt)
     let stats_env = env_with_buffer_stats(hl_env, sized.buffer)
     let (pre_results, hl_env1) = fire_hook(stats_env, "pre-action", [LStr(action_to_string(action))])
-    let (next, hl_env2) =
-      if hook_cancels(pre_results) && !is_quit(action) { (blocked_state(sized, action_to_string(action), pre_results), hl_env1) }
-      else { dispatch_action(sized, action, buf_ref, hl_env1) }
-    event_loop_step(next, buf_ref, next_frame, hl_env2)
+    let (next, hl_env2, pool2) =
+      if hook_cancels(pre_results) && !is_quit(action) { (blocked_state(sized, action_to_string(action), pre_results), hl_env1, buf_pool) }
+      else { dispatch_action(sized, action, buf_pool, hl_env1) }
+    event_loop_step(next, pool2, next_frame, hl_env2)
   }
 }
 
-/// Same as `event_loop`, but threads a caller-supplied HiLisp `Env`
-/// (typically `config_loader.hc`'s output, carrying `init.hl` +
-/// plugin `(on ...)` registrations) through every hook firing instead
-/// of a bare, hook-free one.
-// Return-type annotation omitted: the full effect row (<Terminal,
-// Clipboard, Buffer, fsys, div>) is inferred by Koka — explicit
-// annotation would be rejected as too narrow.
-pub fun event_loop_with_env(state: EditorState, hl_env0:Env) {
+/// Spawn a fresh, empty-history `Buffer` instance and return its ref —
+/// the unit `pool_get`/`pool_drop`/M14's per-buffer pool is built from.
+// Returns a 2-tuple (both slots the same ref), not the bare ref: hica's
+// escape checker flags a bare `Var` referencing a locally-spawned ref
+// in return position, but doesn't inspect through a Tuple/EList/Binary
+// wrapper (same idiom `named-effects-design.md`'s pool examples use,
+// e.g. `[w] + spawn_workers(n - 1)`) — the underlying named-effect ref
+// is a real first-class value, not a stack-scoped handle, so returning
+// it (wrapped) across a function boundary is intended, not a hack.
+pub fun spawn_buffer_handler() {
   spawn Buffer {
     snapshot(b) => {
       undo_stack = [b] + undo_stack
@@ -359,7 +424,20 @@ pub fun event_loop_with_env(state: EditorState, hl_env0:Env) {
       }
     }
   } with var undo_stack = [], var redo_stack = [] as buf_ref
-  event_loop_step(state, buf_ref, None, hl_env0)
+  (buf_ref, buf_ref)
+}
+
+/// Same as `event_loop`, but threads a caller-supplied HiLisp `Env`
+/// (typically `config_loader.hc`'s output, carrying `init.hl` +
+/// plugin `(on ...)` registrations) through every hook firing instead
+/// of a bare, hook-free one.
+// Return-type annotation omitted: the full effect row (<Terminal,
+// Clipboard, Buffer, fsys, div>) is inferred by Koka — explicit
+// annotation would be rejected as too narrow.
+pub fun event_loop_with_env(state: EditorState, hl_env0:Env) {
+  let initial_ref = spawn_buffer_handler().0
+  let pool0 = [(state.buffer.bid, initial_ref)]
+  event_loop_step(state, pool0, None, hl_env0)
 }
 
 /// Entry point for callers with no HiLisp env of their own (most

@@ -26,8 +26,7 @@ hedit --help / --version
 | Ctrl-a / Ctrl-e | Move to start/end of the current line |
 | Meta-f / Meta-b | Move forward/back one word |
 
-**Not yet:** Page Up/Down, Home/End, jump-to-line. See
-[hedit-defaultkeys.md § What's not there yet](hedit-defaultkeys.md#whats-not-there-yet).
+**Not yet:** Page Up/Down, Home/End, jump-to-line.
 
 ## Basic editing
 

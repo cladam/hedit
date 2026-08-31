@@ -388,6 +388,45 @@ test "Meta-w closes the active buffer and promotes the other one" {
   assert(length(final.background_buffers) == 0)
 }
 
+// ------------------- M14: per-buffer undo isolation --------------------
+//
+// Before M14, `event_loop` spawned exactly one shared `Buffer` history
+// instance regardless of how many buffers were open — switching buffers
+// and pressing Ctrl-z could silently undo an edit made in a *different*
+// buffer. M14 pools one `ref<Buffer>` per `bid`; this test proves Undo on
+// buffer A never touches buffer B's content and vice versa.
+test "undo on one buffer never touches another open buffer's history" {
+  let final: EditorState = handle Terminal {
+    poll_event() => match events {
+      []          => KeyEvent(KShortcut(Ctrl, 'q')),
+      [e, ..rest] => { events = rest; e }
+    },
+    render_frame(_buf)   => (),
+    get_dimensions()     => (80, 24),
+    set_cursor_style(_s) => ()
+  } with var events = [
+    KeyEvent(KChar('h')),
+    KeyEvent(KChar('i')),
+    KeyEvent(KShortcut(Meta, 'o')), // buffer "xy" is now active, "hi" backgrounded
+    KeyEvent(KChar('x')),
+    KeyEvent(KChar('y')),
+    KeyEvent(KShortcut(Meta, 'n')), // cycle back — "hi" active again, "xy" backgrounded
+    KeyEvent(KShortcut(Ctrl, 'z')), // Undo on the "hi" buffer
+    KeyEvent(KShortcut(Ctrl, 'q'))
+  ] in {
+    event_loop(init_editor(None))
+  }
+  // The active buffer's own last edit ('i') was undone...
+  assert(final.buffer.lines == ["h"])
+  assert(final.status_message == Some("undo"))
+  // ...and the backgrounded "xy" buffer is completely untouched.
+  let bg_lines = match final.background_buffers {
+    [b] => b.lines,
+    _   => ["MISSING"]
+  }
+  assert(bg_lines == ["xy"])
+}
+
 // ------------------- Save-As / Open prompt through event_loop ---------------
 
 // Ctrl-s on a pathless ("scratch") buffer opens a Save-As prompt instead
