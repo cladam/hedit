@@ -20,6 +20,12 @@
 //     modifier-parameterised arrow sequences decoded so far, M12 find
 //     navigation) — see decode_key in src/keys.hc, which maps these to
 //     `KCtrlSpecial(ArrowRight/ArrowLeft)`
+//   Meta-Up: 1020, Meta-Down: 1021, Meta-Right: 1022, Meta-Left: 1023
+//     (ESC[1;3A / ESC[1;3B / ESC[1;3C / ESC[1;3D — xterm's Alt-modified
+//     arrow sequences, M15 pane focus) — see decode_key in src/keys.hc,
+//     which maps these to `KMetaSpecial(ArrowUp/Down/Right/Left)`
+//   Meta-Tab: 1024 (bare ESC + Tab, M15 linear pane cycling) — see
+//     decode_key in src/keys.hc, which maps this to `KMetaSpecial(Tab)`
 //   bare ESC + printable char (Alt/Meta-modified key, e.g. most
 //     terminals' "metaSendsEscape" for Alt-h): 2000 + ASCII value of
 //     the char (2032-2126) — see decode_key in src/keys.hc, which maps
@@ -71,20 +77,35 @@ kk_integer_t hedit_read_key(void) {
                         else if (c3 == 66) key = 1002;  // Down
                         else if (c3 == 67) key = 1003;  // Right
                         else if (c3 == 68) key = 1004;  // Left
-                        else if (c3 == 49) {  // '1' -> maybe "1;5C"/"1;5D" (Ctrl-Right/Left)
+                        else if (c3 == 49) {  // '1' -> maybe "1;5C"/"1;5D" (Ctrl) or "1;3A".."1;3D" (Meta)
                             unsigned char c4, c5, c6;
                             if (read(0, &c4, 1) == 1 && c4 == 59 &&        // ';'
-                                read(0, &c5, 1) == 1 && c5 == 53 &&        // '5' = Ctrl modifier
+                                read(0, &c5, 1) == 1 &&
                                 read(0, &c6, 1) == 1) {
-                                if      (c6 == 67) key = 1010;  // Ctrl-Right
-                                else if (c6 == 68) key = 1011;  // Ctrl-Left
-                                else               key = -1;
+                                if (c5 == 53) {  // '5' = Ctrl modifier
+                                    if      (c6 == 67) key = 1010;  // Ctrl-Right
+                                    else if (c6 == 68) key = 1011;  // Ctrl-Left
+                                    else                key = -1;
+                                } else if (c5 == 51) {  // '3' = Meta/Alt modifier
+                                    if      (c6 == 65) key = 1020;  // Meta-Up
+                                    else if (c6 == 66) key = 1021;  // Meta-Down
+                                    else if (c6 == 67) key = 1022;  // Meta-Right
+                                    else if (c6 == 68) key = 1023;  // Meta-Left
+                                    else                key = -1;
+                                } else {
+                                    key = -1;
+                                }
                             } else {
                                 key = -1;
                             }
                         }
                         else               key = -1;
                     }
+                } else if (c2 == 9) {
+                    // Bare ESC + Tab: xterm's Alt-Tab convention when the
+                    // window manager doesn't intercept it first (M15
+                    // linear pane cycling).
+                    key = 1024;
                 } else if (c2 >= 32 && c2 <= 126) {
                     // Bare ESC + printable char: most terminals send this
                     // for Alt/Meta-modified keys (xterm's

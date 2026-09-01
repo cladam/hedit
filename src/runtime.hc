@@ -206,6 +206,10 @@ fun run_open_file(sized: EditorState, path: string, hl_env: Env, pool: list<(int
 // PromptSubmit while a prompt is active) but falls back to a no-op
 // rather than crashing. Return-type annotation omitted: carries
 // <fsys> transitively via `run_open_file`/`run_save_as`.
+// `VSplitPrompt`/`HSplitPrompt` (M15) just close the prompt with a
+// status note for now \u2014 the actual `panes` tree mutation (open the
+// typed path or duplicate the current buffer into a new leaf) is a
+// follow-up once `render.hc` can lay out more than one pane.
 fun run_prompt_submit(sized: EditorState, hl_env: Env, pool: list<(int, ref<Buffer>)>) =>
   match sized.prompt {
     NoPrompt              => (sized, hl_env, pool),
@@ -214,7 +218,9 @@ fun run_prompt_submit(sized: EditorState, hl_env: Env, pool: list<(int, ref<Buff
       (s2, e2, pool)
     },
     OpenPrompt(text, _)   => run_open_file(sized, text, hl_env, pool),
-    FindPrompt(_, _)      => (submit_find(sized), hl_env, pool)
+    FindPrompt(_, _)      => (submit_find(sized), hl_env, pool),
+    VSplitPrompt(_, _)    => (set_status_message(EditorState { ...sized, prompt: NoPrompt }, "vsplit: layout wiring coming soon"), hl_env, pool),
+    HSplitPrompt(_, _)    => (set_status_message(EditorState { ...sized, prompt: NoPrompt }, "hsplit: layout wiring coming soon"), hl_env, pool)
   }
 
 // ------------------- the loop ------------------------------------------

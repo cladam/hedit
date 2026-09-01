@@ -522,7 +522,9 @@ fun prompt_text(p: Prompt) : string =>
     NoPrompt           => "",
     SaveAsPrompt(t, _) => t,
     OpenPrompt(t, _)   => t,
-    FindPrompt(t, _)   => t
+    FindPrompt(t, _)   => t,
+    VSplitPrompt(t, _) => t,
+    HSplitPrompt(t, _) => t
   }
 
 /// Return the cursor column within `p`'s typed text.
@@ -531,7 +533,9 @@ fun prompt_cursor(p: Prompt) : int =>
     NoPrompt           => 0,
     SaveAsPrompt(_, c) => c,
     OpenPrompt(_, c)   => c,
-    FindPrompt(_, c)   => c
+    FindPrompt(_, c)   => c,
+    VSplitPrompt(_, c) => c,
+    HSplitPrompt(_, c) => c
   }
 
 /// Return a copy of `p` with updated text and cursor column,
@@ -541,7 +545,9 @@ fun with_prompt(p: Prompt, t: string, c: int) : Prompt =>
     NoPrompt           => NoPrompt,
     SaveAsPrompt(_, _) => SaveAsPrompt(t, c),
     OpenPrompt(_, _)   => OpenPrompt(t, c),
-    FindPrompt(_, _)   => FindPrompt(t, c)
+    FindPrompt(_, _)   => FindPrompt(t, c),
+    VSplitPrompt(_, _) => VSplitPrompt(t, c),
+    HSplitPrompt(_, _) => HSplitPrompt(t, c)
   }
 
 /// Insert `c` at the prompt's cursor column, advancing the cursor by one.
@@ -629,6 +635,23 @@ pub fun prompt_truncate(state: EditorState) : EditorState {
 /// Open the "open file" prompt with empty text.
 pub fun open_file_prompt(state: EditorState) : EditorState =>
   EditorState { ...state, prompt: OpenPrompt("", 0) }
+
+// ------------------- Split panes (M15) ------------------------------------
+// Meta-v/Meta-h open `VSplitPrompt`/`HSplitPrompt` ("VSplit: "/"HSplit: ");
+// submitting with a typed path opens that file in the new pane, a bare
+// Enter duplicates the current buffer. The actual pane-tree/layout wiring
+// (needs `<fsys>` for the typed-path case) lands in `runtime.hc`'s
+// `run_prompt_submit` — pane-focus movement (`PaneLeft`/`Right`/`Up`/
+// `Down`/`NextPane`) is a pure no-op for now, wired up once `render.hc`
+// can compute per-pane rectangles to move focus geometrically.
+
+/// Open the vertical-split prompt with empty text.
+pub fun open_vsplit_prompt(state: EditorState) : EditorState =>
+  EditorState { ...state, prompt: VSplitPrompt("", 0) }
+
+/// Open the horizontal-split prompt with empty text.
+pub fun open_hsplit_prompt(state: EditorState) : EditorState =>
+  EditorState { ...state, prompt: HSplitPrompt("", 0) }
 
 // ------------------- Find (M12) --------------------------------------------
 // Ctrl-f opens `FindPrompt`; every keystroke re-scans the whole buffer for
@@ -887,6 +910,13 @@ pub fun apply_action(state: EditorState, action: Action) : EditorState =>
     PrevBuffer   => cycle_prev_buffer(state),
     CloseBuffer  => close_buffer_action(state),
     OpenFile     => open_file_prompt(state),
+    VSplit       => open_vsplit_prompt(state),
+    HSplit       => open_hsplit_prompt(state),
+    PaneLeft     => state, // runtime.hc/render.hc: geometric pane focus, follow-up
+    PaneRight    => state, // runtime.hc/render.hc: geometric pane focus, follow-up
+    PaneUp       => state, // runtime.hc/render.hc: geometric pane focus, follow-up
+    PaneDown     => state, // runtime.hc/render.hc: geometric pane focus, follow-up
+    NextPane     => state, // runtime.hc/render.hc: linear pane cycling, follow-up
     PromptChar(c)   => refresh_find_matches(prompt_insert_char(state, c)),
     PromptBackspace => refresh_find_matches(prompt_backspace(state)),
     PromptCancel    => cancel_prompt(state),

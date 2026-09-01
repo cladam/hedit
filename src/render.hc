@@ -60,7 +60,9 @@ fun prompt_label(p: Prompt) : string =>
     NoPrompt           => "",
     SaveAsPrompt(t, _) => "Save as: " + t,
     OpenPrompt(t, _)   => "Open: " + t,
-    FindPrompt(t, _)   => "Find: " + t
+    FindPrompt(t, _)   => "Find: " + t,
+    VSplitPrompt(t, _) => "VSplit: " + t,
+    HSplitPrompt(t, _) => "HSplit: " + t
   }
 
 /// Length of the fixed label prefix in front of the typed text —
@@ -70,7 +72,9 @@ fun prompt_prefix_len(p: Prompt) : int =>
     NoPrompt           => 0,
     SaveAsPrompt(_, _) => length("Save as: "),
     OpenPrompt(_, _)   => length("Open: "),
-    FindPrompt(_, _)   => length("Find: ")
+    FindPrompt(_, _)   => length("Find: "),
+    VSplitPrompt(_, _) => length("VSplit: "),
+    HSplitPrompt(_, _) => length("HSplit: ")
   }
 
 /// The prompt's own cursor column within its typed text.
@@ -79,7 +83,9 @@ fun prompt_cursor_col(p: Prompt) : int =>
     NoPrompt           => 0,
     SaveAsPrompt(_, c) => c,
     OpenPrompt(_, c)   => c,
-    FindPrompt(_, c)   => c
+    FindPrompt(_, c)   => c,
+    VSplitPrompt(_, c) => c,
+    HSplitPrompt(_, c) => c
   }
 
 // ------------------- Find match highlighting (M12) -------------------------

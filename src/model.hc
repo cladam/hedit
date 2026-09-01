@@ -85,6 +85,13 @@ pub type Action {
   StartFind,
   FindNext,
   FindPrev,
+  VSplit,
+  HSplit,
+  PaneLeft,
+  PaneRight,
+  PaneUp,
+  PaneDown,
+  NextPane,
   Ignore
 }
 
@@ -123,7 +130,8 @@ pub fun default_bindings() : list<(KeyChord, Action)> =>
     (KeyChord { m: Meta, c: 'n' }, NextBuffer),
     (KeyChord { m: Meta, c: 'p' }, PrevBuffer),
     (KeyChord { m: Meta, c: 'w' }, CloseBuffer),
-    (KeyChord { m: Meta, c: 'h' }, ToggleHelp),
+    (KeyChord { m: Meta, c: 'v' }, VSplit),
+    (KeyChord { m: Meta, c: 'h' }, HSplit),
     (KeyChord { m: Meta, c: 'f' }, MoveWordForward),
     (KeyChord { m: Meta, c: 'b' }, MoveWordBack),
     (KeyChord { m: Meta, c: 'd' }, KillWordForward),
@@ -300,7 +308,10 @@ pub fun resolve_theme(cfg: Config) : Theme =>
 /// Full editor state. `buffer` is always the active buffer;
 /// `background_buffers` holds the rest of the open buffers as a
 /// rotation ring with no separate active index to keep in sync.
-// `next_bid` hands out fresh `TextBuffer.bid`s for `NewBuffer`.
+// `next_bid` hands out fresh `TextBuffer.bid`s for `NewBuffer`. `panes`
+// (M15) is the split-pane layout tree; the "active" leaf is always the
+// one whose `bid` equals `buffer.bid` (every leaf gets a distinct bid
+// at split time, so this stays unambiguous without a separate index).
 pub struct EditorState {
   buffer: TextBuffer,
   background_buffers: list<TextBuffer>,
@@ -311,7 +322,8 @@ pub struct EditorState {
   config: Config,
   prompt: Prompt,
   show_help: bool,
-  search: SearchState
+  search: SearchState,
+  panes: PaneNode
 }
 
 /// The pixel-free "screen buffer" the Terminal handler flushes.
@@ -339,13 +351,32 @@ pub type CursorStyle {
 }
 
 /// A minimal single-line input widget (M9). `NoPrompt` is the normal-
-/// editing state; `SaveAsPrompt`/`OpenPrompt`/`FindPrompt` carry the
-/// text typed so far. Only one prompt can be active at a time.
+/// editing state; `SaveAsPrompt`/`OpenPrompt`/`FindPrompt`/`VSplitPrompt`/
+/// `HSplitPrompt` carry the text typed so far. Only one prompt can be
+/// active at a time.
 pub type Prompt {
   NoPrompt,
   SaveAsPrompt(text: string, cursor: int),
   OpenPrompt(text: string, cursor: int),
-  FindPrompt(text: string, cursor: int)
+  FindPrompt(text: string, cursor: int),
+  VSplitPrompt(text: string, cursor: int),
+  HSplitPrompt(text: string, cursor: int)
+}
+
+/// The split-axis of a `Split` pane (M15).
+pub type Axis {
+  Horizontal,
+  Vertical
+}
+
+/// A binary tree of split panes (M15). `Leaf(bid)` is a single visible
+/// pane showing the `TextBuffer` with that `bid` — resolved against
+/// `EditorState.buffer` + `background_buffers` at render/focus time,
+/// same lookup either needs. `Split` divides its rectangle along
+/// `axis` at `ratio` (0.0–1.0, the fraction given to `left`/`top`).
+pub type PaneNode {
+  Leaf(bid: int),
+  Split(axis: Axis, ratio: float, left: PaneNode, right: PaneNode)
 }
 
 /// One match of an active search: the line/column where it starts —
@@ -435,7 +466,8 @@ pub fun init_editor_with_buffer(buf: TextBuffer, cfg: Config) : EditorState =>
     config: cfg,
     prompt: NoPrompt,
     show_help: false,
-    search: NoSearch
+    search: NoSearch,
+    panes: Leaf(buf.bid)
   }
 
 /// Split file content into lines, dropping one trailing newline

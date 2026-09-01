@@ -159,7 +159,14 @@ pub fun action_to_string(a: Action) : string =>
     ToggleHelp      => "toggle-help",
     StartFind       => "start-find",
     FindNext        => "find-next",
-    FindPrev        => "find-prev"
+    FindPrev        => "find-prev",
+    VSplit          => "vsplit-prompt",
+    HSplit          => "hsplit-prompt",
+    PaneLeft        => "pane-left",
+    PaneRight       => "pane-right",
+    PaneUp          => "pane-up",
+    PaneDown        => "pane-down",
+    NextPane        => "next-pane"
   }
 
 /// Inverse of `action_to_string`; unrecognised names resolve to `None`.
@@ -191,6 +198,13 @@ fun string_to_action(s: string) : maybe<Action> =>
     "start-find"   => Some(StartFind),
     "find-next"    => Some(FindNext),
     "find-prev"    => Some(FindPrev),
+    "vsplit-prompt" => Some(VSplit),
+    "hsplit-prompt" => Some(HSplit),
+    "pane-left"    => Some(PaneLeft),
+    "pane-right"   => Some(PaneRight),
+    "pane-up"      => Some(PaneUp),
+    "pane-down"    => Some(PaneDown),
+    "next-pane"    => Some(NextPane),
     "ignore"       => Some(Ignore),
     _              => None
   }
