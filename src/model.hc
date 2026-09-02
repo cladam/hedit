@@ -511,6 +511,32 @@ pub fun load_buffer(new_bid: int, path: maybe<string>) =>
 pub fun open_buffers(s: EditorState) : list<TextBuffer> =>
   [s.buffer] + s.background_buffers
 
+// ------------------- Split panes (M15) ------------------------------------
+
+/// The `TextBuffer` shown in the leaf with the given `bid`, or `s.buffer`
+/// as a safe fallback if `bid` isn't currently open (e.g. a stale pane
+/// left behind by `CloseBuffer` — panes don't prune themselves yet, a
+/// follow-up). Total: never crashes on a bid/state desync.
+pub fun buffer_for(s: EditorState, bid: int) : TextBuffer =>
+  buffer_for_go(open_buffers(s), bid, s.buffer)
+
+fun buffer_for_go(bufs: list<TextBuffer>, target_bid: int, fallback: TextBuffer) : TextBuffer =>
+  match bufs {
+    []          => fallback,
+    [b, ..rest] => if b.bid == target_bid { b } else { buffer_for_go(rest, target_bid, fallback) }
+  }
+
+/// Replace the leaf holding `target_bid` with `replacement`, walking the
+/// tree — how `VSplit`/`HSplit` turn a `Leaf` into a `Split`. A no-op if
+/// `target_bid` isn't found (defensive; every leaf's bid comes from an
+/// actually-open buffer in practice).
+pub fun replace_leaf(node: PaneNode, target_bid: int, replacement: PaneNode) : PaneNode =>
+  match node {
+    Leaf(bid) => if bid == target_bid { replacement } else { node },
+    Split(axis, ratio, left, right) =>
+      Split(axis, ratio, replace_leaf(left, target_bid, replacement), replace_leaf(right, target_bid, replacement))
+  }
+
 // --- small pure helpers ---------------------------------------------------
 
 /// Set the status line message.

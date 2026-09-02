@@ -186,6 +186,157 @@ fun render_normal_buffer(state: EditorState) : ScreenBuffer {
   }
 }
 
+// ------------------- Split panes (M15) --------------------------------
+// `state.panes` is a single `Leaf` for the overwhelmingly common case (no
+// split yet) — `render_editor_to_buffer` fast-paths straight to
+// `render_normal_buffer` then. Once `VSplit`/`HSplit` grows the tree, the
+// content area (rows between the tabline and status row) is divided into
+// per-leaf rectangles and each leaf's own buffer is painted into its own
+// slice; the tabline/status row stay single, full-width rows describing
+// the ACTIVE buffer, same as the unsplit view.
+
+/// Whether `node` is a single, unsplit pane.
+fun is_leaf(node: PaneNode) : bool =>
+  match node {
+    Leaf(_)           => true,
+    Split(_, _, _, _) => false
+  }
+
+/// Each leaf's screen-space rectangle `(x, y, w, h)` within `rect`,
+/// walking `node` and dividing along each `Split`'s `axis`/`ratio`.
+/// `Vertical` splits side-by-side (left/right, vim's `:vsplit`);
+/// `Horizontal` splits stacked (top/bottom, vim's `:split`). Panes are
+/// directly adjacent — no divider column/row is reserved (a visible
+/// seam between panes is a follow-up, not required to prove the layout).
+pub fun split_rect(rect: (int, int, int, int), node: PaneNode) : list<(int, (int, int, int, int))> =>
+  match node {
+    Leaf(bid) => [(bid, rect)],
+    Split(Vertical, ratio, left, right) => {
+      let (x, y, w, h) = rect
+      let lw = max(min(round(to_float(w) * ratio), w - 1), 1)
+      let rw = max(w - lw, 1)
+      split_rect((x, y, lw, h), left) + split_rect((x + lw, y, rw, h), right)
+    },
+    Split(Horizontal, ratio, left, right) => {
+      let (x, y, w, h) = rect
+      let th = max(min(round(to_float(h) * ratio), h - 1), 1)
+      let bh = max(h - th, 1)
+      split_rect((x, y, w, th), left) + split_rect((x, y + th, w, bh), right)
+    }
+  }
+
+/// `xs[idx]`, or `default` past the end — same shape as `actions.hc`'s
+/// (non-`pub`) `list_get`, specialised to string rows here.
+fun nth_str(xs: list<string>, idx: int, default: string) : string =>
+  match xs {
+    []          => default,
+    [x, ..rest] => if idx <= 0 { x } else { nth_str(rest, idx - 1, default) }
+  }
+
+/// `n` copies of `s` concatenated.
+fun repeat_str(s: string, n: int) : string =>
+  if n <= 0 { "" } else { s + repeat_str(s, n - 1) }
+
+/// One leaf's content rows: its buffer's lines, scrolled to keep its own
+/// head cursor visible (each pane scrolls independently off its own
+/// buffer's cursor — the same pure per-frame computation as the
+/// single-pane path), truncated/padded to exactly `rw` columns (every
+/// row, including "~" fill rows, must be exactly `rw` wide so splicing
+/// a later pane onto the same canvas row doesn't shift on a short line).
+fun leaf_content_rows(buf: TextBuffer, rw: int, rh: int) : list<string> {
+  let cur       = match buf.cursors { [] => Position { line: 0, col: 0 }, [x, .._] => x.pos }
+  let offset    = scroll_offset(rh, cur.line)
+  let text_rows = map(drop_n(buf.lines, offset), (l) => fit_to_width(l, rw))
+  let rows      = take_or_pad(text_rows, rh, "~")
+  map(rows, (r) => pad_right(r, rw, " "))
+}
+
+/// Overlay `pane_lines` onto `canvas` (a list of full-width row strings)
+/// at `rect`'s offset: rows `y .. y + h - 1` get columns `x .. x + w - 1`
+/// replaced; every other row/column is left as-is.
+fun paint_pane(canvas: list<string>, rect: (int, int, int, int), pane_lines: list<string>) : list<string> =>
+  paint_pane_go(canvas, rect, pane_lines, 0)
+
+fun paint_pane_go(canvas: list<string>, rect: (int, int, int, int), pane_lines: list<string>, row_idx: int) : list<string> =>
+  match canvas {
+    []            => [],
+    [row, ..rest] => {
+      let (x, y, w, h) = rect
+      let painted =
+        if row_idx >= y && row_idx < y + h {
+          row[0:x] + nth_str(pane_lines, row_idx - y, "") + row[x + w: ]
+        } else {
+          row
+        }
+      [painted] + paint_pane_go(rest, rect, pane_lines, row_idx + 1)
+    }
+  }
+
+/// Paint every leaf's content onto one shared canvas, in `rects` order.
+fun paint_all_panes(state: EditorState, canvas: list<string>, rects: list<(int, (int, int, int, int))>) : list<string> =>
+  match rects {
+    []                    => canvas,
+    [(bid, rect), ..rest] => {
+      let (_, _, w, h) = rect
+      let lines = leaf_content_rows(buffer_for(state, bid), w, h)
+      paint_all_panes(state, paint_pane(canvas, rect, lines), rest)
+    }
+  }
+
+/// The rectangle for `bid` in `rects`, or `default` if it isn't there
+/// (shouldn't happen — `state.buffer.bid` always has a leaf).
+fun find_rect(rects: list<(int, (int, int, int, int))>, bid: int, default: (int, int, int, int)) : (int, int, int, int) =>
+  match rects {
+    []                     => default,
+    [(rbid, rect), ..rest] => if rbid == bid { rect } else { find_rect(rest, bid, default) }
+  }
+
+/// Build a ScreenBuffer for a split-pane session (`state.panes` is more
+/// than a single `Leaf`). Tabline and status row stay single, full-width
+/// rows describing the ACTIVE buffer (same convention as the unsplit
+/// view) — only the content area is divided into per-pane rectangles.
+/// The real terminal cursor tracks the active pane's cursor, mapped into
+/// its rectangle. Search highlights are scoped to the active pane only
+/// for v1 (cross-pane highlighting is a follow-up).
+fun render_split_buffer(state: EditorState) : ScreenBuffer {
+  let (w, h)       = state.screen_size
+  let n_content    = h - 2
+  let full_rect    = (0, 0, w, n_content)
+  let rects        = split_rect(full_rect, state.panes)
+  let base_canvas  = take_or_pad([], n_content, repeat_str(" ", w))
+  let content_rows = paint_all_panes(state, base_canvas, rects)
+
+  let tabline_row = fit_to_width(build_tabline(state), w)
+  let path_part   = match state.buffer.path { None => "[No Name]", Some(p) => p }
+  let dirty_str   = if state.buffer.is_dirty { " [+]" } else { "" }
+  let default_msg = path_part + dirty_str
+  let status_msg  = match state.status_message { None => default_msg, Some(m) => m }
+  let status_row  = match state.prompt {
+    NoPrompt => fit_to_width(status_msg, w),
+    _        => fit_to_width(prompt_label(state.prompt), w)
+  }
+
+  let (ax, ay, aw, ah) = find_rect(rects, state.buffer.bid, full_rect)
+  let cur          = match state.buffer.cursors { [] => Position { line: 0, col: 0 }, [x, .._] => x.pos }
+  let offset       = scroll_offset(ah, cur.line)
+  let visible_line = max(min(cur.line - offset, max(ah - 1, 0)), 0)
+  let visible_col  = max(min(cur.col, max(aw - 1, 0)), 0)
+
+  let (crow, ccol) = match state.prompt {
+    NoPrompt => (ay + visible_line + 2, ax + visible_col + 1)
+    _        => (h, min(prompt_prefix_len(state.prompt) + prompt_cursor_col(state.prompt) + 1, w))
+  }
+
+  ScreenBuffer {
+    width: w,
+    height: h,
+    lines: [tabline_row] + content_rows + [status_row],
+    cursor_row: crow,
+    cursor_col: ccol,
+    highlights: []
+  }
+}
+
 // ------------------- Help overlay (M10) -----------------------------------
 //
 // A full-screen listing of every currently-bound chord, generated from the
@@ -219,6 +370,9 @@ pub fun render_help_buffer(state: EditorState) : ScreenBuffer {
 }
 
 /// Build the ScreenBuffer for the current frame, dispatching on
-/// `state.show_help` ahead of the normal render pass.
+/// `state.show_help` ahead of the normal render pass, and on whether
+/// `state.panes` (M15) is still a single `Leaf` or has grown a `Split`.
 pub fun render_editor_to_buffer(state: EditorState) : ScreenBuffer =>
-  if state.show_help { render_help_buffer(state) } else { render_normal_buffer(state) }
+  if state.show_help { render_help_buffer(state) }
+  else if is_leaf(state.panes) { render_normal_buffer(state) }
+  else { render_split_buffer(state) }

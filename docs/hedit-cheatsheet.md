@@ -91,14 +91,27 @@ hedit keeps open buffers in a ring:
 The tabline (row 0) lists every open buffer, active one bracketed —
 e.g. `[scratch] | notes.txt`.
 
-**Not yet:** split panes/windows, multiple cursors.
+**Not yet:** multiple cursors.
+
+## Split panes (M15)
+
+| Key           | Does                                                              |
+|-------------- |--------------------------------------------------------------------|
+| Meta-v        | Open a vertical-split prompt ("VSplit: ")                          |
+| Meta-h        | Open a horizontal-split prompt ("HSplit: ")                        |
+
+Type a path + Enter to open that file in the new pane; a bare Enter
+duplicates the current buffer's content into the new pane instead.
+Esc cancels the prompt.
+
+**Not yet:** pane-focus movement (`Meta-Arrows`/`Meta-Tab` are decoded
+but don't move focus yet), a visible divider between panes, resizing.
 
 ## Help
 
 | Key    | Does                                                              |
 |------- |--------------------------------------------------------------------|
 | Ctrl-g | Toggle a full-screen keybindings overlay, generated live from the current bindings (any key closes it) |
-| Meta-h | Same as Ctrl-g                                                     |
 
 ## Customization — `init.hl`
 

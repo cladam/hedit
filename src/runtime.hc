@@ -200,16 +200,54 @@ fun run_open_file(sized: EditorState, path: string, hl_env: Env, pool: list<(int
   (next, hl_env1, pool1)
 }
 
+// ------------------- Split panes (M15) --------------------------------
+// `VSplitPrompt`/`HSplitPrompt` submit: an empty typed path duplicates
+// the current buffer's content into a fresh, unnamed buffer (pure); a
+// non-empty path loads that file from disk (<fsys>, same as Open). Either
+// way the new buffer gets its own `bid`, its own `Buffer` history pool
+// entry (undo/redo never crosses panes, same invariant M14 established
+// for background buffers), and `panes` grows a `Split` where the
+// focused leaf used to be a `Leaf` — the new buffer becomes active/
+// focused, the old one slides into `background_buffers` (same "push
+// the old one, focus the new one" shape as `NewBuffer`/`OpenFile`).
+
+/// Build the new pane's buffer: a disk load for a typed path, or a pure
+/// in-memory duplicate of the current buffer for a bare Enter.
+fun split_buffer(sized: EditorState, new_bid: int, text: string) =>
+  if text == "" { (duplicate_buffer(new_bid, sized.buffer), None) }
+  else { load_buffer(new_bid, Some(text)) }
+
+/// Split submit shared by `VSplitPrompt`/`HSplitPrompt`, `axis` picking
+/// which. Threads `pool`/`hl_env` the same shape as `run_open_file`, plus
+/// growing `sized.panes` at the focused leaf.
+fun run_split(sized: EditorState, axis: Axis, text: string, hl_env: Env, pool: list<(int, ref<Buffer>)>) {
+  let new_bid = sized.next_bid
+  let (new_buf, load_status) = split_buffer(sized, new_bid, text)
+  let new_ref = spawn_buffer_handler().0
+  let pool1 = [(new_bid, new_ref)] + pool
+  let new_panes = replace_leaf(sized.panes, sized.buffer.bid, Split(axis, 0.5, Leaf(sized.buffer.bid), Leaf(new_bid)))
+  let opened = EditorState {
+    ...sized,
+    buffer: new_buf,
+    background_buffers: sized.background_buffers + [sized.buffer],
+    next_bid: new_bid + 1,
+    prompt: NoPrompt,
+    panes: new_panes
+  }
+  let based = match load_status {
+    None      => opened,
+    Some(msg) => set_status_message(opened, msg)
+  }
+  let (next, hl_env1) = run_buffer_open(based, text, hl_env)
+  (next, hl_env1, pool1)
+}
+
 /// Dispatch `PromptSubmit` (Enter while a prompt is active) to the
 /// right hook-aware effectful handler.
 // `NoPrompt` can't happen in practice (resolve_action only emits
 // PromptSubmit while a prompt is active) but falls back to a no-op
 // rather than crashing. Return-type annotation omitted: carries
-// <fsys> transitively via `run_open_file`/`run_save_as`.
-// `VSplitPrompt`/`HSplitPrompt` (M15) just close the prompt with a
-// status note for now \u2014 the actual `panes` tree mutation (open the
-// typed path or duplicate the current buffer into a new leaf) is a
-// follow-up once `render.hc` can lay out more than one pane.
+// <fsys> transitively via `run_open_file`/`run_save_as`/`run_split`.
 fun run_prompt_submit(sized: EditorState, hl_env: Env, pool: list<(int, ref<Buffer>)>) =>
   match sized.prompt {
     NoPrompt              => (sized, hl_env, pool),
@@ -219,8 +257,8 @@ fun run_prompt_submit(sized: EditorState, hl_env: Env, pool: list<(int, ref<Buff
     },
     OpenPrompt(text, _)   => run_open_file(sized, text, hl_env, pool),
     FindPrompt(_, _)      => (submit_find(sized), hl_env, pool),
-    VSplitPrompt(_, _)    => (set_status_message(EditorState { ...sized, prompt: NoPrompt }, "vsplit: layout wiring coming soon"), hl_env, pool),
-    HSplitPrompt(_, _)    => (set_status_message(EditorState { ...sized, prompt: NoPrompt }, "hsplit: layout wiring coming soon"), hl_env, pool)
+    VSplitPrompt(text, _) => run_split(sized, Vertical, text, hl_env, pool),
+    HSplitPrompt(text, _) => run_split(sized, Horizontal, text, hl_env, pool)
   }
 
 // ------------------- the loop ------------------------------------------

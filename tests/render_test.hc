@@ -107,3 +107,51 @@ test "the find prompt label shows the typed query in the status row" {
   let status = last_or(buf.lines, "MISSING")
   assert(status == "Find: c")
 }
+
+// ------------------- Split panes (M15) ----------------------------
+
+fun nth_or(xs: list<string>, idx: int, default: string) : string =>
+  match xs {
+    []          => default,
+    [x, ..rest] => if idx <= 0 { x } else { nth_or(rest, idx - 1, default) }
+  }
+
+test "split_rect on a single Leaf yields the whole rect unchanged" {
+  let rects = split_rect((0, 0, 80, 24), Leaf(1))
+  assert(rects == [(1, (0, 0, 80, 24))])
+}
+
+test "split_rect on a vertical split at ratio 0.5 yields two 40x24 rects" {
+  let node = Split(Vertical, 0.5, Leaf(1), Leaf(2))
+  let rects = split_rect((0, 0, 80, 24), node)
+  assert(rects == [(1, (0, 0, 40, 24)), (2, (40, 0, 40, 24))])
+}
+
+test "split_rect on a horizontal split at ratio 0.5 yields two 80x12 rects" {
+  let node = Split(Horizontal, 0.5, Leaf(1), Leaf(2))
+  let rects = split_rect((0, 0, 80, 24), node)
+  assert(rects == [(1, (0, 0, 80, 12)), (2, (0, 12, 80, 12))])
+}
+
+fun with_split_state(lines_a: list<string>, lines_b: list<string>, node: PaneNode, size: (int, int)) : EditorState {
+  let s0   = init_editor(None)
+  let bufa = TextBuffer { ...s0.buffer, bid: 1, lines: lines_a }
+  let bufb = TextBuffer { ...new_buffer(2, None), lines: lines_b }
+  EditorState { ...s0, buffer: bufa, background_buffers: [bufb], panes: node, screen_size: size }
+}
+
+test "a vertical split renders both panes side by side on one content row" {
+  let node = Split(Vertical, 0.5, Leaf(1), Leaf(2))
+  let s0   = with_split_state(["left"], ["right"], node, (10, 5))
+  let buf  = render_editor_to_buffer(s0)
+  assert(nth_or(buf.lines, 1, "MISSING") == "left right")
+}
+
+test "a horizontal split stacks the left buffer's pane above the right one" {
+  let node = Split(Horizontal, 0.5, Leaf(1), Leaf(2))
+  let s0   = with_split_state(["top"], ["bottom"], node, (10, 6))
+  let buf  = render_editor_to_buffer(s0)
+  // height 6 → n_content 4, split 0.5 → 2 rows each pane
+  assert(nth_or(buf.lines, 1, "MISSING") == "top       ")
+  assert(nth_or(buf.lines, 3, "MISSING") == "bottom    ")
+}

@@ -653,6 +653,13 @@ pub fun open_vsplit_prompt(state: EditorState) : EditorState =>
 pub fun open_hsplit_prompt(state: EditorState) : EditorState =>
   EditorState { ...state, prompt: HSplitPrompt("", 0) }
 
+/// A fresh, unnamed copy of `source`'s content under a new `bid` — the
+/// bare-Enter ("duplicate the current buffer") half of a split submit.
+/// Single cursor reset to (0, 0); not dirty (matches opening a fresh
+/// view, same as `new_buffer`).
+pub fun duplicate_buffer(new_bid: int, source: TextBuffer) : TextBuffer =>
+  TextBuffer { ...new_buffer(new_bid, None), lines: source.lines }
+
 // ------------------- Find (M12) --------------------------------------------
 // Ctrl-f opens `FindPrompt`; every keystroke re-scans the whole buffer for
 // `query` (plain substring, case-sensitive) via `find_all_matches`, so the
