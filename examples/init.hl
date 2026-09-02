@@ -77,7 +77,13 @@
 (bind "Meta-b" 'move-word-back)
 (bind "Meta-d" 'kill-word-forward)
 (bind "Meta-l" 'kill-whole-line)
-(bind "Meta-h" 'toggle-help)
+
+;; Split panes: type a path + Enter to open that file in the new pane,
+;; or a bare Enter to duplicate the current buffer's content into it.
+;; Esc cancels. Pane-focus movement (Meta-Arrows/Meta-Tab) is decoded
+;; but doesn't move focus yet, so there's nothing to bind there.
+(bind "Meta-v" 'vsplit-prompt)
+(bind "Meta-h" 'hsplit-prompt)
 
 ;; Buffer ring.
 (bind "Meta-o" 'new-buffer)
