@@ -1,6 +1,6 @@
 @project {
     name: "hedit"
-    version: "0.13.3"
+    version: "0.15.0"
     license: "MIT"
     entry: "src/main.hc"
 }
