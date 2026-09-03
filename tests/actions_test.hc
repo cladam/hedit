@@ -698,3 +698,77 @@ test "char_count sums line lengths, not counting newlines" {
   assert(char_count(with_lines(["abc", "de"]).buffer) == 5)
   assert(char_count(with_lines([""]).buffer) == 0)
 }
+
+// ------------------- Pane focus movement (M15 follow-up) ---------------
+
+fun with_two_panes(node: PaneNode) : EditorState {
+  let s0   = init_editor(None)
+  let bufa = TextBuffer { ...s0.buffer, bid: 0, lines: ["a"] }
+  let bufb = TextBuffer { ...new_buffer(1, None), lines: ["b"] }
+  EditorState { ...s0, buffer: bufa, background_buffers: [bufb], panes: node, screen_size: (80, 24) }
+}
+
+test "PaneRight/PaneLeft move focus between two vertically split panes" {
+  let node = Split(Vertical, 0.5, Leaf(0), Leaf(1))
+  let s0 = with_two_panes(node)
+  let s1 = apply_action(s0, PaneRight)
+  assert(s1.buffer.bid == 1)
+  assert(s1.buffer.lines == ["b"])
+  let s2 = apply_action(s1, PaneLeft)
+  assert(s2.buffer.bid == 0)
+  assert(s2.buffer.lines == ["a"])
+}
+
+test "PaneDown/PaneUp move focus between two horizontally split panes" {
+  let node = Split(Horizontal, 0.5, Leaf(0), Leaf(1))
+  let s0 = with_two_panes(node)
+  let s1 = apply_action(s0, PaneDown)
+  assert(s1.buffer.bid == 1)
+  let s2 = apply_action(s1, PaneUp)
+  assert(s2.buffer.bid == 0)
+}
+
+test "NextPane cycles through panes in document order, wrapping" {
+  let node = Split(Vertical, 0.5, Leaf(0), Leaf(1))
+  let s0 = with_two_panes(node)
+  let s1 = apply_action(s0, NextPane)
+  assert(s1.buffer.bid == 1)
+  let s2 = apply_action(s1, NextPane)
+  assert(s2.buffer.bid == 0)
+}
+
+test "pane-focus actions are a no-op with only one pane" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, PaneRight)
+  assert(s1.buffer.bid == s0.buffer.bid)
+  let s2 = apply_action(s0, NextPane)
+  assert(s2.buffer.bid == s0.buffer.bid)
+}
+
+test "resolve_action maps Meta-Arrows/Meta-Tab to pane-focus actions" {
+  let s0 = init_editor(None)
+  assert(resolve_action(s0, KeyEvent(KMetaSpecial(ArrowLeft))) == PaneLeft)
+  assert(resolve_action(s0, KeyEvent(KMetaSpecial(ArrowRight))) == PaneRight)
+  assert(resolve_action(s0, KeyEvent(KMetaSpecial(ArrowUp))) == PaneUp)
+  assert(resolve_action(s0, KeyEvent(KMetaSpecial(ArrowDown))) == PaneDown)
+  assert(resolve_action(s0, KeyEvent(KMetaSpecial(Tab))) == NextPane)
+}
+
+// ------------------- Ctrl-q closes the active pane, not hedit (M15) -----
+
+test "Quit closes the active pane instead of quitting when 2+ panes are open" {
+  let node = Split(Vertical, 0.5, Leaf(0), Leaf(1))
+  let s0   = with_two_panes(node)
+  let s1   = apply_action(s0, Quit)
+  assert(s1.should_quit == false)
+  assert(s1.buffer.bid == 1)
+  assert(s1.buffer.lines == ["b"])
+  assert(s1.panes == Leaf(1))
+  assert(s1.background_buffers == [])
+}
+
+test "Quit actually quits once panes has collapsed back to a single Leaf" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, Quit)
+  assert(s1.should_quit == true)
+}

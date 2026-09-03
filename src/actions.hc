@@ -507,6 +507,30 @@ pub fun close_buffer_action(state: EditorState) : EditorState =>
     [x, ..rest] => EditorState { ...state, buffer: x, background_buffers: rest }
   }
 
+// ------------------- Close pane (M15 follow-up, Ctrl-q) -------------------
+// With 2+ panes open, Ctrl-q closes the active pane AND its buffer (not
+// just unfocusing it, like `PaneLeft`/etc. do) instead of quitting hedit
+// outright — see `apply_action`'s `Quit` arm below, which only sets
+// `should_quit` once `state.panes` is back down to a single `Leaf`. Same
+// "the editor must always be escapable" invariant as before: repeated
+// Ctrl-q always terminates eventually, it just closes one pane at a time.
+
+/// Close the active pane: collapse it out of `panes` (`model.hc`'s
+/// `remove_leaf`) and hand focus to whichever pane comes first in the
+/// remaining tree's document order. A no-op if `panes` is already a
+/// single `Leaf` (nothing to collapse into) — callers check `is_leaf`
+/// first, same precondition `remove_leaf` documents.
+pub fun close_pane(state: EditorState) : EditorState {
+  let closed_bid = state.buffer.bid
+  let new_panes  = remove_leaf(state.panes, closed_bid)
+  let focus_bid  = first_or(pane_order(new_panes), closed_bid)
+  match extract_buffer(state.background_buffers, focus_bid) {
+    None                => state,
+    Some((next_buf, rest)) =>
+      EditorState { ...state, buffer: next_buf, background_buffers: rest, panes: new_panes }
+  }
+}
+
 // ------------------- Save-As / Open prompt (M9 + Stage 1 readline) -------
 // A minimal single-line input widget. Only one prompt is ever active at a
 // time (`EditorState.prompt`); `resolve_action` routes every `KeyEvent` to
@@ -641,9 +665,9 @@ pub fun open_file_prompt(state: EditorState) : EditorState =>
 // submitting with a typed path opens that file in the new pane, a bare
 // Enter duplicates the current buffer. The actual pane-tree/layout wiring
 // (needs `<fsys>` for the typed-path case) lands in `runtime.hc`'s
-// `run_prompt_submit` — pane-focus movement (`PaneLeft`/`Right`/`Up`/
-// `Down`/`NextPane`) is a pure no-op for now, wired up once `render.hc`
-// can compute per-pane rectangles to move focus geometrically.
+// `run_prompt_submit`. Pane-focus movement (`PaneLeft`/`Right`/`Up`/
+// `Down`/`NextPane`, bound to `Meta-Arrows`/`Meta-Tab`) lives further
+// down this file, once `model.hc`'s pane geometry is in scope.
 
 /// Open the vertical-split prompt with empty text.
 pub fun open_vsplit_prompt(state: EditorState) : EditorState =>
@@ -659,6 +683,121 @@ pub fun open_hsplit_prompt(state: EditorState) : EditorState =>
 /// view, same as `new_buffer`).
 pub fun duplicate_buffer(new_bid: int, source: TextBuffer) : TextBuffer =>
   TextBuffer { ...new_buffer(new_bid, None), lines: source.lines }
+
+// ------------------- Pane focus movement (M15 follow-up) ------------------
+// `PaneLeft`/`Right`/`Up`/`Down` (`Meta-Arrows`) compare every leaf's
+// rectangle center (`model.hc`'s `split_rect`/`rect_center`, computed
+// fresh from the CURRENT `screen_size` — no persisted layout state to
+// keep in sync) to find the nearest neighbour strictly in the requested
+// direction, tie-broken by the smallest perpendicular distance (so
+// e.g. moving down from a wide pane lands in whichever of several
+// stacked panes below is most directly underneath). `NextPane`
+// (`Meta-Tab`) instead walks the tree's leaves in document order
+// (`pane_order`) for a stable linear cycle. Both are no-ops (state
+// unchanged) when unsplit or already at an edge — `activate_buffer`
+// itself is a no-op if the target `bid` isn't open, and `nearest_*`
+// returning `None` short-circuits before ever calling it.
+
+fun iabs(n: int) : int => if n < 0 { -n } else { n }
+
+/// `(bid, center_x, center_y)` for every leaf in `rects`.
+fun pane_centers(rects: list<(int, (int, int, int, int))>) : list<(int, int, int)> =>
+  match rects {
+    []                    => [],
+    [(bid, rect), ..rest] => {
+      let (cx, cy) = rect_center(rect)
+      [(bid, cx, cy)] + pane_centers(rest)
+    }
+  }
+
+/// The element of `cands` for which `better(candidate, current_best)`
+/// holds most often — a plain "keep the best so far" reduction.
+fun best_of(cands: list<(int, int, int)>, better: ((int, int, int), (int, int, int)) -> bool) : maybe<(int, int, int)> =>
+  match cands {
+    []          => None,
+    [c, ..rest] =>
+      match best_of(rest, better) {
+        None      => Some(c),
+        Some(cur) => if better(c, cur) { Some(c) } else { Some(cur) }
+      }
+  }
+
+/// The nearest leaf strictly left of `(fx, fy)`, or `None` if there
+/// isn't one.
+fun nearest_left(cands: list<(int, int, int)>, fx: int, fy: int) : maybe<int> =>
+  match best_of(filter(cands, (c) => c.1 < fx), (a, b) => a.1 > b.1 || (a.1 == b.1 && iabs(a.2 - fy) < iabs(b.2 - fy))) {
+    None    => None,
+    Some(c) => Some(c.0)
+  }
+
+/// The nearest leaf strictly right of `(fx, fy)`, or `None`.
+fun nearest_right(cands: list<(int, int, int)>, fx: int, fy: int) : maybe<int> =>
+  match best_of(filter(cands, (c) => c.1 > fx), (a, b) => a.1 < b.1 || (a.1 == b.1 && iabs(a.2 - fy) < iabs(b.2 - fy))) {
+    None    => None,
+    Some(c) => Some(c.0)
+  }
+
+/// The nearest leaf strictly above `(fx, fy)`, or `None`.
+fun nearest_up(cands: list<(int, int, int)>, fx: int, fy: int) : maybe<int> =>
+  match best_of(filter(cands, (c) => c.2 < fy), (a, b) => a.2 > b.2 || (a.2 == b.2 && iabs(a.1 - fx) < iabs(b.1 - fx))) {
+    None    => None,
+    Some(c) => Some(c.0)
+  }
+
+/// The nearest leaf strictly below `(fx, fy)`, or `None`.
+fun nearest_down(cands: list<(int, int, int)>, fx: int, fy: int) : maybe<int> =>
+  match best_of(filter(cands, (c) => c.2 > fy), (a, b) => a.2 < b.2 || (a.2 == b.2 && iabs(a.1 - fx) < iabs(b.1 - fx))) {
+    None    => None,
+    Some(c) => Some(c.0)
+  }
+
+/// Apply a `nearest_*` result: activate that pane's buffer, or leave
+/// `state` untouched if there wasn't one.
+fun move_focus(state: EditorState, target: maybe<int>) : EditorState =>
+  match target {
+    None      => state,
+    Some(bid) => activate_buffer(state, bid)
+  }
+
+/// The active leaf's rectangle within the current content area.
+fun active_rect(state: EditorState, rects: list<(int, (int, int, int, int))>, full_rect: (int, int, int, int)) : (int, int, int, int) =>
+  find_rect(rects, state.buffer.bid, full_rect)
+
+pub fun pane_left(state: EditorState) : EditorState {
+  let (w, h)   = state.screen_size
+  let full     = (0, 0, w, h - 2)
+  let rects    = split_rect(full, state.panes)
+  let (fx, fy) = rect_center(active_rect(state, rects, full))
+  move_focus(state, nearest_left(pane_centers(rects), fx, fy))
+}
+
+pub fun pane_right(state: EditorState) : EditorState {
+  let (w, h)   = state.screen_size
+  let full     = (0, 0, w, h - 2)
+  let rects    = split_rect(full, state.panes)
+  let (fx, fy) = rect_center(active_rect(state, rects, full))
+  move_focus(state, nearest_right(pane_centers(rects), fx, fy))
+}
+
+pub fun pane_up(state: EditorState) : EditorState {
+  let (w, h)   = state.screen_size
+  let full     = (0, 0, w, h - 2)
+  let rects    = split_rect(full, state.panes)
+  let (fx, fy) = rect_center(active_rect(state, rects, full))
+  move_focus(state, nearest_up(pane_centers(rects), fx, fy))
+}
+
+pub fun pane_down(state: EditorState) : EditorState {
+  let (w, h)   = state.screen_size
+  let full     = (0, 0, w, h - 2)
+  let rects    = split_rect(full, state.panes)
+  let (fx, fy) = rect_center(active_rect(state, rects, full))
+  move_focus(state, nearest_down(pane_centers(rects), fx, fy))
+}
+
+/// Cycle focus to the next pane in document order, wrapping around.
+pub fun next_pane(state: EditorState) : EditorState =>
+  activate_buffer(state, next_in_order(pane_order(state.panes), state.buffer.bid))
 
 // ------------------- Find (M12) --------------------------------------------
 // Ctrl-f opens `FindPrompt`; every keystroke re-scans the whole buffer for
@@ -862,6 +1001,11 @@ fun resolve_normal_action(state: EditorState, evt: Event) : Action =>
     KeyEvent(KSpecial(ArrowRight))  => MoveRight,
     KeyEvent(KCtrlSpecial(ArrowRight)) => FindNext,
     KeyEvent(KCtrlSpecial(ArrowLeft))  => FindPrev,
+    KeyEvent(KMetaSpecial(ArrowLeft))  => PaneLeft,
+    KeyEvent(KMetaSpecial(ArrowRight)) => PaneRight,
+    KeyEvent(KMetaSpecial(ArrowUp))    => PaneUp,
+    KeyEvent(KMetaSpecial(ArrowDown))  => PaneDown,
+    KeyEvent(KMetaSpecial(Tab))        => NextPane,
     KeyEvent(KShortcut(m, c)) =>
       lookup_binding(state.config.bindings, KeyChord { m: m, c: c }),
     ResizeEvent(w, h)         => Resize(w, h),
@@ -886,10 +1030,12 @@ pub fun resolve_action(state: EditorState, evt: Event) : Action {
 /// Apply an Action to state, producing the next EditorState.
 // Save/Copy/Paste/Undo/Redo/Kill*/PromptSubmit no-op here — they carry
 // <fsys>/<Clipboard>/<Buffer> effects handled by event_loop, keeping this
-// function total for tests and the HiLisp bridge.
+// function total for tests and the HiLisp bridge. `Quit` only actually
+// quits once `panes` is a single `Leaf` — with 2+ panes open it closes
+// the active pane instead (see `close_pane`'s doc comment).
 pub fun apply_action(state: EditorState, action: Action) : EditorState =>
   match action {
-    Quit         => EditorState { ...state, should_quit: true },
+    Quit         => if is_leaf(state.panes) { EditorState { ...state, should_quit: true } } else { close_pane(state) },
     Insert(c)    => insert_char(state, c),
     NewLine        => insert_newline(state),
     DeleteBackward => delete_backward(state),
@@ -919,11 +1065,11 @@ pub fun apply_action(state: EditorState, action: Action) : EditorState =>
     OpenFile     => open_file_prompt(state),
     VSplit       => open_vsplit_prompt(state),
     HSplit       => open_hsplit_prompt(state),
-    PaneLeft     => state, // runtime.hc/render.hc: geometric pane focus, follow-up
-    PaneRight    => state, // runtime.hc/render.hc: geometric pane focus, follow-up
-    PaneUp       => state, // runtime.hc/render.hc: geometric pane focus, follow-up
-    PaneDown     => state, // runtime.hc/render.hc: geometric pane focus, follow-up
-    NextPane     => state, // runtime.hc/render.hc: linear pane cycling, follow-up
+    PaneLeft     => pane_left(state),
+    PaneRight    => pane_right(state),
+    PaneUp       => pane_up(state),
+    PaneDown     => pane_down(state),
+    NextPane     => next_pane(state),
     PromptChar(c)   => refresh_find_matches(prompt_insert_char(state, c)),
     PromptBackspace => refresh_find_matches(prompt_backspace(state)),
     PromptCancel    => cancel_prompt(state),

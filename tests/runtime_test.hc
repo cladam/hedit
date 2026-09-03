@@ -688,37 +688,54 @@ test "M13: confirm-close plugin requires Meta-w twice before the buffer actually
 // Meta-v opens `VSplitPrompt`; a bare Enter (empty typed text) duplicates
 // the current buffer's content into a fresh, focused pane instead of
 // loading a path — `panes` grows a `Split(Vertical, ...)` where the old
-// `Leaf` used to be, and the duplicated buffer becomes active.
+// `Leaf` used to be, and the duplicated buffer becomes active. Ctrl-c
+// right after the split copies the NEW pane's head line into the
+// clipboard — proof the duplicate really landed there and is focused,
+// surviving even though `Ctrl-q` closes (and discards) that pane a
+// moment later. Two Ctrl-q's are needed to actually quit now that
+// `Quit` is pane-aware (see `actions.hc::close_pane`): the first closes
+// the just-created pane, reverting to the original buffer/panes; only
+// the second (with `panes` back to a single `Leaf`) really quits.
 test "Meta-v with a bare Enter duplicates the buffer into a new vertical pane" {
-  let final: EditorState = handle Terminal {
-    poll_event() => match events {
-      []          => KeyEvent(KShortcut(Ctrl, 'q')),
-      [e, ..rest] => { events = rest; e }
-    },
-    render_frame(_buf)   => (),
-    get_dimensions()     => (80, 24),
-    set_cursor_style(_s) => ()
-  } with var events = [
-    KeyEvent(KChar('h')),
-    KeyEvent(KChar('i')),
-    KeyEvent(KShortcut(Meta, 'v')), // opens VSplitPrompt("")
-    KeyEvent(KSpecial(Enter)),      // bare submit — duplicate
-    KeyEvent(KShortcut(Ctrl, 'q'))
-  ] in {
-    event_loop(init_editor(None))
+  let pair: (EditorState, string) = handle Clipboard {
+    get_selection()  => clip,
+    set_selection(t) => clip = t
+  } with var clip = "" in {
+    let final: EditorState = handle Terminal {
+      poll_event() => match events {
+        []          => KeyEvent(KShortcut(Ctrl, 'q')),
+        [e, ..rest] => { events = rest; e }
+      },
+      render_frame(_buf)   => (),
+      get_dimensions()     => (80, 24),
+      set_cursor_style(_s) => ()
+    } with var events = [
+      KeyEvent(KChar('h')),
+      KeyEvent(KChar('i')),
+      KeyEvent(KShortcut(Meta, 'v')), // opens VSplitPrompt("")
+      KeyEvent(KSpecial(Enter)),      // bare submit — duplicate, now focused
+      KeyEvent(KShortcut(Ctrl, 'c'))  // copy the new pane's head line
+    ] in {
+      event_loop(init_editor(None))
+    }
+    (final, clip)
   }
-  assert(final.prompt == NoPrompt)
-  assert(final.buffer.bid == 1)
+  let final = pair.0
+  let clipped = pair.1
+  assert(clipped == "hi") // the duplicated pane really held "hi"
+  // First Ctrl-q (scripted-handler fallback) closed the pane we just
+  // made, reverting to the original buffer; the second really quit.
+  assert(final.should_quit == true)
+  assert(final.buffer.bid == 0)
   assert(final.buffer.lines == ["hi"])
-  assert(final.buffer.path == None)
-  assert(final.panes == Split(Vertical, 0.5, Leaf(0), Leaf(1)))
-  let bg_lines = match final.background_buffers { [b] => b.lines, _ => ["MISSING"] }
-  assert(bg_lines == ["hi"])
+  assert(final.panes == Leaf(0))
+  assert(final.background_buffers == [])
 }
 
 // Meta-h + a typed path opens that file (real disk content) into a new
 // horizontal pane, same "push old buffer to the ring, focus the new
-// one" shape as `Ctrl-o`'s Open prompt.
+// one" shape as `Ctrl-o`'s Open prompt. Same two-stage Ctrl-q shape as
+// the vsplit test above.
 test "Meta-h with a typed path opens that file into a new horizontal pane" {
   let src_path = "/tmp/hedit_test_m15_hsplit_src.txt"
   let write_result = write_file(src_path, "line1\nline2\n")
@@ -728,25 +745,32 @@ test "Meta-h with a typed path opens that file into a new horizontal pane" {
     KeyEvent(KChar('a')),
     KeyEvent(KShortcut(Meta, 'h')) // opens HSplitPrompt("")
   ] + path_events + [
-    KeyEvent(KSpecial(Enter)),     // submits — loads the file
-    KeyEvent(KShortcut(Ctrl, 'q'))
+    KeyEvent(KSpecial(Enter)),     // submits — loads the file, now focused
+    KeyEvent(KShortcut(Ctrl, 'c')) // copy the new pane's head line
   ]
-  let final: EditorState = handle Terminal {
-    poll_event() => match ev {
-      []          => KeyEvent(KShortcut(Ctrl, 'q')),
-      [e, ..rest] => { ev = rest; e }
-    },
-    render_frame(_buf)   => (),
-    get_dimensions()     => (80, 24),
-    set_cursor_style(_s) => ()
-  } with var ev = events in {
-    event_loop(init_editor(None))
+  let pair: (EditorState, string) = handle Clipboard {
+    get_selection()  => clip,
+    set_selection(t) => clip = t
+  } with var clip = "" in {
+    let final: EditorState = handle Terminal {
+      poll_event() => match ev {
+        []          => KeyEvent(KShortcut(Ctrl, 'q')),
+        [e, ..rest] => { ev = rest; e }
+      },
+      render_frame(_buf)   => (),
+      get_dimensions()     => (80, 24),
+      set_cursor_style(_s) => ()
+    } with var ev = events in {
+      event_loop(init_editor(None))
+    }
+    (final, clip)
   }
-  assert(final.prompt == NoPrompt)
-  assert(final.buffer.bid == 1)
-  assert(final.buffer.path == Some(src_path))
-  assert(final.buffer.lines == ["line1", "line2"])
-  assert(final.panes == Split(Horizontal, 0.5, Leaf(0), Leaf(1)))
-  let bg_lines = map(final.background_buffers, buf_lines)
-  assert(bg_lines == [["a"]])
+  let final = pair.0
+  let clipped = pair.1
+  assert(clipped == "line1") // the loaded pane really held the file's content
+  assert(final.should_quit == true)
+  assert(final.buffer.bid == 0)
+  assert(final.buffer.lines == ["a"])
+  assert(final.panes == Leaf(0))
+  assert(final.background_buffers == [])
 }

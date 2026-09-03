@@ -537,6 +537,162 @@ pub fun replace_leaf(node: PaneNode, target_bid: int, replacement: PaneNode) : P
       Split(axis, ratio, replace_leaf(left, target_bid, replacement), replace_leaf(right, target_bid, replacement))
   }
 
+/// Remove the leaf holding `target_bid`, collapsing its parent `Split`
+/// into just the sibling subtree — the inverse of `replace_leaf`, how
+/// closing a pane (Ctrl-q with 2+ panes open) shrinks the tree. A no-op
+/// if `target_bid` isn't found, including when `node` is itself a bare
+/// `Leaf` (there's no parent to collapse into — callers check `is_leaf`
+/// first, see `actions.hc::close_pane`).
+pub fun remove_leaf(node: PaneNode, target_bid: int) : PaneNode =>
+  match node {
+    Leaf(_) => node,
+    Split(_, _, Leaf(lbid), right) if lbid == target_bid => right,
+    Split(_, _, left, Leaf(rbid)) if rbid == target_bid => left,
+    Split(axis, ratio, left, right) =>
+      Split(axis, ratio, remove_leaf(left, target_bid), remove_leaf(right, target_bid))
+  }
+
+/// Remove the buffer with `bid` from `bufs`, returning it alongside the
+/// rest of the list — `None` if it isn't there. Used by `activate_buffer`
+/// to swap a background buffer into the active slot, and by
+/// `actions.hc::close_pane` to pull out the pane that inherits focus.
+pub fun extract_buffer(bufs: list<TextBuffer>, target_bid: int) : maybe<(TextBuffer, list<TextBuffer>)> =>
+  match bufs {
+    []          => None,
+    [b, ..rest] =>
+      if b.bid == target_bid { Some((b, rest)) }
+      else {
+        match extract_buffer(rest, target_bid) {
+          None               => None,
+          Some((found, remaining)) => Some((found, [b] + remaining))
+        }
+      }
+  }
+
+/// Make the buffer with `target_bid` the active one, swapping today's
+/// active buffer into `background_buffers` in its place — the pure
+/// "switch which pane has focus" primitive `NextPane`/`PaneLeft`/etc.
+/// build on. A no-op if `target_bid` is already active or isn't open.
+pub fun activate_buffer(state: EditorState, target_bid: int) : EditorState =>
+  if state.buffer.bid == target_bid { state }
+  else {
+    match extract_buffer(state.background_buffers, target_bid) {
+      None                  => state,
+      Some((found, rest)) => EditorState { ...state, buffer: found, background_buffers: rest + [state.buffer] }
+    }
+  }
+
+/// Every leaf's `bid`, in left-to-right/top-to-bottom document order
+/// (matches `split_rect`'s own traversal) — the stable linear ordering
+/// `NextPane` cycles through.
+pub fun pane_order(node: PaneNode) : list<int> =>
+  match node {
+    Leaf(bid)              => [bid],
+    Split(_, _, left, right) => pane_order(left) + pane_order(right)
+  }
+
+/// The first element of `xs`, or `default` if empty — used by
+/// `next_in_order` to wrap around, and by `actions.hc::close_pane` to
+/// pick which remaining pane inherits focus.
+pub fun first_or(xs: list<int>, default: int) : int =>
+  match xs { [] => default, [x, .._] => x }
+
+fun next_in_order_go(remaining: list<int>, bid: int, full: list<int>) : int =>
+  match remaining {
+    []          => bid,
+    [x, ..rest] =>
+      if x == bid { match rest { [] => first_or(full, bid), [y, .._] => y } }
+      else { next_in_order_go(rest, bid, full) }
+  }
+
+/// The `bid` that comes after `bid` in `order`, wrapping to the first —
+/// `bid` itself if it isn't found (shouldn't happen; every open pane's
+/// `bid` came from `pane_order` in the first place).
+pub fun next_in_order(order: list<int>, bid: int) : int =>
+  next_in_order_go(order, bid, order)
+
+// --- Split-pane geometry (pure, screen-independent of TextBuffer) --------
+// `split_rect`/`split_dividers` share their divider-aware extent math
+// (`vsplit_extents`/`hsplit_extents`) so a pane's rectangle and its
+// neighbouring divider strip never disagree about where the seam sits.
+// One column (`Vertical`) or row (`Horizontal`) is reserved between
+// sibling panes for a visible divider glyph — `render.hc` paints it,
+// this module only reserves the space.
+
+/// Whether `node` is a single, unsplit pane.
+pub fun is_leaf(node: PaneNode) : bool =>
+  match node {
+    Leaf(_)           => true,
+    Split(_, _, _, _) => false
+  }
+
+/// A `Vertical` split's left/right pane widths at `ratio`, reserving
+/// one column in between for the divider.
+fun vsplit_extents(w: int, ratio: float) : (int, int) {
+  let lw = max(min(round(to_float(w) * ratio), w - 2), 1)
+  (lw, max(w - lw - 1, 1))
+}
+
+/// A `Horizontal` split's top/bottom pane heights at `ratio`, reserving
+/// one row in between for the divider.
+fun hsplit_extents(h: int, ratio: float) : (int, int) {
+  let th = max(min(round(to_float(h) * ratio), h - 2), 1)
+  (th, max(h - th - 1, 1))
+}
+
+/// Each leaf's screen-space rectangle `(x, y, w, h)` within `rect`,
+/// walking `node` and dividing along each `Split`'s `axis`/`ratio`.
+/// `Vertical` splits side-by-side (left/right, vim's `:vsplit`);
+/// `Horizontal` splits stacked (top/bottom, vim's `:split`).
+pub fun split_rect(rect: (int, int, int, int), node: PaneNode) : list<(int, (int, int, int, int))> =>
+  match node {
+    Leaf(bid) => [(bid, rect)],
+    Split(Vertical, ratio, left, right) => {
+      let (x, y, w, h) = rect
+      let (lw, rw) = vsplit_extents(w, ratio)
+      split_rect((x, y, lw, h), left) + split_rect((x + lw + 1, y, rw, h), right)
+    },
+    Split(Horizontal, ratio, left, right) => {
+      let (x, y, w, h) = rect
+      let (th, bh) = hsplit_extents(h, ratio)
+      split_rect((x, y, w, th), left) + split_rect((x, y + th + 1, w, bh), right)
+    }
+  }
+
+/// The divider strip reserved at every `Split` node: a 1-column-wide,
+/// full-height rectangle for `Vertical`, or a 1-row-tall, full-width one
+/// for `Horizontal`. `[]` for a single `Leaf`.
+pub fun split_dividers(rect: (int, int, int, int), node: PaneNode) : list<(int, int, int, int)> =>
+  match node {
+    Leaf(_) => [],
+    Split(Vertical, ratio, left, right) => {
+      let (x, y, w, h) = rect
+      let (lw, rw) = vsplit_extents(w, ratio)
+      [(x + lw, y, 1, h)] + split_dividers((x, y, lw, h), left) + split_dividers((x + lw + 1, y, rw, h), right)
+    },
+    Split(Horizontal, ratio, left, right) => {
+      let (x, y, w, h) = rect
+      let (th, bh) = hsplit_extents(h, ratio)
+      [(x, y + th, w, 1)] + split_dividers((x, y, w, th), left) + split_dividers((x, y + th + 1, w, bh), right)
+    }
+  }
+
+/// The rectangle for `bid` in `rects` (`split_rect`'s output), or
+/// `default` if it isn't there (shouldn't happen — every open pane's
+/// `bid` has a leaf).
+pub fun find_rect(rects: list<(int, (int, int, int, int))>, bid: int, default: (int, int, int, int)) : (int, int, int, int) =>
+  match rects {
+    []                     => default,
+    [(rbid, rect), ..rest] => if rbid == bid { rect } else { find_rect(rest, bid, default) }
+  }
+
+/// The center point of a rectangle — the reference point pane-focus
+/// movement (`actions.hc`) compares to find the nearest neighbour.
+pub fun rect_center(rect: (int, int, int, int)) : (int, int) {
+  let (x, y, w, h) = rect
+  (x + w / 2, y + h / 2)
+}
+
 // --- small pure helpers ---------------------------------------------------
 
 /// Set the status line message.

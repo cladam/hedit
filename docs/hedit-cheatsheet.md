@@ -69,7 +69,7 @@ search.
 |------- |----------------------------------------------------------------------|
 | Ctrl-s | Save. On a pathless (scratch) buffer, opens the Save-As prompt instead |
 | Ctrl-o | Open the "open file" prompt                                          |
-| Ctrl-q | Quit                                                                 |
+| Ctrl-q | Quit — with 2+ panes open, closes the active pane/buffer first (see Split panes below) |
 
 Prompt controls (Save-As / Open): type to edit the path (inserts at
 the cursor, not just append), **Enter** submits, **Esc** cancels. The
@@ -99,13 +99,15 @@ e.g. `[scratch] | notes.txt`.
 |-------------- |--------------------------------------------------------------------|
 | Meta-v        | Open a vertical-split prompt ("VSplit: ")                          |
 | Meta-h        | Open a horizontal-split prompt ("HSplit: ")                        |
+| Meta-Arrows   | Move focus to the nearest pane in that direction                  |
+| Meta-Tab      | Cycle focus to the next pane                                       |
+| Ctrl-q        | Close the active pane and its buffer (only quits hedit once down to one pane) |
 
 Type a path + Enter to open that file in the new pane; a bare Enter
 duplicates the current buffer's content into the new pane instead.
-Esc cancels the prompt.
+Esc cancels the prompt. A `│`/`─` divider marks the seam between panes.
 
-**Not yet:** pane-focus movement (`Meta-Arrows`/`Meta-Tab` are decoded
-but don't move focus yet), a visible divider between panes, resizing.
+**Not yet:** interactive resizing, cross-pane search highlighting.
 
 ## Help
 
@@ -150,6 +152,7 @@ path prompt), theme presets beyond `default`/`ilseon`.
 
 - One file (`init.hl`, HiLisp) for both settings and keybindings.
 - Buffers are a rotation ring, not a tab bar.
-- No split panes yet.
+- Split panes (`Meta-v`/`Meta-h`) landed in M15 — no interactive
+  resizing yet.
 - No plugin system yet. HiLisp is meant to grow into that role later
   rather than bolting on a separate mechanism.

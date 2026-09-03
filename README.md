@@ -153,7 +153,8 @@ Default keybindings (overridable from `init.hl`).
 Full reference with every chord: [`docs/hedit-cheatsheets.md`](docs/hedit-cheatsheet.md)
 (or press `Ctrl-g` inside hedit for a live overlay).
 
-- File: `Ctrl-s` save, `Ctrl-o` open-file prompt, `Ctrl-q` quit
+- File: `Ctrl-s` save, `Ctrl-o` open-file prompt, `Ctrl-q` quit (with
+  2+ panes open, closes the active pane/buffer first)
 - Readline-style editing: `Ctrl-a`/`Ctrl-e` line start/end, `Ctrl-d` delete-forward, `Ctrl-k` kill-line, `Ctrl-w`
   kill-word-back, `Meta-f`/`Meta-b` word forward/back, `Meta-d`
   kill-word-forward, `Meta-l` kill-whole-line
@@ -163,7 +164,8 @@ Full reference with every chord: [`docs/hedit-cheatsheets.md`](docs/hedit-cheats
 - Buffers: `Meta-o`/`Meta-n`/`Meta-p`/`Meta-w` new/next/prev/close buffer
 - Split panes: `Meta-v`/`Meta-h` open a vertical/horizontal split prompt
   (type a path + Enter to open that file in the new pane, or a bare
-  Enter to duplicate the current buffer)
+  Enter to duplicate the current buffer), `Meta-Arrows` move focus to
+  the nearest pane, `Meta-Tab` cycles through panes
 - Help: `Ctrl-g` toggle the keybindings overlay
 
 ### Command-line flags

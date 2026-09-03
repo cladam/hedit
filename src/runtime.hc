@@ -384,6 +384,16 @@ fun dispatch_action(sized: EditorState, action: Action, buf_pool: list<(int, ref
       let pool1 = if next.buffer.bid == closed_bid { buf_pool } else { pool_drop(buf_pool, closed_bid) }
       (next, hl_env, pool1)
     },
+    // With 2+ panes open, `Quit` closes the active pane's buffer (see
+    // `actions.hc::close_pane`) instead of quitting — drop its history
+    // pool entry the same way `CloseBuffer` does, keyed on whether the
+    // active bid actually changed.
+    Quit => {
+      let closed_bid = sized.buffer.bid
+      let next = apply_action(sized, action)
+      let pool1 = if next.buffer.bid == closed_bid { buf_pool } else { pool_drop(buf_pool, closed_bid) }
+      (next, hl_env, pool1)
+    },
     _         => (apply_action(sized, action), hl_env, buf_pool)
   }
 

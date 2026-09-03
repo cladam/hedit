@@ -121,16 +121,33 @@ test "split_rect on a single Leaf yields the whole rect unchanged" {
   assert(rects == [(1, (0, 0, 80, 24))])
 }
 
-test "split_rect on a vertical split at ratio 0.5 yields two 40x24 rects" {
+// One column/row is reserved between siblings for the divider (see
+// `model.hc`'s `vsplit_extents`/`hsplit_extents`), so panes are 1
+// column/row narrower/shorter than a naive `w * ratio` split.
+test "split_rect on a vertical split at ratio 0.5 reserves a 1-column divider" {
   let node = Split(Vertical, 0.5, Leaf(1), Leaf(2))
   let rects = split_rect((0, 0, 80, 24), node)
-  assert(rects == [(1, (0, 0, 40, 24)), (2, (40, 0, 40, 24))])
+  assert(rects == [(1, (0, 0, 40, 24)), (2, (41, 0, 39, 24))])
 }
 
-test "split_rect on a horizontal split at ratio 0.5 yields two 80x12 rects" {
+test "split_rect on a horizontal split at ratio 0.5 reserves a 1-row divider" {
   let node = Split(Horizontal, 0.5, Leaf(1), Leaf(2))
   let rects = split_rect((0, 0, 80, 24), node)
-  assert(rects == [(1, (0, 0, 80, 12)), (2, (0, 12, 80, 12))])
+  assert(rects == [(1, (0, 0, 80, 12)), (2, (0, 13, 80, 11))])
+}
+
+test "split_dividers on a single Leaf yields no dividers" {
+  assert(split_dividers((0, 0, 80, 24), Leaf(1)) == [])
+}
+
+test "split_dividers on a vertical split yields one column at the seam" {
+  let node = Split(Vertical, 0.5, Leaf(1), Leaf(2))
+  assert(split_dividers((0, 0, 80, 24), node) == [(40, 0, 1, 24)])
+}
+
+test "split_dividers on a horizontal split yields one row at the seam" {
+  let node = Split(Horizontal, 0.5, Leaf(1), Leaf(2))
+  assert(split_dividers((0, 0, 80, 24), node) == [(0, 12, 80, 1)])
 }
 
 fun with_split_state(lines_a: list<string>, lines_b: list<string>, node: PaneNode, size: (int, int)) : EditorState {
@@ -140,18 +157,20 @@ fun with_split_state(lines_a: list<string>, lines_b: list<string>, node: PaneNod
   EditorState { ...s0, buffer: bufa, background_buffers: [bufb], panes: node, screen_size: size }
 }
 
-test "a vertical split renders both panes side by side on one content row" {
+test "a vertical split renders both panes side by side with a divider between them" {
   let node = Split(Vertical, 0.5, Leaf(1), Leaf(2))
   let s0   = with_split_state(["left"], ["right"], node, (10, 5))
   let buf  = render_editor_to_buffer(s0)
-  assert(nth_or(buf.lines, 1, "MISSING") == "left right")
+  // width 10 → 5-wide left pane, 1-col divider, 4-wide right pane
+  assert(nth_or(buf.lines, 1, "MISSING") == "left │righ")
 }
 
-test "a horizontal split stacks the left buffer's pane above the right one" {
+test "a horizontal split stacks the left buffer's pane above a divider row above the right one" {
   let node = Split(Horizontal, 0.5, Leaf(1), Leaf(2))
   let s0   = with_split_state(["top"], ["bottom"], node, (10, 6))
   let buf  = render_editor_to_buffer(s0)
-  // height 6 → n_content 4, split 0.5 → 2 rows each pane
+  // height 6 → n_content 4 → 2 rows top, 1 divider row, 1 row bottom
   assert(nth_or(buf.lines, 1, "MISSING") == "top       ")
-  assert(nth_or(buf.lines, 3, "MISSING") == "bottom    ")
+  assert(nth_or(buf.lines, 3, "MISSING") == "──────────")
+  assert(nth_or(buf.lines, 4, "MISSING") == "bottom    ")
 }

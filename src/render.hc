@@ -192,38 +192,11 @@ fun render_normal_buffer(state: EditorState) : ScreenBuffer {
 // `render_normal_buffer` then. Once `VSplit`/`HSplit` grows the tree, the
 // content area (rows between the tabline and status row) is divided into
 // per-leaf rectangles and each leaf's own buffer is painted into its own
-// slice; the tabline/status row stay single, full-width rows describing
-// the ACTIVE buffer, same as the unsplit view.
-
-/// Whether `node` is a single, unsplit pane.
-fun is_leaf(node: PaneNode) : bool =>
-  match node {
-    Leaf(_)           => true,
-    Split(_, _, _, _) => false
-  }
-
-/// Each leaf's screen-space rectangle `(x, y, w, h)` within `rect`,
-/// walking `node` and dividing along each `Split`'s `axis`/`ratio`.
-/// `Vertical` splits side-by-side (left/right, vim's `:vsplit`);
-/// `Horizontal` splits stacked (top/bottom, vim's `:split`). Panes are
-/// directly adjacent — no divider column/row is reserved (a visible
-/// seam between panes is a follow-up, not required to prove the layout).
-pub fun split_rect(rect: (int, int, int, int), node: PaneNode) : list<(int, (int, int, int, int))> =>
-  match node {
-    Leaf(bid) => [(bid, rect)],
-    Split(Vertical, ratio, left, right) => {
-      let (x, y, w, h) = rect
-      let lw = max(min(round(to_float(w) * ratio), w - 1), 1)
-      let rw = max(w - lw, 1)
-      split_rect((x, y, lw, h), left) + split_rect((x + lw, y, rw, h), right)
-    },
-    Split(Horizontal, ratio, left, right) => {
-      let (x, y, w, h) = rect
-      let th = max(min(round(to_float(h) * ratio), h - 1), 1)
-      let bh = max(h - th, 1)
-      split_rect((x, y, w, th), left) + split_rect((x, y + th, w, bh), right)
-    }
-  }
+// slice, with a divider glyph in the strip `model.hc`'s `split_dividers`
+// reserves between siblings; the tabline/status row stay single,
+// full-width rows describing the ACTIVE buffer, same as the unsplit view.
+// `is_leaf`/`split_rect`/`split_dividers`/`find_rect` live in `model.hc`
+// (pure pane geometry, screen-independent of any `TextBuffer`).
 
 /// `xs[idx]`, or `default` past the end — same shape as `actions.hc`'s
 /// (non-`pub`) `list_get`, specialised to string rows here.
@@ -283,12 +256,24 @@ fun paint_all_panes(state: EditorState, canvas: list<string>, rects: list<(int, 
     }
   }
 
-/// The rectangle for `bid` in `rects`, or `default` if it isn't there
-/// (shouldn't happen — `state.buffer.bid` always has a leaf).
-fun find_rect(rects: list<(int, (int, int, int, int))>, bid: int, default: (int, int, int, int)) : (int, int, int, int) =>
-  match rects {
-    []                     => default,
-    [(rbid, rect), ..rest] => if rbid == bid { rect } else { find_rect(rest, bid, default) }
+/// A divider's glyph: `│` spans a 1-column-wide (`Vertical`) strip, `─`
+/// a 1-row-tall (`Horizontal`) one — `split_dividers`' rectangles are
+/// always exactly one or the other.
+fun divider_glyph(rect: (int, int, int, int)) : string =>
+  if rect.2 == 1 { "│" } else { "─" }
+
+/// Paint one divider strip onto `canvas` — reuses `paint_pane` with a
+/// solid block of the divider glyph as its "content".
+fun paint_divider(canvas: list<string>, rect: (int, int, int, int)) : list<string> =>
+  paint_pane(canvas, rect, take_or_pad([], rect.3, repeat_str(divider_glyph(rect), rect.2)))
+
+/// Paint every divider strip onto one shared canvas, after every pane's
+/// own content (so a divider always draws on top, never gets clipped by
+/// a neighbouring pane's content).
+fun paint_all_dividers(canvas: list<string>, dividers: list<(int, int, int, int)>) : list<string> =>
+  match dividers {
+    []            => canvas,
+    [d, ..rest] => paint_all_dividers(paint_divider(canvas, d), rest)
   }
 
 /// Build a ScreenBuffer for a split-pane session (`state.panes` is more
@@ -303,8 +288,10 @@ fun render_split_buffer(state: EditorState) : ScreenBuffer {
   let n_content    = h - 2
   let full_rect    = (0, 0, w, n_content)
   let rects        = split_rect(full_rect, state.panes)
+  let dividers     = split_dividers(full_rect, state.panes)
   let base_canvas  = take_or_pad([], n_content, repeat_str(" ", w))
-  let content_rows = paint_all_panes(state, base_canvas, rects)
+  let panes_drawn  = paint_all_panes(state, base_canvas, rects)
+  let content_rows = paint_all_dividers(panes_drawn, dividers)
 
   let tabline_row = fit_to_width(build_tabline(state), w)
   let path_part   = match state.buffer.path { None => "[No Name]", Some(p) => p }
