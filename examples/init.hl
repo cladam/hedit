@@ -32,6 +32,15 @@
 ;; (set "theme.active-tab-bg"  "60,60,60")
 ;; (set "theme.cursor-line-bg" "45,45,45")
 
+;; Syntax highlighting fg colors — fg-only, no background. Keeps
+;; a distinct override namespace from the chrome colors above since
+;; these paint token spans inside the buffer, not the tabline/status/
+;; cursor line.
+;; (set "theme.syntax-keyword-fg" "86,156,214")
+;; (set "theme.syntax-string-fg"  "206,145,120")
+;; (set "theme.syntax-comment-fg" "106,153,85")
+;; (set "theme.syntax-number-fg"  "181,206,168")
+
 ;; (get key) reads a value back; returns nil when absent.
 ;; (if (get "tabsize") (println "tabsize is set"))
 

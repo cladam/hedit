@@ -18,14 +18,20 @@ pub type TokenKind {
   Plain
 }
 
-/// hica/koka reserved words worth coloring — not exhaustive, just the
-/// common ones a source file actually uses often.
+/// hica reserved words, matching the authoritative keyword set from
+/// `tree-sitter-hica/queries/highlights.scm` / `hica-nvim`'s `syntax/
+/// hica.vim` (both in the hica-ecosystem repo) — no invented keywords
+/// (e.g. no `fn`; hica only has `fun`).
 fun is_keyword(w: string) : bool =>
-  w == "fun" || w == "pub" || w == "import" || w == "let" || w == "if" ||
-  w == "else" || w == "match" || w == "struct" || w == "type" ||
-  w == "return" || w == "spawn" || w == "with" || w == "handle" ||
-  w == "var" || w == "in" || w == "extern" || w == "true" || w == "false" ||
-  w == "for" || w == "while" || w == "break" || w == "continue" || w == "fn"
+  w == "if" || w == "else" || w == "match" || w == "for" || w == "in" ||
+  w == "while" || w == "loop" || w == "repeat" || w == "return" ||
+  w == "break" || w == "continue" ||
+  w == "fun" || w == "let" || w == "var" || w == "struct" || w == "type" ||
+  w == "extern" || w == "effect" || w == "actor" || w == "handle" ||
+  w == "spawn" || w == "with" || w == "as" ||
+  w == "import" || w == "from" || w == "pub" || w == "opaque" ||
+  w == "priv" || w == "noinline" || w == "test" ||
+  w == "true" || w == "false"
 
 fun is_digit_str(s: string) : bool => s >= "0" && s <= "9"
 
