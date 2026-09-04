@@ -5,6 +5,7 @@
 import "keys"
 import "model"
 import "hilisp_host"
+import "syntax"
 
 /// Truncate `s` to at most `w` characters (no-op if already shorter).
 fun fit_to_width(s: string, w: int) : string =>
@@ -134,6 +135,74 @@ fun matches_to_highlights(matches: list<SearchMatch>, offset: int, n_content: in
 fun search_highlights(state: EditorState, offset: int, n_content: int, w: int) : list<(int, int, int)> =>
   matches_to_highlights(active_matches(state), offset, n_content, w, active_query_len(state))
 
+// ------------------- Syntax highlighting (M16) -----------------------------
+// `ScreenBuffer.syntax_spans` carries `(row, start_col, end_col, TokenKind)`
+// quadruples for the visible content rows — same row/col convention as the
+// M12 `highlights` field above, plus a `TokenKind` `main.hc` maps to a
+// `theme.syntax_*_fg` color instead of a background.
+
+/// Lex every buffer line from the top, threading `in_string`/`in_comment`
+/// line to line — one `(start, end, TokenKind)` span list per line.
+fun lex_buffer_lines(lines: list<string>, in_string: bool, in_comment: bool) : list<list<(int, int, TokenKind)>> =>
+  match lines {
+    []          => [],
+    [l, ..rest] => {
+      let (spans, ns, nc) = lex_line(l, in_string, in_comment)
+      [spans] + lex_buffer_lines(rest, ns, nc)
+    }
+  }
+
+/// Drop the first `n` per-line span lists (no-op past the end).
+fun drop_span_rows(xs: list<list<(int, int, TokenKind)>>, n: int) : list<list<(int, int, TokenKind)>> =>
+  if n <= 0 { xs } else {
+    match xs {
+      []          => [],
+      [_, ..rest] => drop_span_rows(rest, n - 1)
+    }
+  }
+
+/// First `n` per-line span lists (shorter than `n` past the end — unlike
+/// `take_or_pad`, there is nothing to pad a "~" fill row with).
+fun take_span_rows(xs: list<list<(int, int, TokenKind)>>, n: int) : list<list<(int, int, TokenKind)>> =>
+  if n <= 0 { [] } else {
+    match xs {
+      []          => [],
+      [x, ..rest] => [x] + take_span_rows(rest, n - 1)
+    }
+  }
+
+/// Attach a screen `row` to every span in one line, clipping `end_col`
+/// to the truncated display width `w` (dropping spans pushed fully off).
+fun clip_spans_row(spans: list<(int, int, TokenKind)>, row: int, w: int) : list<(int, int, int, TokenKind)> =>
+  match spans {
+    []                    => [],
+    [(s, e, k), ..rest] => {
+      let ce = min(e, w)
+      if s >= ce { clip_spans_row(rest, row, w) }
+      else { [(row, s, ce, k)] + clip_spans_row(rest, row, w) }
+    }
+  }
+
+/// Flatten every visible line's spans into one screen-space list, rows
+/// numbered from `row_idx + 2` (content starts after the tabline row,
+/// same offset `match_to_highlight` uses above).
+fun spans_to_screen_spans(rows: list<list<(int, int, TokenKind)>>, row_idx: int, w: int) : list<(int, int, int, TokenKind)> =>
+  match rows {
+    []                => [],
+    [spans, ..rest] => clip_spans_row(spans, row_idx + 2, w) + spans_to_screen_spans(rest, row_idx + 1, w)
+  }
+
+/// Syntax highlight spans for the visible content rows only — re-lexes
+/// the whole buffer from its first line every frame so `in_string`/
+/// `in_comment` threading is always correct across scroll, rather than
+/// trying to resume mid-buffer (the simple-but-correct v1 approach;
+/// fine at editor-buffer sizes).
+fun syntax_highlights(buf: TextBuffer, offset: int, n_content: int, w: int) : list<(int, int, int, TokenKind)> {
+  let all_rows     = lex_buffer_lines(buf.lines, false, false)
+  let visible_rows = take_span_rows(drop_span_rows(all_rows, offset), n_content)
+  spans_to_screen_spans(visible_rows, 0, w)
+}
+
 /// Build a ScreenBuffer from `state`'s normal (non-help) editing view.
 // `cursor_row`/`cursor_col` are the head cursor's position clamped to the
 // visible viewport (1-indexed, tabline occupies row 1). Vertical scrolling
@@ -182,7 +251,8 @@ fun render_normal_buffer(state: EditorState) : ScreenBuffer {
     lines: [tabline_row] + content_rows + [status_row],
     cursor_row: crow,
     cursor_col: ccol,
-    highlights: search_highlights(state, offset, n_content, w)
+    highlights: search_highlights(state, offset, n_content, w),
+    syntax_spans: syntax_highlights(buf, offset, n_content, w)
   }
 }
 
@@ -320,7 +390,8 @@ fun render_split_buffer(state: EditorState) : ScreenBuffer {
     lines: [tabline_row] + content_rows + [status_row],
     cursor_row: crow,
     cursor_col: ccol,
-    highlights: []
+    highlights: [],
+    syntax_spans: []
   }
 }
 
@@ -352,7 +423,8 @@ pub fun render_help_buffer(state: EditorState) : ScreenBuffer {
     lines: [title_row] + content_rows + [footer_row],
     cursor_row: 1,
     cursor_col: 1,
-    highlights: []
+    highlights: [],
+    syntax_spans: []
   }
 }
 

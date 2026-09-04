@@ -9,6 +9,7 @@ import "runtime"
 import "hilisp_host"
 import "config_loader"
 import "cli_spec"
+import "syntax"
 import "std/cli"
 import "std/term"
 import "../lib/hilisp/src/lisp"
@@ -127,31 +128,89 @@ fun highlight_row_go(row: string, spans: list<(int, int)>, pos: int, bg: (int, i
     }
   }
 
+// ------------------- Syntax highlighting (M16) --------------------------
+// Same span-painting mechanism as the search-match highlighting above,
+// but fg-only (no bg) — a syntax span never competes with the row-level
+// tabline/status/cursor-line bg treatment the way a search match does,
+// so (unlike search matches) syntax spans paint on top of a plain row
+// unconditionally rather than replacing it.
+
+/// Wrap `s` in an ANSI SGR foreground-only code, reset afterward.
+fun wrap_fg(fg: (int, int, int), s: string) : string =>
+  term_esc() + "[" + rgb_fg_code(fg) + "m" + s + term_esc() + "[0m"
+
+/// The theme color for a `TokenKind`, or `None` for kinds left plain
+/// (`Ident`/`Punct`/`Plain` — `syntax.hc::lex_line` never emits these
+/// today, but the fallback keeps this total against future token kinds).
+fun syntax_fg_for(theme: Theme, kind: TokenKind) : maybe<(int, int, int)> =>
+  match kind {
+    Keyword   => Some(theme.syntax_keyword_fg),
+    StringLit => Some(theme.syntax_string_fg),
+    Comment   => Some(theme.syntax_comment_fg),
+    NumberLit => Some(theme.syntax_number_fg),
+    _         => None
+  }
+
+/// `(start, end, TokenKind)` spans for `row` (1-indexed) out of every
+/// `ScreenBuffer.syntax_spans` quadruple.
+fun syntax_spans_for_row(spans: list<(int, int, int, TokenKind)>, row: int) : list<(int, int, TokenKind)> =>
+  match spans {
+    [] => [],
+    [(r, s, e, k), ..rest] =>
+      if r == row { [(s, e, k)] + syntax_spans_for_row(rest, row) } else { syntax_spans_for_row(rest, row) }
+  }
+
+/// Wrap every `(start, end, TokenKind)` span in `row` with its theme
+/// color, leaving the text between/around spans (and any kind with no
+/// assigned color) untouched.
+fun colorize_syntax_row_go(theme: Theme, row: string, spans: list<(int, int, TokenKind)>, pos: int) : string =>
+  match spans {
+    [] => row[pos: ],
+    [(s, e, k), ..rest] => {
+      let cs = max(s, pos)
+      let ce = min(e, length(row))
+      if cs >= ce { colorize_syntax_row_go(theme, row, rest, pos) }
+      else {
+        let piece = row[cs: ce]
+        let colored = match syntax_fg_for(theme, k) {
+          None     => piece,
+          Some(fg) => wrap_fg(fg, piece)
+        }
+        row[pos: cs] + colored + colorize_syntax_row_go(theme, row, rest, ce)
+      }
+    }
+  }
+
 /// Style the tabline (first row), status line (last row), a row with an
-/// active search match (match spans only), or the row the cursor
+/// active search match (match spans only), a row with syntax spans (fg
+/// only, no cursor-line tint underneath), or the row the cursor
 /// currently sits on (everything else, plain).
 // `cursor_row` is 1-indexed and already clamped to the visible viewport
 // by render.hc.
-fun style_frame_lines(theme: Theme, lines: list<string>, cursor_row: int, highlights: list<(int, int, int)>) : list<string> {
+fun style_frame_lines(theme: Theme, lines: list<string>, cursor_row: int, highlights: list<(int, int, int)>, syntax_spans: list<(int, int, int, TokenKind)>) : list<string> {
   let total = length(lines)
-  style_frame_lines_go(theme, lines, 0, total, cursor_row, highlights)
+  style_frame_lines_go(theme, lines, 0, total, cursor_row, highlights, syntax_spans)
 }
 
 /// Recursive worker for `style_frame_lines`, tracking the current row index.
-fun style_frame_lines_go(theme: Theme, lines: list<string>, idx: int, total: int, cursor_row: int, highlights: list<(int, int, int)>) : list<string> =>
+fun style_frame_lines_go(theme: Theme, lines: list<string>, idx: int, total: int, cursor_row: int, highlights: list<(int, int, int)>, syntax_spans: list<(int, int, int, TokenKind)>) : list<string> =>
   match lines {
     [] => [],
     [x, ..rest] => {
-      let row_spans = spans_for_row(highlights, idx + 1)
+      let row_spans    = spans_for_row(highlights, idx + 1)
+      let row_syntax   = syntax_spans_for_row(syntax_spans, idx + 1)
       let styled = match row_spans {
-        [] =>
-          if idx == 0 { colorize_tabline_row(theme, x) }
-          else if idx == total - 1 { colorize_status_row(theme, x) }
-          else if idx + 1 == cursor_row { colorize_cursor_row(theme, x) }
-          else { x },
+        [] => match row_syntax {
+          [] =>
+            if idx == 0 { colorize_tabline_row(theme, x) }
+            else if idx == total - 1 { colorize_status_row(theme, x) }
+            else if idx + 1 == cursor_row { colorize_cursor_row(theme, x) }
+            else { x },
+          _ => colorize_syntax_row_go(theme, x, row_syntax, 0)
+        },
         _ => highlight_row_go(x, row_spans, 0, theme.search_match_bg)
       }
-      [styled] + style_frame_lines_go(theme, rest, idx + 1, total, cursor_row, highlights)
+      [styled] + style_frame_lines_go(theme, rest, idx + 1, total, cursor_row, highlights, syntax_spans)
     }
   }
 
@@ -170,7 +229,7 @@ fun style_frame_lines_go(theme: Theme, lines: list<string>, idx: int, total: int
 // "\n" doesn't return the cursor to column 0 — join with "\r\n"
 // instead of relying on `println`, or every line staircases rightward.
 fun render_native(theme: Theme, buf: ScreenBuffer) {
-  let styled     = style_frame_lines(theme, buf.lines, buf.cursor_row, buf.highlights)
+  let styled     = style_frame_lines(theme, buf.lines, buf.cursor_row, buf.highlights, buf.syntax_spans)
   let cleared    = map(styled, (l) => l + term_esc() + "[K")
   let cursor_esc = term_esc() + "[" + show(buf.cursor_row) + ";" + show(buf.cursor_col) + "H"
   let frame = term_esc() + "[H" + join(cleared, "\r\n") + term_esc() + "[J" + cursor_esc

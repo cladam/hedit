@@ -1,6 +1,7 @@
 /// Core editor state.
 
 import "keys"
+import "syntax"
 
 /// A caret position inside a `TextBuffer`.
 pub struct Position {
@@ -206,7 +207,10 @@ pub fun set_config_value(cfg: Config, key: string, value: string) : Config =>
 // individual slots on top of whichever preset is active.
 // ---------------------------------------------------------------------------
 
-/// hedit's chrome color palette (tabline, status line, cursor line).
+/// hedit's chrome color palette (tabline, status line, cursor line),
+/// plus the M16 syntax highlighting fg palette (fg-only, no bg — see
+/// `docs/effects-journal.md`'s M16 section for why spans stay fg-only
+/// in v1).
 pub struct Theme {
   tabline_fg: (int, int, int),
   tabline_bg: (int, int, int),
@@ -215,7 +219,11 @@ pub struct Theme {
   active_tab_fg: (int, int, int),
   active_tab_bg: (int, int, int),
   cursor_line_bg: (int, int, int),
-  search_match_bg: (int, int, int)
+  search_match_bg: (int, int, int),
+  syntax_keyword_fg: (int, int, int),
+  syntax_string_fg: (int, int, int),
+  syntax_comment_fg: (int, int, int),
+  syntax_number_fg: (int, int, int)
 }
 
 /// hedit's built-in default theme.
@@ -228,7 +236,11 @@ pub fun default_theme() : Theme =>
     active_tab_fg: (255, 215, 0),
     active_tab_bg: (60, 60, 60),
     cursor_line_bg: (45, 45, 45),
-    search_match_bg: (90, 90, 0)
+    search_match_bg: (90, 90, 0),
+    syntax_keyword_fg: (86, 156, 214),
+    syntax_string_fg: (206, 145, 120),
+    syntax_comment_fg: (106, 153, 85),
+    syntax_number_fg: (181, 206, 168)
   }
 
 /// A dark, low-sensory preset (`(set "theme" "ilseon")`), using the
@@ -243,7 +255,11 @@ pub fun ilseon_theme() : Theme =>
     active_tab_fg: (226, 176, 94),
     active_tab_bg: (40, 40, 40),
     cursor_line_bg: (30, 30, 30),
-    search_match_bg: (80, 70, 20)
+    search_match_bg: (80, 70, 20),
+    syntax_keyword_fg: (0, 191, 165),
+    syntax_string_fg: (226, 176, 94),
+    syntax_comment_fg: (110, 110, 100),
+    syntax_number_fg: (163, 169, 145)
   }
 
 /// Look up a built-in theme preset by name.
@@ -281,7 +297,11 @@ fun apply_theme_overrides(cfg: Config, base: Theme) : Theme {
   let t5 = Theme { ...t4, active_tab_fg: get_rgb_override(cfg, "theme.active-tab-fg", t4.active_tab_fg) }
   let t6 = Theme { ...t5, active_tab_bg: get_rgb_override(cfg, "theme.active-tab-bg", t5.active_tab_bg) }
   let t7 = Theme { ...t6, cursor_line_bg: get_rgb_override(cfg, "theme.cursor-line-bg", t6.cursor_line_bg) }
-  Theme { ...t7, search_match_bg: get_rgb_override(cfg, "theme.search-match-bg", t7.search_match_bg) }
+  let t8 = Theme { ...t7, search_match_bg: get_rgb_override(cfg, "theme.search-match-bg", t7.search_match_bg) }
+  let t9 = Theme { ...t8, syntax_keyword_fg: get_rgb_override(cfg, "theme.syntax-keyword-fg", t8.syntax_keyword_fg) }
+  let t10 = Theme { ...t9, syntax_string_fg: get_rgb_override(cfg, "theme.syntax-string-fg", t9.syntax_string_fg) }
+  let t11 = Theme { ...t10, syntax_comment_fg: get_rgb_override(cfg, "theme.syntax-comment-fg", t10.syntax_comment_fg) }
+  Theme { ...t11, syntax_number_fg: get_rgb_override(cfg, "theme.syntax-number-fg", t11.syntax_number_fg) }
 }
 
 /// Resolve `Config.values` into a concrete `Theme` plus an optional
@@ -333,14 +353,17 @@ pub struct EditorState {
 // line by line so the cursor's line is always shown. `highlights` is
 // `(row, start_col, end_col)` triples (1-indexed row, 0-indexed cols)
 // for search-match spans (M12) the Terminal handler paints with
-// `theme.search_match_bg` — empty outside an active search.
+// `theme.search_match_bg` — empty outside an active search. `syntax_spans`
+// (M16) is the same row/col convention plus a `TokenKind`, painted with
+// the matching `theme.syntax_*_fg` slot instead of a background.
 pub struct ScreenBuffer {
   width: int,
   height: int,
   lines: list<string>,
   cursor_row: int,
   cursor_col: int,
-  highlights: list<(int, int, int)>
+  highlights: list<(int, int, int)>,
+  syntax_spans: list<(int, int, int, TokenKind)>
 }
 
 /// Cursor-shape hint forwarded to the Terminal handler.
