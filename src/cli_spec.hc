@@ -8,7 +8,7 @@ import "model"
 
 /// Build hedit's `std/cli` spec.
 pub fun make_spec() : CliSpec =>
-  cli("hedit", "0.15.0", "a terminal text editor in hica")
+  cli("hedit", "0.16.0", "a terminal text editor in hica")
     |> arg("file", "file to open", false)
     |> option("config", "c", "load config from this path instead of the default search")
     |> flag("no-config", "", "skip loading the user's init.hl entirely")
