@@ -78,6 +78,7 @@ pub fun decode_key(code: int) : Event {
   else if code == 1024 { KeyEvent(KMetaSpecial(Tab)) }
   else if code == -2 { Tick } // read timeout — no key, just a redraw tick
   else if code == -1 { KeyEvent(KShortcut(Ctrl, 'q')) } // stdin closed — quit gracefully
+  else if code == 0 { KeyEvent(KShortcut(Ctrl, ' ')) } // Ctrl-Space / NUL byte
   else if code >= 1 && code <= 26 { KeyEvent(KShortcut(Ctrl, chr(code + 96))) }
   else if code >= 2032 && code <= 2126 { KeyEvent(KShortcut(Meta, chr(code - 2000))) } // bare ESC + char (Alt/Meta)
   else if code >= 32 && code <= 126 { KeyEvent(KChar(chr(code))) }

@@ -182,35 +182,40 @@ fun colorize_syntax_row_go(theme: Theme, row: string, spans: list<(int, int, Tok
   }
 
 /// Style the tabline (first row), status line (last row), a row with an
-/// active search match (match spans only), a row with syntax spans (fg
+/// active search match (match spans only), a row with an active selection
+/// (selection spans only, next priority), a row with syntax spans (fg
 /// only, no cursor-line tint underneath), or the row the cursor
 /// currently sits on (everything else, plain).
 // `cursor_row` is 1-indexed and already clamped to the visible viewport
 // by render.hc.
-fun style_frame_lines(theme: Theme, lines: list<string>, cursor_row: int, highlights: list<(int, int, int)>, syntax_spans: list<(int, int, int, TokenKind)>) : list<string> {
+fun style_frame_lines(theme: Theme, lines: list<string>, cursor_row: int, highlights: list<(int, int, int)>, syntax_spans: list<(int, int, int, TokenKind)>, selection_spans: list<(int, int, int)>) : list<string> {
   let total = length(lines)
-  style_frame_lines_go(theme, lines, 0, total, cursor_row, highlights, syntax_spans)
+  style_frame_lines_go(theme, lines, 0, total, cursor_row, highlights, syntax_spans, selection_spans)
 }
 
 /// Recursive worker for `style_frame_lines`, tracking the current row index.
-fun style_frame_lines_go(theme: Theme, lines: list<string>, idx: int, total: int, cursor_row: int, highlights: list<(int, int, int)>, syntax_spans: list<(int, int, int, TokenKind)>) : list<string> =>
+fun style_frame_lines_go(theme: Theme, lines: list<string>, idx: int, total: int, cursor_row: int, highlights: list<(int, int, int)>, syntax_spans: list<(int, int, int, TokenKind)>, selection_spans: list<(int, int, int)>) : list<string> =>
   match lines {
     [] => [],
     [x, ..rest] => {
-      let row_spans    = spans_for_row(highlights, idx + 1)
-      let row_syntax   = syntax_spans_for_row(syntax_spans, idx + 1)
+      let row_spans      = spans_for_row(highlights, idx + 1)
+      let row_selection  = spans_for_row(selection_spans, idx + 1)
+      let row_syntax     = syntax_spans_for_row(syntax_spans, idx + 1)
       let styled = match row_spans {
-        [] => match row_syntax {
-          [] =>
-            if idx == 0 { colorize_tabline_row(theme, x) }
-            else if idx == total - 1 { colorize_status_row(theme, x) }
-            else if idx + 1 == cursor_row { colorize_cursor_row(theme, x) }
-            else { x },
-          _ => colorize_syntax_row_go(theme, x, row_syntax, 0)
+        [] => match row_selection {
+          [] => match row_syntax {
+            [] =>
+              if idx == 0 { colorize_tabline_row(theme, x) }
+              else if idx == total - 1 { colorize_status_row(theme, x) }
+              else if idx + 1 == cursor_row { colorize_cursor_row(theme, x) }
+              else { x },
+            _ => colorize_syntax_row_go(theme, x, row_syntax, 0)
+          },
+          _ => highlight_row_go(x, row_selection, 0, theme.selection_bg)
         },
         _ => highlight_row_go(x, row_spans, 0, theme.search_match_bg)
       }
-      [styled] + style_frame_lines_go(theme, rest, idx + 1, total, cursor_row, highlights, syntax_spans)
+      [styled] + style_frame_lines_go(theme, rest, idx + 1, total, cursor_row, highlights, syntax_spans, selection_spans)
     }
   }
 
@@ -229,7 +234,7 @@ fun style_frame_lines_go(theme: Theme, lines: list<string>, idx: int, total: int
 // "\n" doesn't return the cursor to column 0 — join with "\r\n"
 // instead of relying on `println`, or every line staircases rightward.
 fun render_native(theme: Theme, buf: ScreenBuffer) {
-  let styled     = style_frame_lines(theme, buf.lines, buf.cursor_row, buf.highlights, buf.syntax_spans)
+  let styled     = style_frame_lines(theme, buf.lines, buf.cursor_row, buf.highlights, buf.syntax_spans, buf.selection_spans)
   let cleared    = map(styled, (l) => l + term_esc() + "[K")
   let cursor_esc = term_esc() + "[" + show(buf.cursor_row) + ";" + show(buf.cursor_col) + "H"
   let frame = term_esc() + "[H" + join(cleared, "\r\n") + term_esc() + "[J" + cursor_esc

@@ -40,6 +40,10 @@ test "eof/error code quits gracefully" {
   assert(decode_key(-1) == KeyEvent(KShortcut(Ctrl, 'q')))
 }
 
+test "nul code 0 decodes to Ctrl-Space (SetMark)" {
+  assert(decode_key(0) == KeyEvent(KShortcut(Ctrl, ' ')))
+}
+
 test "read timeout produces a Tick, not a key event" {
   assert(decode_key(-2) == Tick)
 }
@@ -51,5 +55,5 @@ test "decoded multi-byte UTF-8 codepoints decode to KChar (åäö)" {
 }
 
 test "unrecognised low control code falls back to Esc" {
-  assert(decode_key(0) == KeyEvent(KSpecial(Esc)))
+  assert(decode_key(28) == KeyEvent(KSpecial(Esc)))
 }

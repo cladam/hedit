@@ -304,6 +304,77 @@ test "copy then paste duplicates the line content" {
   assert(clipped == "hi")
 }
 
+// ------------------- Selection-aware Copy/Paste (M17) ------------------
+
+test "ctrl-c with an active selection copies just the selected text" {
+  // Type "abc" (cursor col 3), SetMark, ArrowLeft x2 (selects "bc").
+  let pair: (EditorState, string) = handle Clipboard {
+    get_selection()  => clip,
+    set_selection(t) => clip = t
+  } with var clip = "" in {
+    let final: EditorState = handle Terminal {
+      poll_event() => match events {
+        []          => KeyEvent(KShortcut(Ctrl, 'q')),
+        [e, ..rest] => { events = rest; e }
+      },
+      render_frame(_buf)   => (),
+      get_dimensions()     => (80, 24),
+      set_cursor_style(_s) => ()
+    } with var events = [
+      KeyEvent(KChar('a')),
+      KeyEvent(KChar('b')),
+      KeyEvent(KChar('c')),
+      KeyEvent(KShortcut(Ctrl, ' ')),
+      KeyEvent(KSpecial(ArrowLeft)),
+      KeyEvent(KSpecial(ArrowLeft)),
+      KeyEvent(KShortcut(Ctrl, 'c')),
+      KeyEvent(KShortcut(Ctrl, 'q'))
+    ] in {
+      event_loop(init_editor(None))
+    }
+    (final, clip)
+  }
+  let final = pair.0
+  let clipped = pair.1
+  assert(clipped == "bc")
+  assert(final.buffer.lines == ["abc"])
+  assert(final.status_message == Some("Copied selection"))
+}
+
+test "ctrl-v with an active selection replaces it instead of inserting" {
+  // Type "abc", move to col 0, SetMark, ArrowRight x2 (selects "ab"),
+  // pre-seeded clipboard "XY" pastes over the selection -> "XYc".
+  let pair: (EditorState, string) = handle Clipboard {
+    get_selection()  => clip,
+    set_selection(t) => clip = t
+  } with var clip = "XY" in {
+    let final: EditorState = handle Terminal {
+      poll_event() => match events {
+        []          => KeyEvent(KShortcut(Ctrl, 'q')),
+        [e, ..rest] => { events = rest; e }
+      },
+      render_frame(_buf)   => (),
+      get_dimensions()     => (80, 24),
+      set_cursor_style(_s) => ()
+    } with var events = [
+      KeyEvent(KChar('a')),
+      KeyEvent(KChar('b')),
+      KeyEvent(KChar('c')),
+      KeyEvent(KShortcut(Ctrl, 'a')),
+      KeyEvent(KShortcut(Ctrl, ' ')),
+      KeyEvent(KSpecial(ArrowRight)),
+      KeyEvent(KSpecial(ArrowRight)),
+      KeyEvent(KShortcut(Ctrl, 'v')),
+      KeyEvent(KShortcut(Ctrl, 'q'))
+    ] in {
+      event_loop(init_editor(None))
+    }
+    (final, clip)
+  }
+  let final = pair.0
+  assert(final.buffer.lines == ["XYc"])
+}
+
 // ------------------- HiLisp-rebound chord fires action ----------------
 
 // End-to-end proof that a HiLisp `(bind …)` form materialised through
@@ -713,7 +784,7 @@ test "Meta-v with a bare Enter duplicates the buffer into a new vertical pane" {
       KeyEvent(KChar('h')),
       KeyEvent(KChar('i')),
       KeyEvent(KShortcut(Meta, 'v')), // opens VSplitPrompt("")
-      KeyEvent(KSpecial(Enter)),      // bare submit — duplicate, now focused
+      KeyEvent(KSpecial(Enter)), // bare submit — duplicate, now focused
       KeyEvent(KShortcut(Ctrl, 'c'))  // copy the new pane's head line
     ] in {
       event_loop(init_editor(None))
@@ -745,7 +816,7 @@ test "Meta-h with a typed path opens that file into a new horizontal pane" {
     KeyEvent(KChar('a')),
     KeyEvent(KShortcut(Meta, 'h')) // opens HSplitPrompt("")
   ] + path_events + [
-    KeyEvent(KSpecial(Enter)),     // submits — loads the file, now focused
+    KeyEvent(KSpecial(Enter)), // submits — loads the file, now focused
     KeyEvent(KShortcut(Ctrl, 'c')) // copy the new pane's head line
   ]
   let pair: (EditorState, string) = handle Clipboard {

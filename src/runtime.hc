@@ -307,13 +307,18 @@ fun dispatch_action(sized: EditorState, action: Action, buf_pool: list<(int, ref
       (s2, e2, buf_pool)
     },
     Copy      => {
-      set_selection(current_line(sized))
-      (set_status_message(sized, "Copied line"), hl_env, buf_pool)
+      let (text, msg) = match selection_text(sized) {
+        Some(t) => (t, "Copied selection"),
+        None    => (current_line(sized), "Copied line")
+      }
+      set_selection(text)
+      (set_status_message(sized, msg), hl_env, buf_pool)
     },
     Paste     => {
       let buf_ref = pool_get(buf_pool, sized.buffer.bid)
       buf_ref.snapshot(sized.buffer)
-      (paste_text(sized, get_selection()), hl_env, buf_pool)
+      let base = match selection_span(sized) { Some(_) => delete_selection(sized), None => sized }
+      (paste_text(base, get_selection()), hl_env, buf_pool)
     },
     Insert(_) => {
       let buf_ref = pool_get(buf_pool, sized.buffer.bid)

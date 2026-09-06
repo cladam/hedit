@@ -13,7 +13,8 @@ pub struct Position {
 /// Koka generates.
 pub struct Cursor {
   cid: int,
-  pos: Position
+  pos: Position,
+  anchor: maybe<Position>
 }
 
 /// A buffer of text lines plus its cursors and dirty flag.
@@ -93,6 +94,8 @@ pub type Action {
   PaneUp,
   PaneDown,
   NextPane,
+  SetMark,
+  SelectAll,
   Ignore
 }
 
@@ -136,7 +139,9 @@ pub fun default_bindings() : list<(KeyChord, Action)> =>
     (KeyChord { m: Meta, c: 'f' }, MoveWordForward),
     (KeyChord { m: Meta, c: 'b' }, MoveWordBack),
     (KeyChord { m: Meta, c: 'd' }, KillWordForward),
-    (KeyChord { m: Meta, c: 'l' }, KillWholeLine)
+    (KeyChord { m: Meta, c: 'l' }, KillWholeLine),
+    (KeyChord { m: Meta, c: 'a' }, SelectAll),
+    (KeyChord { m: Ctrl, c: ' ' }, SetMark)
   ]
 
 /// Resolve a `KeyChord` against a bindings map. Unbound chords resolve
@@ -223,7 +228,8 @@ pub struct Theme {
   syntax_keyword_fg: (int, int, int),
   syntax_string_fg: (int, int, int),
   syntax_comment_fg: (int, int, int),
-  syntax_number_fg: (int, int, int)
+  syntax_number_fg: (int, int, int),
+  selection_bg: (int, int, int)
 }
 
 /// hedit's built-in default theme.
@@ -240,7 +246,8 @@ pub fun default_theme() : Theme =>
     syntax_keyword_fg: (86, 156, 214),
     syntax_string_fg: (206, 145, 120),
     syntax_comment_fg: (106, 153, 85),
-    syntax_number_fg: (181, 206, 168)
+    syntax_number_fg: (181, 206, 168),
+    selection_bg: (38, 79, 120)
   }
 
 /// A dark, low-sensory preset (`(set "theme" "ilseon")`), using the
@@ -259,7 +266,8 @@ pub fun ilseon_theme() : Theme =>
     syntax_keyword_fg: (0, 191, 165),
     syntax_string_fg: (226, 176, 94),
     syntax_comment_fg: (110, 110, 100),
-    syntax_number_fg: (163, 169, 145)
+    syntax_number_fg: (163, 169, 145),
+    selection_bg: (40, 60, 70)
   }
 
 /// Look up a built-in theme preset by name.
@@ -301,7 +309,8 @@ fun apply_theme_overrides(cfg: Config, base: Theme) : Theme {
   let t9 = Theme { ...t8, syntax_keyword_fg: get_rgb_override(cfg, "theme.syntax-keyword-fg", t8.syntax_keyword_fg) }
   let t10 = Theme { ...t9, syntax_string_fg: get_rgb_override(cfg, "theme.syntax-string-fg", t9.syntax_string_fg) }
   let t11 = Theme { ...t10, syntax_comment_fg: get_rgb_override(cfg, "theme.syntax-comment-fg", t10.syntax_comment_fg) }
-  Theme { ...t11, syntax_number_fg: get_rgb_override(cfg, "theme.syntax-number-fg", t11.syntax_number_fg) }
+  let t12 = Theme { ...t11, syntax_number_fg: get_rgb_override(cfg, "theme.syntax-number-fg", t11.syntax_number_fg) }
+  Theme { ...t12, selection_bg: get_rgb_override(cfg, "theme.selection-bg", t12.selection_bg) }
 }
 
 /// Resolve `Config.values` into a concrete `Theme` plus an optional
@@ -363,7 +372,8 @@ pub struct ScreenBuffer {
   cursor_row: int,
   cursor_col: int,
   highlights: list<(int, int, int)>,
-  syntax_spans: list<(int, int, int, TokenKind)>
+  syntax_spans: list<(int, int, int, TokenKind)>,
+  selection_spans: list<(int, int, int)>
 }
 
 /// Cursor-shape hint forwarded to the Terminal handler.
@@ -427,7 +437,7 @@ pub fun new_buffer(bid: int, path: maybe<string>) : TextBuffer =>
     bid: bid,
     path: path,
     lines: [""],
-    cursors: [Cursor { cid: 0, pos: Position { line: 0, col: 0 } }],
+    cursors: [Cursor { cid: 0, pos: Position { line: 0, col: 0 }, anchor: None }],
     is_dirty: false
   }
 

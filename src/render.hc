@@ -6,6 +6,7 @@ import "keys"
 import "model"
 import "hilisp_host"
 import "syntax"
+import "actions"
 
 /// Truncate `s` to at most `w` characters (no-op if already shorter).
 fun fit_to_width(s: string, w: int) : string =>
@@ -135,6 +136,41 @@ fun matches_to_highlights(matches: list<SearchMatch>, offset: int, n_content: in
 fun search_highlights(state: EditorState, offset: int, n_content: int, w: int) : list<(int, int, int)> =>
   matches_to_highlights(active_matches(state), offset, n_content, w, active_query_len(state))
 
+// ------------------- Selection highlighting (M17) --------------------------
+// `ScreenBuffer.selection_spans` carries the same `(row, start_col, end_col)`
+// triple shape as `highlights` above, one per visible row the active
+// selection covers — full row width for any row strictly between the
+// selection's start/end lines.
+
+/// Walk every buffer line, emitting a screen-space `(row, start_col,
+/// end_col)` triple for each one the selection `[sl, el]` covers and
+/// that's still inside the visible viewport.
+fun selection_rows_go(lines: list<string>, sl: int, sc: int, el: int, ec: int, line_idx: int, offset: int, n_content: int, w: int) : list<(int, int, int)> =>
+  match lines {
+    [] => [],
+    [l, ..rest] => {
+      let tail = selection_rows_go(rest, sl, sc, el, ec, line_idx + 1, offset, n_content, w)
+      if line_idx < sl || line_idx > el { tail }
+      else {
+        let row_idx = line_idx - offset
+        if row_idx < 0 || row_idx >= n_content { tail }
+        else {
+          let start_col = if line_idx == sl { min(sc, w) } else { 0 }
+          let end_col   = if line_idx == el { min(ec, w) } else { min(length(l), w) }
+          if start_col >= end_col { tail } else { [(row_idx + 2, start_col, end_col)] + tail }
+        }
+      }
+    }
+  }
+
+/// The active selection's highlight spans for the current frame — `[]`
+/// outside an active selection.
+fun selection_highlights(state: EditorState, offset: int, n_content: int, w: int) : list<(int, int, int)> =>
+  match selection_span(state) {
+    None                   => [],
+    Some((sl, sc, el, ec)) => selection_rows_go(state.buffer.lines, sl, sc, el, ec, 0, offset, n_content, w)
+  }
+
 // ------------------- Syntax highlighting (M16) -----------------------------
 // `ScreenBuffer.syntax_spans` carries `(row, start_col, end_col, TokenKind)`
 // quadruples for the visible content rows — same row/col convention as the
@@ -252,7 +288,8 @@ fun render_normal_buffer(state: EditorState) : ScreenBuffer {
     cursor_row: crow,
     cursor_col: ccol,
     highlights: search_highlights(state, offset, n_content, w),
-    syntax_spans: syntax_highlights(buf, offset, n_content, w)
+    syntax_spans: syntax_highlights(buf, offset, n_content, w),
+    selection_spans: selection_highlights(state, offset, n_content, w)
   }
 }
 
@@ -391,7 +428,8 @@ fun render_split_buffer(state: EditorState) : ScreenBuffer {
     cursor_row: crow,
     cursor_col: ccol,
     highlights: [],
-    syntax_spans: []
+    syntax_spans: [],
+    selection_spans: []
   }
 }
 
@@ -424,7 +462,8 @@ pub fun render_help_buffer(state: EditorState) : ScreenBuffer {
     cursor_row: 1,
     cursor_col: 1,
     highlights: [],
-    syntax_spans: []
+    syntax_spans: [],
+    selection_spans: []
   }
 }
 

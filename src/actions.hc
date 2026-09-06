@@ -53,7 +53,7 @@ fun list_remove_at(xs: list<string>, idx: int) : list<string> =>
 /// defaulting to (0, 0) if the buffer has none.
 fun head_cursor(buf: TextBuffer) : Cursor =>
   match buf.cursors {
-    []       => Cursor { cid: 0, pos: Position { line: 0, col: 0 } },
+    []       => Cursor { cid: 0, pos: Position { line: 0, col: 0 }, anchor: None },
     [x, .._] => x
   }
 
@@ -253,12 +253,20 @@ pub fun current_line(state: EditorState) : string {
 /// cursor by `length(text)`.
 // No multi-line splitting: an embedded '\n' (e.g. from the clipboard)
 // is inserted as a literal two-char sequence, not a new line.
+/// Insert `text` at the cursor's column and advance the cursor by
+/// `length(text)`.
+// No multi-line splitting: an embedded '\n' (e.g. from the clipboard)
+// is inserted as a literal two-char sequence, not a new line. Inserts
+// at the cursor column (not always at end-of-line) so `Paste` lands in
+// the right place after `delete_selection` moves the cursor to a
+// selection's start.
 pub fun paste_text(state: EditorState, text: string) : EditorState {
   let buf = state.buffer
   let cur = head_cursor(buf)
   let line_idx  = cur.pos.line
+  let at_col    = cur.pos.col
   let current   = list_get(buf.lines, line_idx, "")
-  let updated   = current + text
+  let updated   = current[0:at_col] + text + current[at_col: ]
   let new_lines = list_set(buf.lines, line_idx, updated)
   let bump      = length(text)
   let new_cursors = map(buf.cursors, (c) =>
@@ -271,6 +279,107 @@ pub fun paste_text(state: EditorState, text: string) : EditorState {
   }
   EditorState { ...state, buffer: new_buf }
 }
+
+// ------------------- Selection ranges (M17) -------------------------------
+// `Cursor.anchor` is `None` outside a selection; `SetMark` (Ctrl-Space)
+// sets it to the cursor's current position, and toggles it back off if a
+// selection is already active. Movement actions need no changes at all to
+// extend a selection: every motion helper above rebuilds `Cursor` via
+// `{ ...cc, pos: ... }`, which already carries `anchor` along for free.
+
+/// Normalised `(start_line, start_col, end_line, end_col)` span between
+/// the head cursor's anchor and its current position, ordered so
+/// `start <= end` regardless of which direction the user moved from the
+/// anchor. `None` outside an active selection.
+pub fun selection_span(state: EditorState) : maybe<(int, int, int, int)> {
+  let cur = head_cursor(state.buffer)
+  match cur.anchor {
+    None    => None,
+    Some(a) =>
+      if a.line < cur.pos.line || (a.line == cur.pos.line && a.col <= cur.pos.col) {
+        Some((a.line, a.col, cur.pos.line, cur.pos.col))
+      } else {
+        Some((cur.pos.line, cur.pos.col, a.line, a.col))
+      }
+  }
+}
+
+/// Toggle the head cursor's mark: sets `anchor` to the current position
+/// if no selection is active, or clears it (cancelling the selection)
+/// if one already is.
+pub fun set_mark(state: EditorState) : EditorState {
+  let buf = state.buffer
+  let cur = head_cursor(buf)
+  let new_anchor = match cur.anchor { None => Some(cur.pos), Some(_) => None }
+  let new_cursors = map(buf.cursors, (cc) => Cursor { ...cc, anchor: new_anchor })
+  EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
+}
+
+/// Select the whole buffer: anchor at the very start, cursor at the
+/// very end of the last line.
+pub fun select_all(state: EditorState) : EditorState {
+  let buf       = state.buffer
+  let last_line = max(length(buf.lines) - 1, 0)
+  let last_col  = length(list_get(buf.lines, last_line, ""))
+  let end_pos   = Position { line: last_line, col: last_col }
+  let new_cursors = map(buf.cursors, (cc) =>
+    Cursor { ...cc, pos: end_pos, anchor: Some(Position { line: 0, col: 0 }) })
+  EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
+}
+
+/// The lines strictly between `lo` and `hi` (inclusive), or `[]` if
+/// `lo > hi` — used by `selection_text`/`delete_selection` to gather
+/// (and later drop) any fully-selected middle lines of a multi-line span.
+fun middle_lines(lines: list<string>, lo: int, hi: int) : list<string> =>
+  if lo > hi { [] } else { [list_get(lines, lo, "")] + middle_lines(lines, lo + 1, hi) }
+
+/// Remove `hi - lo + 1` lines starting at `lo` (inclusive) — the
+/// inverse of `middle_lines`, folding a multi-line selection's now-
+/// merged interior back out of the buffer in a single pass.
+fun remove_lines_between(lines: list<string>, lo: int, hi: int) : list<string> =>
+  match lines {
+    []          => [],
+    [x, ..rest] =>
+      if lo <= 0 && hi >= 0 { remove_lines_between(rest, lo - 1, hi - 1) }
+      else { [x] + remove_lines_between(rest, lo - 1, hi - 1) }
+  }
+
+/// The text spanned by the active selection (single- or multi-line), or
+/// `None` outside an active selection. `Copy` falls back to
+/// `current_line` when this is `None`.
+pub fun selection_text(state: EditorState) : maybe<string> =>
+  match selection_span(state) {
+    None => None,
+    Some((sl, sc, el, ec)) =>
+      if sl == el {
+        Some(list_get(state.buffer.lines, sl, "")[sc: ec])
+      } else {
+        let first  = list_get(state.buffer.lines, sl, "")[sc: ]
+        let last   = list_get(state.buffer.lines, el, "")[0:ec]
+        let middle = middle_lines(state.buffer.lines, sl + 1, el - 1)
+        Some(join([first] + middle + [last], "\n"))
+      }
+  }
+
+/// Remove the active selection's text, moving the cursor to the
+/// selection's start and clearing the anchor. A no-op if no selection
+/// is active.
+pub fun delete_selection(state: EditorState) : EditorState =>
+  match selection_span(state) {
+    None => state,
+    Some((sl, sc, el, ec)) => {
+      let buf        = state.buffer
+      let start_line = list_get(buf.lines, sl, "")
+      let end_line   = list_get(buf.lines, el, "")
+      let merged     = start_line[0:sc] + end_line[ec: ]
+      let after_merge = list_set(buf.lines, sl, merged)
+      let trimmed    = remove_lines_between(after_merge, sl + 1, el)
+      let new_cursors = map(buf.cursors, (cc) =>
+        Cursor { ...cc, pos: Position { line: sl, col: sc }, anchor: None })
+      let new_buf = TextBuffer { ...buf, lines: trimmed, cursors: new_cursors, is_dirty: true }
+      EditorState { ...state, buffer: new_buf }
+    }
+  }
 
 // ------------------- kill / yank (Ctrl-k, Ctrl-w) -------------------------
 // Reuses the same Clipboard sink as Copy/Paste (Ctrl-y/yank is Paste bound
@@ -1070,6 +1179,8 @@ pub fun apply_action(state: EditorState, action: Action) : EditorState =>
     PaneUp       => pane_up(state),
     PaneDown     => pane_down(state),
     NextPane     => next_pane(state),
+    SetMark      => set_mark(state),
+    SelectAll    => select_all(state),
     PromptChar(c)   => refresh_find_matches(prompt_insert_char(state, c)),
     PromptBackspace => refresh_find_matches(prompt_backspace(state)),
     PromptCancel    => cancel_prompt(state),

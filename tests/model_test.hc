@@ -123,5 +123,5 @@ test "set_initial_position with None leaves the buffer's cursors untouched" {
 fun head_or_default(cursors: list<Cursor>) : Cursor =>
   match cursors {
     [x, .._] => x,
-    []       => Cursor { cid: 0, pos: Position { line: 0, col: 0 } }
+    []       => Cursor { cid: 0, pos: Position { line: 0, col: 0 }, anchor: None }
   }

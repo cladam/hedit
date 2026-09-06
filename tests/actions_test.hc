@@ -772,3 +772,90 @@ test "Quit actually quits once panes has collapsed back to a single Leaf" {
   let s1 = apply_action(s0, Quit)
   assert(s1.should_quit == true)
 }
+
+// ------------------- Selection ranges (M17) -----------------------------
+
+test "resolve_action maps Ctrl-Space to SetMark via default_bindings" {
+  let s0 = init_editor(None)
+  assert(resolve_action(s0, KeyEvent(KShortcut(Ctrl, ' '))) == SetMark)
+}
+
+test "resolve_action maps Meta-a to SelectAll via default_bindings" {
+  let s0 = init_editor(None)
+  assert(resolve_action(s0, KeyEvent(KShortcut(Meta, 'a'))) == SelectAll)
+}
+
+test "set_mark starts a selection at the cursor, then clears it on a second press" {
+  let s0 = init_editor(None)
+  let s1 = handle_action(s0, KeyEvent(KChar('h')))
+  let s2 = handle_action(s1, KeyEvent(KChar('i')))
+  assert(selection_span(s2) == None)
+  let s3 = apply_action(s2, SetMark)
+  assert(selection_span(s3) == Some((0, 2, 0, 2)))
+  let s4 = apply_action(s3, SetMark)
+  assert(selection_span(s4) == None)
+}
+
+test "moving the cursor after SetMark extends the selection" {
+  let s0 = init_editor(None)
+  let s1 = handle_action(s0, KeyEvent(KChar('a')))
+  let s2 = handle_action(s1, KeyEvent(KChar('b')))
+  let s3 = handle_action(s2, KeyEvent(KChar('c')))
+  let s4 = apply_action(s3, SetMark) // mark at col 3
+  let s5 = handle_action(s4, KeyEvent(KShortcut(Ctrl, 'a'))) // move to col 0
+  assert(selection_span(s5) == Some((0, 0, 0, 3)))
+  assert(selection_text(s5) == Some("abc"))
+}
+
+test "select_all selects the whole buffer" {
+  let s0 = init_editor(None)
+  let s1 = handle_action(s0, KeyEvent(KChar('a')))
+  let s2 = handle_action(s1, KeyEvent(KSpecial(Enter)))
+  let s3 = handle_action(s2, KeyEvent(KChar('b')))
+  let s4 = apply_action(s3, SelectAll)
+  assert(selection_span(s4) == Some((0, 0, 1, 1)))
+  assert(selection_text(s4) == Some("a\nb"))
+}
+
+test "selection_text spans multiple lines, joined with newlines" {
+  let s0 = init_editor(None)
+  let s1 = handle_action(s0, KeyEvent(KChar('a')))
+  let s2 = handle_action(s1, KeyEvent(KSpecial(Enter)))
+  let s3 = handle_action(s2, KeyEvent(KChar('b')))
+  let s4 = handle_action(s3, KeyEvent(KShortcut(Ctrl, 'a'))) // col 0 of "b"
+  let s5 = apply_action(s4, SetMark)                          // mark at (1, 0)
+  let s6 = handle_action(s5, KeyEvent(KSpecial(ArrowUp)))     // cursor -> (0, 0)
+  assert(selection_span(s6) == Some((0, 0, 1, 0)))
+  assert(selection_text(s6) == Some("a\n"))
+}
+
+test "selection_text is None outside an active selection" {
+  let s0 = init_editor(None)
+  assert(selection_text(s0) == None)
+}
+
+test "delete_selection removes a single-line span and clears the anchor" {
+  let s0 = init_editor(None)
+  let s1 = handle_action(s0, KeyEvent(KChar('a')))
+  let s2 = handle_action(s1, KeyEvent(KChar('b')))
+  let s3 = handle_action(s2, KeyEvent(KChar('c')))
+  let s4 = handle_action(s3, KeyEvent(KShortcut(Ctrl, 'a')))
+  let s5 = apply_action(s4, SetMark)
+  let s6 = handle_action(s5, KeyEvent(KShortcut(Ctrl, 'e')))
+  let s7 = delete_selection(s6)
+  assert(s7.buffer.lines == [""])
+  assert(selection_span(s7) == None)
+}
+
+test "delete_selection joins a multi-line span into one line" {
+  let s0 = init_editor(None)
+  let s1 = handle_action(s0, KeyEvent(KChar('a')))
+  let s2 = handle_action(s1, KeyEvent(KSpecial(Enter)))
+  let s3 = handle_action(s2, KeyEvent(KChar('b')))
+  let s4 = handle_action(s3, KeyEvent(KShortcut(Ctrl, 'a')))
+  let s5 = apply_action(s4, SetMark)
+  let s6 = handle_action(s5, KeyEvent(KSpecial(ArrowUp)))
+  let s7 = handle_action(s6, KeyEvent(KShortcut(Ctrl, 'a')))
+  let s8 = delete_selection(s7)
+  assert(s8.buffer.lines == ["b"])
+}

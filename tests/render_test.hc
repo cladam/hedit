@@ -108,6 +108,34 @@ test "the find prompt label shows the typed query in the status row" {
   assert(status == "Find: c")
 }
 
+// ------------------- Selection highlighting (M17) ------------------
+
+test "no active selection means no selection spans" {
+  let s0 = EditorState { ...init_editor(None), screen_size: (40, 10) }
+  let buf = render_editor_to_buffer(s0)
+  assert(buf.selection_spans == [])
+}
+
+test "an active single-line selection highlights just its span" {
+  let s0 = with_lines_render(["cat dog cat"], (40, 10))
+  let s1 = apply_action(s0, SetMark)
+  let s2 = handle_action(s1, KeyEvent(KSpecial(ArrowRight)))
+  let s3 = handle_action(s2, KeyEvent(KSpecial(ArrowRight)))
+  let s4 = handle_action(s3, KeyEvent(KSpecial(ArrowRight)))
+  let buf = render_editor_to_buffer(s4)
+  assert(buf.selection_spans == [(2, 0, 3)])
+}
+
+test "a multi-line selection covers the middle line's full width" {
+  let s0 = with_lines_render(["abc", "defg", "hi"], (40, 10))
+  let s1 = apply_action(s0, SetMark)
+  let s2 = handle_action(s1, KeyEvent(KSpecial(ArrowDown)))
+  let s3 = handle_action(s2, KeyEvent(KSpecial(ArrowDown)))
+  let s4 = handle_action(s3, KeyEvent(KSpecial(ArrowRight)))
+  let buf = render_editor_to_buffer(s4)
+  assert(buf.selection_spans == [(2, 0, 3), (3, 0, 4), (4, 0, 1)])
+}
+
 // ------------------- Split panes (M15) ----------------------------
 
 fun nth_or(xs: list<string>, idx: int, default: string) : string =>

@@ -87,6 +87,10 @@ fun single_char_of(s: string) : maybe<char> =>
     _    => None
   }
 
+fun parse_key_char(s: string) : maybe<char> =>
+  if s == "Space" || s == "space" { Some(' ') }
+  else { single_char_of(s) }
+
 /// Parse `"Ctrl-s"`-style chord strings (docs/hedit-design.md §7.5)
 /// into a `KeyChord`.
 // The single-char rule keeps this focused on shortcut chords — special
@@ -95,7 +99,7 @@ pub fun parse_chord(s: string) : maybe<KeyChord> {
   let parts = split(s, "-")
   match parts {
     [m_str, c_str] =>
-      match (parse_mod(m_str), single_char_of(c_str)) {
+      match (parse_mod(m_str), parse_key_char(c_str)) {
         (Some(m), Some(ch)) => Some(KeyChord { m: m, c: ch }),
         _                   => None
       },
@@ -109,7 +113,7 @@ pub fun parse_chord(s: string) : maybe<KeyChord> {
 // bindings back out. Also reused by render.hc's help overlay (M10) to
 // label each row.
 pub fun chord_to_str(chord: KeyChord) : string =>
-  mod_to_string(chord.m) + "-" + char_to_string(chord.c)
+  mod_to_string(chord.m) + "-" + (if chord.c == ' ' { "Space" } else { char_to_string(chord.c) })
 
 // ------------------- Action <-> symbol name ----------------------------
 
@@ -166,7 +170,9 @@ pub fun action_to_string(a: Action) : string =>
     PaneRight       => "pane-right",
     PaneUp          => "pane-up",
     PaneDown        => "pane-down",
-    NextPane        => "next-pane"
+    NextPane        => "next-pane",
+    SetMark         => "set-mark",
+    SelectAll       => "select-all"
   }
 
 /// Inverse of `action_to_string`; unrecognised names resolve to `None`.
@@ -205,6 +211,8 @@ fun string_to_action(s: string) : maybe<Action> =>
     "pane-up"      => Some(PaneUp),
     "pane-down"    => Some(PaneDown),
     "next-pane"    => Some(NextPane),
+    "set-mark"     => Some(SetMark),
+    "select-all"   => Some(SelectAll),
     "ignore"       => Some(Ignore),
     _              => None
   }
