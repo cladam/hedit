@@ -87,6 +87,14 @@
 (bind "Meta-d" 'kill-word-forward)
 (bind "Meta-l" 'kill-whole-line)
 
+;; Selection ranges (M17): Ctrl-Space sets the mark at the cursor (a
+;; second press clears it); any movement while a mark is active extends
+;; the selection. Meta-a selects the whole buffer. A selection makes
+;; Ctrl-c copy just the selected text (falls back to whole-line copy
+;; with no selection) and Ctrl-v replace it instead of inserting.
+(bind "Ctrl-Space" 'set-mark)
+(bind "Meta-a" 'select-all)
+
 ;; Split panes: type a path + Enter to open that file in the new pane,
 ;; or a bare Enter to duplicate the current buffer's content into it.
 ;; Esc cancels. Pane-focus movement (Meta-Arrows/Meta-Tab) is decoded

@@ -160,6 +160,9 @@ Full reference with every chord: [`docs/hedit-cheatsheets.md`](docs/hedit-cheats
   kill-word-forward, `Meta-l` kill-whole-line
 - Clipboard & history: `Ctrl-c`/`Ctrl-v` copy/paste, `Ctrl-y` yank
   (same clipboard slot as paste), `Ctrl-z` undo, `Ctrl-r` redo
+- Selection: `Ctrl-Space` set/clear the mark, use arrows or navigation chords to select, `Meta-a` select all; with
+  a selection active, `Ctrl-c`/`Ctrl-v` copy/replace just the selected
+  text instead of the whole line
 - Search: `Ctrl-f` open search prompt, `Ctrl-Right` next occurance, `Ctrl-Left` previous occurance.
 - Buffers: `Meta-o`/`Meta-n`/`Meta-p`/`Meta-w` new/next/prev/close buffer
 - Split panes: `Meta-v`/`Meta-h` open a vertical/horizontal split prompt
