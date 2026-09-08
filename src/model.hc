@@ -26,7 +26,8 @@ pub struct TextBuffer {
   path: maybe<string>,
   lines: list<string>,
   cursors: list<Cursor>,
-  is_dirty: bool
+  is_dirty: bool,
+  scroll_line: int
 }
 
 // ---------------------------------------------------------------------------
@@ -98,6 +99,8 @@ pub type Action {
   SelectAll,
   MouseClick(x: int, y: int),
   MouseDrag(x: int, y: int),
+  ScrollViewUp(x: int, y: int),
+  ScrollViewDown(x: int, y: int),
   Ignore
 }
 
@@ -359,14 +362,19 @@ pub struct EditorState {
 
 /// The pixel-free "screen buffer" the Terminal handler flushes.
 // `cursor_row`/`cursor_col` (1-indexed) are where the native handler
-// positions the terminal's real cursor after a redraw — clamped to the
-// visible viewport by `render_editor_to_buffer`, which scrolls the buffer
-// line by line so the cursor's line is always shown. `highlights` is
-// `(row, start_col, end_col)` triples (1-indexed row, 0-indexed cols)
-// for search-match spans (M12) the Terminal handler paints with
-// `theme.search_match_bg` — empty outside an active search. `syntax_spans`
-// (M16) is the same row/col convention plus a `TokenKind`, painted with
-// the matching `theme.syntax_*_fg` slot instead of a background.
+// positions the terminal's real cursor after a redraw. `cursor_row` is
+// `0` (an otherwise-impossible row) when the cursor's actual buffer line
+// has scrolled out of the visible viewport (M18: a mouse wheel can move
+// `TextBuffer.scroll_line` away from the cursor without moving the
+// cursor itself) — the Terminal handler hides the real cursor and skips
+// the cursor-line background tint in that case, rather than pinning
+// either to the nearest visible edge row (which looked like the cursor
+// was "following" the scroll). `highlights` is `(row, start_col,
+// end_col)` triples (1-indexed row, 0-indexed cols) for search-match
+// spans (M12) the Terminal handler paints with `theme.search_match_bg`
+// — empty outside an active search. `syntax_spans` (M16) is the same
+// row/col convention plus a `TokenKind`, painted with the matching
+// `theme.syntax_*_fg` slot instead of a background.
 pub struct ScreenBuffer {
   width: int,
   height: int,
@@ -440,7 +448,8 @@ pub fun new_buffer(bid: int, path: maybe<string>) : TextBuffer =>
     path: path,
     lines: [""],
     cursors: [Cursor { cid: 0, pos: Position { line: 0, col: 0 }, anchor: None }],
-    is_dirty: false
+    is_dirty: false,
+    scroll_line: 0
   }
 
 /// `line`-th element of `lines`, or "" past the end.
@@ -454,13 +463,23 @@ fun nth_line(lines: list<string>, idx: int) : string =>
 
 /// Clamp a `+LINE:COL`-derived `Position` into a buffer's actual
 /// bounds so an out-of-range startup position can never crash.
-/// The vertical scroll offset (first visible buffer line) for a pane
-/// `n_content` rows tall whose cursor sits on `line` — pure function of
-/// the two, no persisted scroll state. Shared by `render.hc` (per-pane
-/// content rows) and `actions.hc` (mouse click/drag screen->buffer
-/// coordinate mapping, M18) so both stay in sync with the same layout.
-pub fun scroll_offset(n_content: int, line: int) : int =>
-  if n_content <= 0 { 0 } else { max(0, line - n_content + 1) }
+/// Adjust a persisted `scroll` (first visible buffer line) by the
+/// minimum amount needed so `line` stays within an `n_content`-row
+/// viewport — unlike the old stateless derivation (M18 mouse fix), an
+/// already-visible `line` leaves `scroll` untouched. Without this, every
+/// action (including a mouse click on an already-visible row) re-derived
+/// the offset from the cursor's line alone and always snapped it to the
+/// LAST visible row once scrolled — fine for continuous keyboard
+/// movement, but wrong for clicks/jumps: `actions.hc`'s `sync_scroll`
+/// calls this after every cursor-moving action so `TextBuffer.scroll_line`
+/// stays the single source of truth `render.hc` just reads.
+pub fun clamp_scroll(scroll: int, n_content: int, line: int) : int {
+  let s = max(scroll, 0)
+  if n_content <= 0 { 0 }
+  else if line < s { line }
+  else if line > s + n_content - 1 { line - n_content + 1 }
+  else { s }
+}
 
 pub fun clamp_position(lines: list<string>, pos: Position) : Position {
   let line     = max(min(pos.line, max(length(lines) - 1, 0)), 0)

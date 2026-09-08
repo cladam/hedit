@@ -233,19 +233,23 @@ fun syntax_highlights(buf: TextBuffer, offset: int, n_content: int, w: int) : li
 /// Build a ScreenBuffer from `state`'s normal (non-help) editing view.
 // `cursor_row`/`cursor_col` are the head cursor's position clamped to the
 // visible viewport (1-indexed, tabline occupies row 1). Vertical scrolling
-// (see `scroll_offset`) follows the cursor line by line once it goes past
-// the first page, computed fresh each frame from the cursor position alone
-// (no persisted scroll state). A cursor past the right edge still pins to
-// the last visible column rather than scrolling horizontally. While a
-// Save-As/Open prompt (M9) is active, the status row shows the prompt
-// label instead and the real cursor tracks the end of the typed text.
+// reads the persisted `TextBuffer.scroll_line` (kept in sync by
+// `actions.hc`'s `sync_scroll` after every cursor-moving action, and
+// nudged directly by `ScrollViewUp`/`ScrollViewDown`) rather than
+// re-deriving it from the cursor every frame (M18: that always snapped
+// the cursor to the last visible row once scrolled, which broke mouse
+// clicks on an already-visible row). A cursor past the right edge still
+// pins to the last visible column rather than scrolling horizontally.
+// While a Save-As/Open prompt (M9) is active, the status row shows the
+// prompt label instead and the real cursor tracks the end of the typed
+// text.
 fun render_normal_buffer(state: EditorState) : ScreenBuffer {
   let (w, h)    = state.screen_size
   let buf       = state.buffer
   let n_content = h - 2
 
   let cur    = match buf.cursors { [] => Position { line: 0, col: 0 }, [x, .._] => x.pos }
-  let offset = scroll_offset(n_content, cur.line)
+  let offset = buf.scroll_line
 
   // Each content line truncated to screen width; empty rows filled with "~".
   let text_rows    = map(drop_n(buf.lines, offset), (l) => fit_to_width(l, w))
@@ -264,11 +268,11 @@ fun render_normal_buffer(state: EditorState) : ScreenBuffer {
     _        => fit_to_width(prompt_label(state.prompt), w)
   }
 
-  let visible_line = max(min(cur.line - offset, max(n_content - 1, 0)), 0)
   let visible_col  = max(min(cur.col, max(w - 1, 0)), 0)
+  let in_view      = cur.line >= offset && cur.line <= offset + n_content - 1
 
   let (crow, ccol) = match state.prompt {
-    NoPrompt => (visible_line + 2, visible_col + 1)
+    NoPrompt => if in_view { (cur.line - offset + 2, visible_col + 1) } else { (0, 1) }
     _        => (h, min(prompt_prefix_len(state.prompt) + prompt_cursor_col(state.prompt) + 1, w))
   }
 
@@ -309,14 +313,14 @@ fun repeat_str(s: string, n: int) : string =>
   if n <= 0 { "" } else { s + repeat_str(s, n - 1) }
 
 /// One leaf's content rows: its buffer's lines, scrolled to keep its own
-/// head cursor visible (each pane scrolls independently off its own
-/// buffer's cursor — the same pure per-frame computation as the
-/// single-pane path), truncated/padded to exactly `rw` columns (every
-/// row, including "~" fill rows, must be exactly `rw` wide so splicing
-/// a later pane onto the same canvas row doesn't shift on a short line).
+/// head cursor visible (each pane reads its own persisted
+/// `TextBuffer.scroll_line`, kept independent per-pane the same way
+/// `sync_scroll` only ever touches the active buffer), truncated/padded
+/// to exactly `rw` columns (every row, including "~" fill rows, must be
+/// exactly `rw` wide so splicing a later pane onto the same canvas row
+/// doesn't shift on a short line).
 fun leaf_content_rows(buf: TextBuffer, rw: int, rh: int) : list<string> {
-  let cur       = match buf.cursors { [] => Position { line: 0, col: 0 }, [x, .._] => x.pos }
-  let offset    = scroll_offset(rh, cur.line)
+  let offset    = buf.scroll_line
   let text_rows = map(drop_n(buf.lines, offset), (l) => fit_to_width(l, rw))
   let rows      = take_or_pad(text_rows, rh, "~")
   map(rows, (r) => pad_right(r, rw, " "))
@@ -403,12 +407,12 @@ fun render_split_buffer(state: EditorState) : ScreenBuffer {
 
   let (ax, ay, aw, ah) = find_rect(rects, state.buffer.bid, full_rect)
   let cur          = match state.buffer.cursors { [] => Position { line: 0, col: 0 }, [x, .._] => x.pos }
-  let offset       = scroll_offset(ah, cur.line)
-  let visible_line = max(min(cur.line - offset, max(ah - 1, 0)), 0)
+  let offset       = state.buffer.scroll_line
   let visible_col  = max(min(cur.col, max(aw - 1, 0)), 0)
+  let in_view      = cur.line >= offset && cur.line <= offset + ah - 1
 
   let (crow, ccol) = match state.prompt {
-    NoPrompt => (ay + visible_line + 2, ax + visible_col + 1)
+    NoPrompt => if in_view { (ay + cur.line - offset + 2, ax + visible_col + 1) } else { (0, 1) }
     _        => (h, min(prompt_prefix_len(state.prompt) + prompt_cursor_col(state.prompt) + 1, w))
   }
 

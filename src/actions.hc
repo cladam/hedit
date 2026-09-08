@@ -889,27 +889,32 @@ fun rect_at(rects: list<(int, (int, int, int, int))>, x: int, y: int) : maybe<(i
       else { rect_at(rest, x, y) }
   }
 
-/// Map a 1-indexed screen coordinate (`x` = column, `y` = row) to the pane
-/// `bid` and the buffer-local `Position` it falls on. `None` for a click on
-/// the tabline/status row, a divider gap, or outside every pane.
-pub fun screen_to_buffer_pos(state: EditorState, x: int, y: int) : maybe<(int, Position)> {
+/// The `(bid, rect)` pair a 1-indexed screen coordinate falls on, or
+/// `None` for the tabline/status row, a divider gap, or outside every
+/// pane. Shared by `screen_to_buffer_pos` (click/drag) and `scroll_view`
+/// (wheel) so both agree on exactly the same content-area geometry.
+fun locate_pane(state: EditorState, x: int, y: int) : maybe<(int, (int, int, int, int))> {
   let (w, h)    = state.screen_size
   let n_content = h - 2
   let cx        = x - 1
   let cy        = y - 2
   if cx < 0 || cx >= w || cy < 0 || cy >= n_content { None }
-  else {
-    let rects = split_rect((0, 0, w, n_content), state.panes)
-    match rect_at(rects, cx, cy) {
-      None => None,
-      Some((pane_bid, rect)) => {
-        let buf        = buffer_for(state, pane_bid)
-        let cur        = head_cursor(buf)
-        let offset     = scroll_offset(rect.3, cur.pos.line)
-        let local_col  = cx - rect.0
-        let local_line = (cy - rect.1) + offset
-        Some((pane_bid, clamp_position(buf.lines, Position { line: local_line, col: local_col })))
-      }
+  else { rect_at(split_rect((0, 0, w, n_content), state.panes), cx, cy) }
+}
+
+/// Map a 1-indexed screen coordinate (`x` = column, `y` = row) to the pane
+/// `bid` and the buffer-local `Position` it falls on. `None` for a click on
+/// the tabline/status row, a divider gap, or outside every pane.
+pub fun screen_to_buffer_pos(state: EditorState, x: int, y: int) : maybe<(int, Position)> {
+  let cx = x - 1
+  let cy = y - 2
+  match locate_pane(state, x, y) {
+    None => None,
+    Some((pane_bid, rect)) => {
+      let buf        = buffer_for(state, pane_bid)
+      let local_col  = cx - rect.0
+      let local_line = (cy - rect.1) + buf.scroll_line
+      Some((pane_bid, clamp_position(buf.lines, Position { line: local_line, col: local_col })))
     }
   }
 }
@@ -946,6 +951,64 @@ pub fun mouse_drag(state: EditorState, x: int, y: int) : EditorState =>
         EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
       }
   }
+
+/// Adjust `target_bid`'s `scroll_line` by `delta` lines (positive = down),
+/// clamped to `[0, max(0, total_lines - rh)]` so the wheel can't scroll
+/// past the end into a screenful of "~" fill. Updates whichever buffer
+/// (active or backgrounded) owns `target_bid`, without changing focus —
+/// scrolling a pane you're hovering shouldn't activate it.
+fun scroll_buffer(state: EditorState, target_bid: int, rh: int, delta: int) : EditorState {
+  let buf        = buffer_for(state, target_bid)
+  let max_scroll = max(length(buf.lines) - rh, 0)
+  let new_scroll = max(0, min(buf.scroll_line + delta, max_scroll))
+  let updated    = TextBuffer { ...buf, scroll_line: new_scroll }
+  if target_bid == state.buffer.bid { EditorState { ...state, buffer: updated } }
+  else {
+    let new_bg = map(state.background_buffers, (b) => if b.bid == target_bid { updated } else { b })
+    EditorState { ...state, background_buffers: new_bg }
+  }
+}
+
+/// `ScrollViewUp`/`ScrollViewDown` (mouse wheel): scroll whichever pane's
+/// rectangle `(x, y)` falls on, three lines per tick — the cursor doesn't
+/// move, so it can end up outside the newly visible window until the next
+/// cursor-moving action scrolls it back into view (standard wheel-scroll
+/// behaviour). A wheel tick outside every pane is a no-op.
+pub fun scroll_view(state: EditorState, x: int, y: int, dir: int) : EditorState =>
+  match locate_pane(state, x, y) {
+    None => state,
+    Some((pane_bid, rect)) => scroll_buffer(state, pane_bid, rect.3, dir * 3)
+  }
+
+/// Clamp the active buffer's persisted `scroll_line` to keep its cursor
+/// visible, moving it the minimum amount needed (see `clamp_scroll`).
+/// Called after every cursor-moving action so `TextBuffer.scroll_line`
+/// stays correct for `render.hc` to read directly.
+pub fun sync_scroll(state: EditorState) : EditorState {
+  let (w, h)    = state.screen_size
+  let n_content = h - 2
+  let rects     = split_rect((0, 0, w, n_content), state.panes)
+  let (_, _, _, rh) = find_rect(rects, state.buffer.bid, (0, 0, w, n_content))
+  let buf        = state.buffer
+  let cur        = head_cursor(buf)
+  let new_scroll = clamp_scroll(buf.scroll_line, rh, cur.pos.line)
+  EditorState { ...state, buffer: TextBuffer { ...buf, scroll_line: new_scroll } }
+}
+
+/// `true` if anything that could affect which lines should stay visible
+/// changed between `before` and `after` — active pane, cursor line, or
+/// viewport size. `sync_scroll` should only run when this is true:
+/// skipping it otherwise is what lets a deliberate `ScrollViewUp`/
+/// `ScrollViewDown` (or a no-op `Tick`/`Ignore` right after one) leave
+/// the viewport alone instead of snapping back to the cursor on the very
+/// next idle poll — `sync_scroll` itself has no memory of "this scroll
+/// was deliberate", it just re-clamps to wherever the cursor currently
+/// is, so calling it unconditionally after every action undid wheel
+/// scrolling within one ~200ms poll tick.
+pub fun view_relevant_change(before: EditorState, after: EditorState) : bool =>
+  before.buffer.bid != after.buffer.bid ||
+  head_cursor(before.buffer).pos.line != head_cursor(after.buffer).pos.line ||
+  before.screen_size != after.screen_size
 
 pub fun pane_left(state: EditorState) : EditorState {
   let (w, h)   = state.screen_size
@@ -1192,8 +1255,10 @@ fun resolve_normal_action(state: EditorState, evt: Event) : Action =>
     KeyEvent(KMetaSpecial(Tab))        => NextPane,
     KeyEvent(KShortcut(m, c)) =>
       lookup_binding(state.config.bindings, KeyChord { m: m, c: c }),
-    MouseEvent(Press, x, y) => MouseClick(x, y),
-    MouseEvent(Drag, x, y)  => MouseDrag(x, y),
+    MouseEvent(Press, x, y)      => MouseClick(x, y),
+    MouseEvent(Drag, x, y)       => MouseDrag(x, y),
+    MouseEvent(ScrollUp, x, y)   => ScrollViewUp(x, y),
+    MouseEvent(ScrollDown, x, y) => ScrollViewDown(x, y),
     ResizeEvent(w, h)         => Resize(w, h),
     _                         => Ignore
   }
@@ -1260,6 +1325,8 @@ pub fun apply_action(state: EditorState, action: Action) : EditorState =>
     SelectAll    => select_all(state),
     MouseClick(x, y) => mouse_click(state, x, y),
     MouseDrag(x, y)  => mouse_drag(state, x, y),
+    ScrollViewUp(x, y)   => scroll_view(state, x, y, -1),
+    ScrollViewDown(x, y) => scroll_view(state, x, y, 1),
     PromptChar(c)   => refresh_find_matches(prompt_insert_char(state, c)),
     PromptBackspace => refresh_find_matches(prompt_backspace(state)),
     PromptCancel    => cancel_prompt(state),
@@ -1279,6 +1346,13 @@ pub fun apply_action(state: EditorState, action: Action) : EditorState =>
 
 // ------------------- pure event dispatcher ------------------------------
 
-/// Resolve and apply an event against state in one step.
-pub fun handle_action(state: EditorState, evt: Event) : EditorState =>
-  apply_action(state, resolve_action(state, evt))
+/// Resolve and apply an event against state in one step, then re-clamp
+/// the active buffer's scroll if the action actually moved the cursor,
+/// switched panes, or resized the viewport (see `view_relevant_change`)
+/// — mirrors `runtime.hc`'s real `event_loop_step`, which does the same
+/// around its effectful `dispatch_action`.
+pub fun handle_action(state: EditorState, evt: Event) : EditorState => {
+  let action = resolve_action(state, evt)
+  let next   = apply_action(state, action)
+  if view_relevant_change(state, next) { sync_scroll(next) } else { next }
+}

@@ -174,7 +174,9 @@ pub fun action_to_string(a: Action) : string =>
     SetMark         => "set-mark",
     SelectAll       => "select-all",
     MouseClick(_, _) => "mouse-click",
-    MouseDrag(_, _)  => "mouse-drag"
+    MouseDrag(_, _)  => "mouse-drag",
+    ScrollViewUp(_, _)   => "scroll-view-up",
+    ScrollViewDown(_, _) => "scroll-view-down"
   }
 
 /// Inverse of `action_to_string`; unrecognised names resolve to `None`.

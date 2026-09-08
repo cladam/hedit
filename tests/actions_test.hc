@@ -574,6 +574,11 @@ fun with_lines(lines: list<string>) : EditorState {
   EditorState { ...s0, buffer: buf }
 }
 
+/// `n` placeholder lines — used to build a buffer taller than one
+/// screen's worth of content rows, for scroll-related tests.
+fun many_lines(n: int) : list<string> =>
+  if n <= 0 { [] } else { many_lines(n - 1) + ["line " + show(n)] }
+
 test "resolve_action maps Ctrl-f to StartFind via default_bindings" {
   let s0 = init_editor(None)
   assert(resolve_action(s0, KeyEvent(KShortcut(Ctrl, 'f'))) == StartFind)
@@ -870,11 +875,15 @@ test "resolve_action maps a mouse Press/Drag to MouseClick/MouseDrag" {
   assert(resolve_action(s0, MouseEvent(Drag, 5, 3)) == MouseDrag(5, 3))
 }
 
-test "mouse Release/ScrollUp/ScrollDown are ignored in v1" {
+test "resolve_action maps mouse wheel events to ScrollViewUp/ScrollViewDown" {
+  let s0 = init_editor(None)
+  assert(resolve_action(s0, MouseEvent(ScrollUp, 5, 3)) == ScrollViewUp(5, 3))
+  assert(resolve_action(s0, MouseEvent(ScrollDown, 5, 3)) == ScrollViewDown(5, 3))
+}
+
+test "mouse Release is ignored in v1" {
   let s0 = init_editor(None)
   assert(resolve_action(s0, MouseEvent(Release, 5, 3)) == Ignore)
-  assert(resolve_action(s0, MouseEvent(ScrollUp, 5, 3)) == Ignore)
-  assert(resolve_action(s0, MouseEvent(ScrollDown, 5, 3)) == Ignore)
 }
 
 test "mouse events are ignored while a prompt or the help overlay is active" {
@@ -936,4 +945,73 @@ test "MouseClick focuses whichever split pane the click landed in" {
   assert(head_cursor_pos(s1) == Position { line: 0, col: 0 })
   let s2 = apply_action(s1, MouseClick(1, 2))  // left pane (bid 0)
   assert(s2.buffer.bid == 0)
+}
+
+// ------------------- Persisted scroll / click-jump fix (M18 follow-up) ----
+// Real-terminal testing found clicking an already-visible row snapped the
+// viewport so that row became the LAST visible one (`scroll_offset` always
+// re-derived the offset from the cursor's line alone, with no memory of
+// what was already on screen). `clamp_scroll`/`sync_scroll` fix this by
+// persisting `TextBuffer.scroll_line` and only nudging it the minimum
+// amount needed to keep the cursor visible.
+
+test "clamp_scroll leaves an already-visible line's scroll untouched" {
+  assert(clamp_scroll(10, 20, 15) == 10)
+}
+
+test "clamp_scroll snaps down to the minimum scroll that reveals a line below the window" {
+  assert(clamp_scroll(0, 20, 25) == 6)
+}
+
+test "clamp_scroll snaps up to the minimum scroll that reveals a line above the window" {
+  assert(clamp_scroll(10, 20, 3) == 3)
+}
+
+test "clamp_scroll never goes negative" {
+  assert(clamp_scroll(-5, 20, 0) == 0)
+}
+
+test "sync_scroll leaves the viewport alone when the cursor is already visible" {
+  let s0 = with_lines(many_lines(60))
+  let scrolled = TextBuffer { ...s0.buffer, scroll_line: 20, cursors: [Cursor { cid: 0, pos: Position { line: 25, col: 0 }, anchor: None }] }
+  let s1 = EditorState { ...s0, buffer: scrolled }
+  let s2 = sync_scroll(s1)
+  assert(s2.buffer.scroll_line == 20) // old design would've snapped this to 4
+}
+
+test "MouseClick on an already-visible row doesn't move the viewport (bug fix)" {
+  let s0 = with_lines(many_lines(60))
+  let scrolled = TextBuffer { ...s0.buffer, scroll_line: 20, cursors: [Cursor { cid: 0, pos: Position { line: 25, col: 0 }, anchor: None }] }
+  let s1 = EditorState { ...s0, buffer: scrolled }
+  let s2 = handle_action(s1, MouseEvent(Press, 1, 5)) // content row 3 -> buffer line 23, already visible
+  assert(s2.buffer.scroll_line == 20)
+  assert(head_cursor_pos(s2) == Position { line: 23, col: 0 })
+}
+
+test "ScrollViewDown moves the viewport without moving the cursor" {
+  let s0 = with_lines(many_lines(60))
+  let s1 = handle_action(s0, MouseEvent(ScrollDown, 1, 5))
+  assert(s1.buffer.scroll_line == 3)
+  assert(head_cursor_pos(s1) == Position { line: 0, col: 0 })
+}
+
+test "ScrollViewUp/ScrollViewDown clamp to the buffer's scroll bounds" {
+  let s0 = with_lines(many_lines(60))
+  let s1 = handle_action(s0, MouseEvent(ScrollUp, 1, 5)) // already at the top
+  assert(s1.buffer.scroll_line == 0)
+  let far = TextBuffer { ...s0.buffer, scroll_line: 100 }
+  let s2 = handle_action(EditorState { ...s0, buffer: far }, MouseEvent(ScrollDown, 1, 5))
+  assert(s2.buffer.scroll_line == 38) // max(60 - 22, 0)
+}
+
+test "an unrelated no-op action after a wheel scroll doesn't snap the viewport back (bug fix)" {
+  let s0 = with_lines(many_lines(60))
+  let s1 = handle_action(s0, MouseEvent(ScrollDown, 1, 5))
+  assert(s1.buffer.scroll_line == 3)
+  // Ctrl-x is unbound (Ignore) and Tick is a no-op — neither moves the
+  // cursor, so the deliberate scroll must survive both untouched.
+  let s2 = handle_action(s1, KeyEvent(KShortcut(Ctrl, 'x')))
+  assert(s2.buffer.scroll_line == 3)
+  let s3 = handle_action(s2, Tick)
+  assert(s3.buffer.scroll_line == 3)
 }

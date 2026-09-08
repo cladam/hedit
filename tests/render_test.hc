@@ -202,3 +202,30 @@ test "a horizontal split stacks the left buffer's pane above a divider row above
   assert(nth_or(buf.lines, 3, "MISSING") == "──────────")
   assert(nth_or(buf.lines, 4, "MISSING") == "bottom    ")
 }
+
+// ------------------- Cursor visibility while scrolled (M18 wheel fix) -----
+// A mouse wheel scroll moves `TextBuffer.scroll_line` without moving the
+// cursor, so the cursor's line can end up outside the visible viewport —
+// `cursor_row` is the sentinel `0` in that case (main.hc hides the real
+// cursor and skips the cursor-line tint) instead of pinning to whichever
+// edge row is nearest, which looked like the cursor was "following" the
+// scroll (see effects-journal.md M18).
+
+fun render_lines(n: int) : list<string> =>
+  if n <= 0 { [] } else { render_lines(n - 1) + ["line " + show(n)] }
+
+test "cursor_row is 0 (hidden) when the cursor's line is scrolled out of view" {
+  let s0 = with_lines_render(render_lines(20), (40, 10)) // n_content = 8
+  let scrolled = TextBuffer { ...s0.buffer, scroll_line: 0, cursors: [Cursor { cid: 0, pos: Position { line: 15, col: 0 }, anchor: None }] }
+  let s1  = EditorState { ...s0, buffer: scrolled }
+  let buf = render_editor_to_buffer(s1)
+  assert(buf.cursor_row == 0)
+}
+
+test "cursor_row is a real row when the cursor is within the scrolled viewport" {
+  let s0 = with_lines_render(render_lines(20), (40, 10))
+  let scrolled = TextBuffer { ...s0.buffer, scroll_line: 10, cursors: [Cursor { cid: 0, pos: Position { line: 12, col: 0 }, anchor: None }] }
+  let s1  = EditorState { ...s0, buffer: scrolled }
+  let buf = render_editor_to_buffer(s1)
+  assert(buf.cursor_row == 4) // (12 - 10) + 2
+}

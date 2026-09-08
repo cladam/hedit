@@ -447,7 +447,8 @@ fun event_loop_step(state: EditorState, buf_pool: list<(int, ref<Buffer>)>, last
     let (next, hl_env2, pool2) =
       if hook_cancels(pre_results) && !is_quit(action) { (blocked_state(sized, action_to_string(action), pre_results), hl_env1, buf_pool) }
       else { dispatch_action(sized, action, buf_pool, hl_env1) }
-    event_loop_step(next, pool2, next_frame, hl_env2)
+    let synced = if view_relevant_change(sized, next) { sync_scroll(next) } else { next }
+    event_loop_step(synced, pool2, next_frame, hl_env2)
   }
 }
 
@@ -496,7 +497,14 @@ pub fun spawn_buffer_handler() {
 pub fun event_loop_with_env(state: EditorState, hl_env0:Env) {
   let initial_ref = spawn_buffer_handler().0
   let pool0 = [(state.buffer.bid, initial_ref)]
-  event_loop_step(state, pool0, None, hl_env0)
+  // One-off initial scroll sync against the REAL terminal size (state's
+  // `screen_size` is still whatever `init_editor` defaulted to) — the
+  // only place a cursor can start outside the first page without a
+  // preceding cursor-moving action to trigger the per-tick sync below
+  // (a startup `+LINE` position, see `main.hc::set_initial_position`).
+  let dims0  = get_dimensions()
+  let sized0 = sync_scroll(EditorState { ...state, screen_size: dims0 })
+  event_loop_step(sized0, pool0, None, hl_env0)
 }
 
 /// Entry point for callers with no HiLisp env of their own (most

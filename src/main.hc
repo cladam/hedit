@@ -37,23 +37,37 @@ fun combine_status(a: maybe<string>, b: maybe<string>) : maybe<string> =>
   }
 
 /// Put the terminal into raw mode via `stty` (through hica's built-in
-/// `exec`) rather than a hand-written termios FFI. Also turns on SGR
+/// `exec`) rather than a hand-written termios FFI. Also switches to the
+/// terminal's ALTERNATE screen buffer (`ESC[?1049h`) and turns on SGR
 /// extended mouse reporting (M18) — `ESC[?1000h` (button-event
 /// tracking) + `ESC[?1006h` (SGR coordinate encoding, no 223-column
 /// ceiling) — so `hedit_read_key` starts receiving mouse reports.
+// The alt-screen switch matters for mouse support specifically: without
+// it, hedit was drawing into the terminal's normal screen, which still
+// has real scrollback above it — real-terminal testing (M18) found the
+// mouse wheel then scrolled that native scrollback instead of ever
+// reaching the app in iTerm2, and in Terminal.app/WezTerm the wheel
+// scrolled the native view AND forwarded the SGR report, leaving the
+// terminal's own viewport out of sync with hedit's redraws (clicks
+// afterwards landed on stale scrollback content, not the live frame).
+// The alt screen is a completely separate buffer with no scrollback of
+// its own, which is what every other full-screen terminal app (vim,
+// less -R, htop, ...) relies on for exactly this reason.
 // `stty sane` on the way out covers the normal-quit path; a
-// crash/SIGINT leaving the shell in raw mode is a known, documented
-// limitation (see M7 exit criteria / manual QA list).
+// crash/SIGINT leaving the shell in raw mode (and the alt screen active)
+// is a known, documented limitation (see M7 exit criteria / manual QA
+// list).
 fun enable_raw_mode() {
   let _ = exec("stty raw -echo icrnl 2>/dev/null")
-  print(term_esc() + "[?1000h" + term_esc() + "[?1006h")
+  print(term_esc() + "[?1049h" + term_esc() + "[?1000h" + term_esc() + "[?1006h")
   flush_stdout()
 }
 
-/// Restore normal terminal mode (`stty sane`) and turn mouse reporting
-/// back off, in the reverse order it was enabled.
+/// Restore normal terminal mode (`stty sane`), turn mouse reporting back
+/// off, and switch back to the terminal's normal screen buffer — in the
+/// reverse order everything was enabled.
 fun disable_raw_mode() {
-  print(term_esc() + "[?1006l" + term_esc() + "[?1000l")
+  print(term_esc() + "[?1006l" + term_esc() + "[?1000l" + term_esc() + "[?1049l")
   flush_stdout()
   let _ = exec("stty sane 2>/dev/null")
 }
@@ -244,7 +258,12 @@ fun style_frame_lines_go(theme: Theme, lines: list<string>, idx: int, total: int
 fun render_native(theme: Theme, buf: ScreenBuffer) {
   let styled     = style_frame_lines(theme, buf.lines, buf.cursor_row, buf.highlights, buf.syntax_spans, buf.selection_spans)
   let cleared    = map(styled, (l) => l + term_esc() + "[K")
-  let cursor_esc = term_esc() + "[" + show(buf.cursor_row) + ";" + show(buf.cursor_col) + "H"
+  // `cursor_row <= 0` is render.hc's sentinel for "the cursor's buffer
+  // line has scrolled out of view" (M18 wheel scrolling) — hide the
+  // real cursor instead of drawing it at some unrelated visible row.
+  let cursor_esc =
+    if buf.cursor_row <= 0 { term_esc() + "[?25l" }
+    else { term_esc() + "[?25h" + term_esc() + "[" + show(buf.cursor_row) + ";" + show(buf.cursor_col) + "H" }
   let frame = term_esc() + "[H" + join(cleared, "\r\n") + term_esc() + "[J" + cursor_esc
   print(frame)
   flush_stdout()
