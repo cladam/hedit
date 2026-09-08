@@ -49,6 +49,30 @@ pub type Event {
   Tick
 }
 
+/// Decode a packed SGR mouse report (`ESC[<Cb;Cx;Cy(M|m)`, parsed by
+/// `hedit_read_key`'s C shim) into a `MouseEvent`. The shim packs
+/// `action_code`/`x`/`y` into one sentinel int (base 2,000,000 — safely
+/// above the largest real Unicode codepoint, 0x10FFFF/1,114,111, and
+/// every other synthetic code this module decodes) as
+/// `2000000 + action_code * 100000000 + x * 10000 + y`, `x`/`y` clamped
+/// to 0..9999 columns/rows by the C side. See `term_ffi_inline.c`'s
+/// `hedit_read_key` for the encode side of this contract.
+fun decode_mouse(code: int) : Event {
+  let rel         = code - 2000000
+  let action_code = rel / 100000000
+  let rem         = rel % 100000000
+  let x           = rem / 10000
+  let y           = rem % 10000
+  let action = match action_code {
+    0 => Press,
+    1 => Release,
+    2 => Drag,
+    3 => ScrollUp,
+    _ => ScrollDown
+  }
+  MouseEvent(action, x, y)
+}
+
 /// Decode a raw key code from the native `Terminal` handler
 /// (`term_ffi.hedit_read_key`'s contract, see src/term_ffi.kk) into an
 /// `Event`.
@@ -60,6 +84,7 @@ pub type Event {
 // navigation); 1020-1023 are Meta-Up/Down/Right/Left and 1024 is
 // Meta-Tab (M15 pane focus — `ESC[1;3A`-style sequences and bare
 // `ESC` + Tab, the only modifier-parameterised arrows/Tab decoded so far.
+// >= 2000000 is a packed SGR mouse report (M18) — see decode_mouse above.
 pub fun decode_key(code: int) : Event {
   if code == 10 { KeyEvent(KSpecial(Enter)) }
   else if code == 127 { KeyEvent(KSpecial(Backspace)) }
@@ -81,6 +106,7 @@ pub fun decode_key(code: int) : Event {
   else if code == 0 { KeyEvent(KShortcut(Ctrl, ' ')) } // Ctrl-Space / NUL byte
   else if code >= 1 && code <= 26 { KeyEvent(KShortcut(Ctrl, chr(code + 96))) }
   else if code >= 2032 && code <= 2126 { KeyEvent(KShortcut(Meta, chr(code - 2000))) } // bare ESC + char (Alt/Meta)
+  else if code >= 2000000 { decode_mouse(code) } // packed SGR mouse report (M18)
   else if code >= 32 && code <= 126 { KeyEvent(KChar(chr(code))) }
   else if code >= 128 { KeyEvent(KChar(chr(code))) } // decoded multi-byte UTF-8 codepoint
   else { KeyEvent(KSpecial(Esc)) }

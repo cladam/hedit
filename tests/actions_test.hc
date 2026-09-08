@@ -859,3 +859,81 @@ test "delete_selection joins a multi-line span into one line" {
   let s8 = delete_selection(s7)
   assert(s8.buffer.lines == ["b"])
 }
+
+// ------------------- SGR mouse support (M18) ------------------------------
+// Screen coordinates are 1-indexed (row 1 = tabline, rows 2..h-1 = content,
+// row h = status), matching render.hc's layout — see screen_to_buffer_pos.
+
+test "resolve_action maps a mouse Press/Drag to MouseClick/MouseDrag" {
+  let s0 = init_editor(None)
+  assert(resolve_action(s0, MouseEvent(Press, 5, 3)) == MouseClick(5, 3))
+  assert(resolve_action(s0, MouseEvent(Drag, 5, 3)) == MouseDrag(5, 3))
+}
+
+test "mouse Release/ScrollUp/ScrollDown are ignored in v1" {
+  let s0 = init_editor(None)
+  assert(resolve_action(s0, MouseEvent(Release, 5, 3)) == Ignore)
+  assert(resolve_action(s0, MouseEvent(ScrollUp, 5, 3)) == Ignore)
+  assert(resolve_action(s0, MouseEvent(ScrollDown, 5, 3)) == Ignore)
+}
+
+test "mouse events are ignored while a prompt or the help overlay is active" {
+  let sp = apply_action(init_editor(None), StartFind)
+  assert(resolve_action(sp, MouseEvent(Press, 5, 3)) == Ignore)
+  let sh = apply_action(init_editor(None), ToggleHelp)
+  assert(resolve_action(sh, MouseEvent(Press, 5, 3)) == Ignore)
+}
+
+test "screen_to_buffer_pos maps a content-row click to the right buffer position" {
+  let s0 = with_lines(["hello", "world"])
+  assert(screen_to_buffer_pos(s0, 3, 2) == Some((s0.buffer.bid, Position { line: 0, col: 2 })))
+  assert(screen_to_buffer_pos(s0, 1, 3) == Some((s0.buffer.bid, Position { line: 1, col: 0 })))
+}
+
+test "screen_to_buffer_pos is None on the tabline/status row" {
+  let s0 = with_lines(["hello"])
+  assert(screen_to_buffer_pos(s0, 3, 1) == None)  // tabline
+  assert(screen_to_buffer_pos(s0, 3, 24) == None) // status row
+}
+
+test "MouseClick places the cursor at the clicked position" {
+  let s0 = with_lines(["hello world"])
+  let s1 = apply_action(s0, MouseClick(6, 2))
+  assert(head_cursor_pos(s1) == Position { line: 0, col: 5 })
+}
+
+test "MouseClick clears any active selection" {
+  let s0 = with_lines(["hello world"])
+  let s1 = apply_action(s0, SetMark)
+  let s2 = handle_action(s1, KeyEvent(KSpecial(ArrowRight)))
+  assert(selection_span(s2) != None)
+  let s3 = apply_action(s2, MouseClick(6, 2))
+  assert(selection_span(s3) == None)
+  assert(head_cursor_pos(s3) == Position { line: 0, col: 5 })
+}
+
+test "MouseClick on the tabline/status row is a no-op" {
+  let s0 = with_lines(["hello"])
+  let before = head_cursor_pos(s0)
+  let s1 = apply_action(s0, MouseClick(1, 1))
+  assert(head_cursor_pos(s1) == before)
+}
+
+test "MouseDrag after MouseClick extends a selection from the click" {
+  let s0 = with_lines(["hello world"])
+  let s1 = apply_action(s0, MouseClick(1, 2))  // col 0
+  let s2 = apply_action(s1, MouseDrag(6, 2))   // col 5 — first drag sets the anchor
+  assert(selection_span(s2) == Some((0, 0, 0, 5)))
+  let s3 = apply_action(s2, MouseDrag(9, 2))   // col 8 — anchor stays put
+  assert(selection_span(s3) == Some((0, 0, 0, 8)))
+}
+
+test "MouseClick focuses whichever split pane the click landed in" {
+  let node = Split(Vertical, 0.5, Leaf(0), Leaf(1))
+  let s0 = with_two_panes(node)
+  let s1 = apply_action(s0, MouseClick(42, 2)) // right pane (bid 1)
+  assert(s1.buffer.bid == 1)
+  assert(head_cursor_pos(s1) == Position { line: 0, col: 0 })
+  let s2 = apply_action(s1, MouseClick(1, 2))  // left pane (bid 0)
+  assert(s2.buffer.bid == 0)
+}

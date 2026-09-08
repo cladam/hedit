@@ -19,6 +19,8 @@ extern import
 //   Enter: 10, Backspace: 127, Tab: 9, Esc: 27
 //   Arrow Up: 1001, Down: 1002, Right: 1003, Left: 1004
 //   decoded multi-byte UTF-8 input (åäö, etc.): the Unicode codepoint (>=128)
+//   SGR mouse report (M18): a packed sentinel >= 2000000 (see decode_mouse
+//     in src/keys.hc)
 //   read timeout (~200ms, no key pressed): -2
 //   error/EOF: -1
 pub extern read_key() : io int

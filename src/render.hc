@@ -33,15 +33,6 @@ fun drop_n(xs: list<string>, n: int) : list<string> =>
     }
   }
 
-/// The vertical scroll offset (first visible buffer line).
-// A pure function of the cursor line + viewport height with no extra
-// `EditorState` field to keep in sync: once the cursor moves past the
-// last row of the first page, the offset grows one line at a time so
-// the cursor's line is always the last visible row — smooth per-line
-// scrolling rather than a jump to the next full page.
-fun scroll_offset(n_content: int, line: int) : int =>
-  if n_content <= 0 { 0 } else { max(0, line - n_content + 1) }
-
 /// Display name for a buffer's tab: its path, or "scratch" for an
 /// unnamed in-memory buffer.
 fun buffer_tab_name(buf: TextBuffer) : string =>

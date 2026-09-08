@@ -96,6 +96,8 @@ pub type Action {
   NextPane,
   SetMark,
   SelectAll,
+  MouseClick(x: int, y: int),
+  MouseDrag(x: int, y: int),
   Ignore
 }
 
@@ -452,6 +454,14 @@ fun nth_line(lines: list<string>, idx: int) : string =>
 
 /// Clamp a `+LINE:COL`-derived `Position` into a buffer's actual
 /// bounds so an out-of-range startup position can never crash.
+/// The vertical scroll offset (first visible buffer line) for a pane
+/// `n_content` rows tall whose cursor sits on `line` — pure function of
+/// the two, no persisted scroll state. Shared by `render.hc` (per-pane
+/// content rows) and `actions.hc` (mouse click/drag screen->buffer
+/// coordinate mapping, M18) so both stay in sync with the same layout.
+pub fun scroll_offset(n_content: int, line: int) : int =>
+  if n_content <= 0 { 0 } else { max(0, line - n_content + 1) }
+
 pub fun clamp_position(lines: list<string>, pos: Position) : Position {
   let line     = max(min(pos.line, max(length(lines) - 1, 0)), 0)
   let line_len = length(nth_line(lines, line))

@@ -172,7 +172,9 @@ pub fun action_to_string(a: Action) : string =>
     PaneDown        => "pane-down",
     NextPane        => "next-pane",
     SetMark         => "set-mark",
-    SelectAll       => "select-all"
+    SelectAll       => "select-all",
+    MouseClick(_, _) => "mouse-click",
+    MouseDrag(_, _)  => "mouse-drag"
   }
 
 /// Inverse of `action_to_string`; unrecognised names resolve to `None`.

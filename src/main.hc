@@ -37,16 +37,24 @@ fun combine_status(a: maybe<string>, b: maybe<string>) : maybe<string> =>
   }
 
 /// Put the terminal into raw mode via `stty` (through hica's built-in
-/// `exec`) rather than a hand-written termios FFI.
+/// `exec`) rather than a hand-written termios FFI. Also turns on SGR
+/// extended mouse reporting (M18) — `ESC[?1000h` (button-event
+/// tracking) + `ESC[?1006h` (SGR coordinate encoding, no 223-column
+/// ceiling) — so `hedit_read_key` starts receiving mouse reports.
 // `stty sane` on the way out covers the normal-quit path; a
 // crash/SIGINT leaving the shell in raw mode is a known, documented
 // limitation (see M7 exit criteria / manual QA list).
 fun enable_raw_mode() {
   let _ = exec("stty raw -echo icrnl 2>/dev/null")
+  print(term_esc() + "[?1000h" + term_esc() + "[?1006h")
+  flush_stdout()
 }
 
-/// Restore normal terminal mode (`stty sane`).
+/// Restore normal terminal mode (`stty sane`) and turn mouse reporting
+/// back off, in the reverse order it was enabled.
 fun disable_raw_mode() {
+  print(term_esc() + "[?1006l" + term_esc() + "[?1000l")
+  flush_stdout()
   let _ = exec("stty sane 2>/dev/null")
 }
 

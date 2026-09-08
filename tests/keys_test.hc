@@ -57,3 +57,17 @@ test "decoded multi-byte UTF-8 codepoints decode to KChar (åäö)" {
 test "unrecognised low control code falls back to Esc" {
   assert(decode_key(28) == KeyEvent(KSpecial(Esc)))
 }
+
+test "packed SGR mouse codes decode to MouseEvent (M18)" {
+  // Packing contract (see decode_mouse in keys.hc / hedit_read_key in
+  // term_ffi_inline.c): 2000000 + action_code * 100000000 + x * 10000 + y.
+  assert(decode_key(2000000 + 0 * 100000000 + 10 * 10000 + 20) == MouseEvent(Press, 10, 20))
+  assert(decode_key(2000000 + 1 * 100000000 + 10 * 10000 + 20) == MouseEvent(Release, 10, 20))
+  assert(decode_key(2000000 + 2 * 100000000 + 10 * 10000 + 20) == MouseEvent(Drag, 10, 20))
+  assert(decode_key(2000000 + 3 * 100000000 + 10 * 10000 + 20) == MouseEvent(ScrollUp, 10, 20))
+  assert(decode_key(2000000 + 4 * 100000000 + 10 * 10000 + 20) == MouseEvent(ScrollDown, 10, 20))
+}
+
+test "a mouse code at column/row 0 decodes correctly (top-left corner)" {
+  assert(decode_key(2000000) == MouseEvent(Press, 0, 0))
+}

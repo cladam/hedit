@@ -30,6 +30,9 @@
 //     terminals' "metaSendsEscape" for Alt-h): 2000 + ASCII value of
 //     the char (2032-2126) — see decode_key in src/keys.hc, which maps
 //     this to `KShortcut(Meta, c)`
+//   SGR mouse report (ESC[<Cb;Cx;Cy(M|m), M18): a packed sentinel
+//     >= 2000000 — see decode_mouse in src/keys.hc for the encode/decode
+//     contract (button+action code, column, row all packed into one int)
 //   decoded multi-byte UTF-8 input (åäö, etc.): the Unicode codepoint (>=128)
 //   read timeout (no key within ~200ms): -2 — lets the caller re-poll
 //     get_dimensions() and redraw periodically (e.g. after a terminal
@@ -95,6 +98,37 @@ kk_integer_t hedit_read_key(void) {
                                 } else {
                                     key = -1;
                                 }
+                            } else {
+                                key = -1;
+                            }
+                        }
+                        else if (c3 == 60) {  // '<' -> SGR mouse: ESC [ < Cb ; Cx ; Cy (M|m)
+                            int cb = 0, cx = 0, cy = 0;
+                            unsigned char ch;
+                            int ok = read(0, &ch, 1) == 1;
+                            while (ok && ch >= '0' && ch <= '9') { cb = cb * 10 + (ch - '0'); ok = read(0, &ch, 1) == 1; }
+                            if (ok && ch == ';') {
+                                ok = read(0, &ch, 1) == 1;
+                                while (ok && ch >= '0' && ch <= '9') { cx = cx * 10 + (ch - '0'); ok = read(0, &ch, 1) == 1; }
+                            } else { ok = 0; }
+                            if (ok && ch == ';') {
+                                ok = read(0, &ch, 1) == 1;
+                                while (ok && ch >= '0' && ch <= '9') { cy = cy * 10 + (ch - '0'); ok = read(0, &ch, 1) == 1; }
+                            } else { ok = 0; }
+                            if (ok && (ch == 'M' || ch == 'm')) {
+                                // Cb bit layout (xterm SGR mouse protocol):
+                                // bits 0-1 = button number, bit 5 (32) = motion
+                                // (drag), bit 6 (64) = wheel. `ch == 'm'` is
+                                // always a release, regardless of Cb's bits.
+                                int action_code;
+                                if      (ch == 'm')        action_code = 1;  // Release
+                                else if (cb & 64)          action_code = (cb & 1) ? 4 : 3;  // ScrollDown : ScrollUp
+                                else if (cb & 32)          action_code = 2;  // Drag
+                                else                       action_code = 0;  // Press
+                                if (cx < 0) cx = 0; if (cx > 9999) cx = 9999;
+                                if (cy < 0) cy = 0; if (cy > 9999) cy = 9999;
+                                // Packed contract: see decode_mouse in src/keys.hc.
+                                key = 2000000 + action_code * 100000000 + cx * 10000 + cy;
                             } else {
                                 key = -1;
                             }

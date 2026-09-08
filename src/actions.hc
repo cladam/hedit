@@ -872,6 +872,81 @@ fun move_focus(state: EditorState, target: maybe<int>) : EditorState =>
 fun active_rect(state: EditorState, rects: list<(int, (int, int, int, int))>, full_rect: (int, int, int, int)) : (int, int, int, int) =>
   find_rect(rects, state.buffer.bid, full_rect)
 
+// ------------------- Mouse (M18) -------------------------------------------
+// Screen (x, y) -> buffer Position is the inverse of render.hc's layout:
+// row 1 is the tabline, rows 2..h-1 are content (split into per-pane
+// rectangles via `split_rect`, same as the split-pane renderer), row h is
+// the status line. Must stay in sync with both `render_normal_buffer` and
+// `render_split_buffer` if that layout ever changes.
+
+/// The `(bid, rect)` pair whose rectangle contains content-space point
+/// `(x, y)`, or `None` if it falls in a divider gap or outside every pane.
+fun rect_at(rects: list<(int, (int, int, int, int))>, x: int, y: int) : maybe<(int, (int, int, int, int))> =>
+  match rects {
+    []                    => None,
+    [(pane_bid, rect), ..rest] =>
+      if x >= rect.0 && x < rect.0 + rect.2 && y >= rect.1 && y < rect.1 + rect.3 { Some((pane_bid, rect)) }
+      else { rect_at(rest, x, y) }
+  }
+
+/// Map a 1-indexed screen coordinate (`x` = column, `y` = row) to the pane
+/// `bid` and the buffer-local `Position` it falls on. `None` for a click on
+/// the tabline/status row, a divider gap, or outside every pane.
+pub fun screen_to_buffer_pos(state: EditorState, x: int, y: int) : maybe<(int, Position)> {
+  let (w, h)    = state.screen_size
+  let n_content = h - 2
+  let cx        = x - 1
+  let cy        = y - 2
+  if cx < 0 || cx >= w || cy < 0 || cy >= n_content { None }
+  else {
+    let rects = split_rect((0, 0, w, n_content), state.panes)
+    match rect_at(rects, cx, cy) {
+      None => None,
+      Some((pane_bid, rect)) => {
+        let buf        = buffer_for(state, pane_bid)
+        let cur        = head_cursor(buf)
+        let offset     = scroll_offset(rect.3, cur.pos.line)
+        let local_col  = cx - rect.0
+        let local_line = (cy - rect.1) + offset
+        Some((pane_bid, clamp_position(buf.lines, Position { line: local_line, col: local_col })))
+      }
+    }
+  }
+}
+
+/// `MouseClick` (SGR press): focus whichever pane the click landed in and
+/// place the cursor there, clearing any active selection. A click on the
+/// tabline/status row or a divider gap is a no-op.
+pub fun mouse_click(state: EditorState, x: int, y: int) : EditorState =>
+  match screen_to_buffer_pos(state, x, y) {
+    None => state,
+    Some((pane_bid, click_pos)) => {
+      let focused     = activate_buffer(state, pane_bid)
+      let buf         = focused.buffer
+      let new_cursors = map(buf.cursors, (cc) => Cursor { ...cc, pos: click_pos, anchor: None })
+      EditorState { ...focused, buffer: TextBuffer { ...buf, cursors: new_cursors } }
+    }
+  }
+
+/// `MouseDrag` (SGR motion with a button held): extend a selection from
+/// wherever the drag started (the anchor is set on the first drag tick
+/// after a press, same as `SetMark` + movement) to the current drag
+/// position. Ignored once the drag has left the pane the gesture started
+/// in — a mouse gesture shouldn't silently refocus mid-drag.
+pub fun mouse_drag(state: EditorState, x: int, y: int) : EditorState =>
+  match screen_to_buffer_pos(state, x, y) {
+    None => state,
+    Some((pane_bid, drag_pos)) =>
+      if pane_bid != state.buffer.bid { state }
+      else {
+        let buf         = state.buffer
+        let cur         = head_cursor(buf)
+        let new_anchor  = match cur.anchor { None => Some(cur.pos), Some(_) => cur.anchor }
+        let new_cursors = map(buf.cursors, (cc) => Cursor { ...cc, pos: drag_pos, anchor: new_anchor })
+        EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
+      }
+  }
+
 pub fun pane_left(state: EditorState) : EditorState {
   let (w, h)   = state.screen_size
   let full     = (0, 0, w, h - 2)
@@ -1117,6 +1192,8 @@ fun resolve_normal_action(state: EditorState, evt: Event) : Action =>
     KeyEvent(KMetaSpecial(Tab))        => NextPane,
     KeyEvent(KShortcut(m, c)) =>
       lookup_binding(state.config.bindings, KeyChord { m: m, c: c }),
+    MouseEvent(Press, x, y) => MouseClick(x, y),
+    MouseEvent(Drag, x, y)  => MouseDrag(x, y),
     ResizeEvent(w, h)         => Resize(w, h),
     _                         => Ignore
   }
@@ -1181,6 +1258,8 @@ pub fun apply_action(state: EditorState, action: Action) : EditorState =>
     NextPane     => next_pane(state),
     SetMark      => set_mark(state),
     SelectAll    => select_all(state),
+    MouseClick(x, y) => mouse_click(state, x, y),
+    MouseDrag(x, y)  => mouse_drag(state, x, y),
     PromptChar(c)   => refresh_find_matches(prompt_insert_char(state, c)),
     PromptBackspace => refresh_find_matches(prompt_backspace(state)),
     PromptCancel    => cancel_prompt(state),
