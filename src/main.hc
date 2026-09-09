@@ -39,9 +39,17 @@ fun combine_status(a: maybe<string>, b: maybe<string>) : maybe<string> =>
 /// Put the terminal into raw mode via `stty` (through hica's built-in
 /// `exec`) rather than a hand-written termios FFI. Also switches to the
 /// terminal's ALTERNATE screen buffer (`ESC[?1049h`) and turns on SGR
-/// extended mouse reporting (M18) — `ESC[?1000h` (button-event
-/// tracking) + `ESC[?1006h` (SGR coordinate encoding, no 223-column
-/// ceiling) — so `hedit_read_key` starts receiving mouse reports.
+/// extended mouse reporting (M18) — `ESC[?1000h` (basic click tracking)
+/// + `ESC[?1002h` (button-event tracking: ALSO reports motion while a
+/// button is held, i.e. drag) + `ESC[?1006h` (SGR coordinate encoding,
+/// no 223-column ceiling) — so `hedit_read_key` starts receiving mouse
+/// reports.
+// `?1002h` matters specifically for drag-to-select: mode 1000 alone
+// only reports press/release, never motion, per the xterm mouse
+// protocol spec — real-terminal testing (M18) found iTerm2 forwarded
+// drag/motion reports anyway (a permissive quirk), but WezTerm,
+// Terminal.app, and Kitty correctly followed the spec and sent NOTHING
+// for a drag until `?1002h` was also enabled.
 // The alt-screen switch matters for mouse support specifically: without
 // it, hedit was drawing into the terminal's normal screen, which still
 // has real scrollback above it — real-terminal testing (M18) found the
@@ -59,7 +67,7 @@ fun combine_status(a: maybe<string>, b: maybe<string>) : maybe<string> =>
 // list).
 fun enable_raw_mode() {
   let _ = exec("stty raw -echo icrnl 2>/dev/null")
-  print(term_esc() + "[?1049h" + term_esc() + "[?1000h" + term_esc() + "[?1006h")
+  print(term_esc() + "[?1049h" + term_esc() + "[?1000h" + term_esc() + "[?1002h" + term_esc() + "[?1006h")
   flush_stdout()
 }
 
@@ -67,7 +75,7 @@ fun enable_raw_mode() {
 /// off, and switch back to the terminal's normal screen buffer — in the
 /// reverse order everything was enabled.
 fun disable_raw_mode() {
-  print(term_esc() + "[?1006l" + term_esc() + "[?1000l" + term_esc() + "[?1049l")
+  print(term_esc() + "[?1006l" + term_esc() + "[?1002l" + term_esc() + "[?1000l" + term_esc() + "[?1049l")
   flush_stdout()
   let _ = exec("stty sane 2>/dev/null")
 }

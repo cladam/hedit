@@ -53,7 +53,7 @@ fun list_remove_at(xs: list<string>, idx: int) : list<string> =>
 /// defaulting to (0, 0) if the buffer has none.
 fun head_cursor(buf: TextBuffer) : Cursor =>
   match buf.cursors {
-    []       => Cursor { cid: 0, pos: Position { line: 0, col: 0 }, anchor: None },
+    []       => Cursor { cid: 0, pos: Position { line: 0, col: 0 }, anchor: None, anchor_sticky: false },
     [x, .._] => x
   }
 
@@ -306,24 +306,29 @@ pub fun selection_span(state: EditorState) : maybe<(int, int, int, int)> {
 
 /// Toggle the head cursor's mark: sets `anchor` to the current position
 /// if no selection is active, or clears it (cancelling the selection)
-/// if one already is.
+/// if one already is. The resulting anchor is `sticky` (see
+/// `Cursor.anchor_sticky`) — plain arrow movement keeps extending it
+/// until this is called again, Emacs-mark style.
 pub fun set_mark(state: EditorState) : EditorState {
   let buf = state.buffer
   let cur = head_cursor(buf)
   let new_anchor = match cur.anchor { None => Some(cur.pos), Some(_) => None }
-  let new_cursors = map(buf.cursors, (cc) => Cursor { ...cc, anchor: new_anchor })
+  let new_sticky = match new_anchor { None => false, Some(_) => true }
+  let new_cursors = map(buf.cursors, (cc) => Cursor { ...cc, anchor: new_anchor, anchor_sticky: new_sticky })
   EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
 }
 
 /// Select the whole buffer: anchor at the very start, cursor at the
-/// very end of the last line.
+/// very end of the last line. Non-sticky: unlike `SetMark`, this is a
+/// one-shot selection — the next plain arrow press collapses it instead
+/// of extending it, same as a mouse-drag selection.
 pub fun select_all(state: EditorState) : EditorState {
   let buf       = state.buffer
   let last_line = max(length(buf.lines) - 1, 0)
   let last_col  = length(list_get(buf.lines, last_line, ""))
   let end_pos   = Position { line: last_line, col: last_col }
   let new_cursors = map(buf.cursors, (cc) =>
-    Cursor { ...cc, pos: end_pos, anchor: Some(Position { line: 0, col: 0 }) })
+    Cursor { ...cc, pos: end_pos, anchor: Some(Position { line: 0, col: 0 }), anchor_sticky: false })
   EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
 }
 
@@ -375,7 +380,7 @@ pub fun delete_selection(state: EditorState) : EditorState =>
       let after_merge = list_set(buf.lines, sl, merged)
       let trimmed    = remove_lines_between(after_merge, sl + 1, el)
       let new_cursors = map(buf.cursors, (cc) =>
-        Cursor { ...cc, pos: Position { line: sl, col: sc }, anchor: None })
+        Cursor { ...cc, pos: Position { line: sl, col: sc }, anchor: None, anchor_sticky: false })
       let new_buf = TextBuffer { ...buf, lines: trimmed, cursors: new_cursors, is_dirty: true }
       EditorState { ...state, buffer: new_buf }
     }
@@ -928,7 +933,7 @@ pub fun mouse_click(state: EditorState, x: int, y: int) : EditorState =>
     Some((pane_bid, click_pos)) => {
       let focused     = activate_buffer(state, pane_bid)
       let buf         = focused.buffer
-      let new_cursors = map(buf.cursors, (cc) => Cursor { ...cc, pos: click_pos, anchor: None })
+      let new_cursors = map(buf.cursors, (cc) => Cursor { ...cc, pos: click_pos, anchor: None, anchor_sticky: false })
       EditorState { ...focused, buffer: TextBuffer { ...buf, cursors: new_cursors } }
     }
   }
@@ -937,7 +942,9 @@ pub fun mouse_click(state: EditorState, x: int, y: int) : EditorState =>
 /// wherever the drag started (the anchor is set on the first drag tick
 /// after a press, same as `SetMark` + movement) to the current drag
 /// position. Ignored once the drag has left the pane the gesture started
-/// in — a mouse gesture shouldn't silently refocus mid-drag.
+/// in — a mouse gesture shouldn't silently refocus mid-drag. Non-sticky:
+/// unlike `SetMark`, a plain arrow press after the drag ends collapses
+/// the selection instead of extending it (see `Cursor.anchor_sticky`).
 pub fun mouse_drag(state: EditorState, x: int, y: int) : EditorState =>
   match screen_to_buffer_pos(state, x, y) {
     None => state,
@@ -947,7 +954,7 @@ pub fun mouse_drag(state: EditorState, x: int, y: int) : EditorState =>
         let buf         = state.buffer
         let cur         = head_cursor(buf)
         let new_anchor  = match cur.anchor { None => Some(cur.pos), Some(_) => cur.anchor }
-        let new_cursors = map(buf.cursors, (cc) => Cursor { ...cc, pos: drag_pos, anchor: new_anchor })
+        let new_cursors = map(buf.cursors, (cc) => Cursor { ...cc, pos: drag_pos, anchor: new_anchor, anchor_sticky: false })
         EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
       }
   }
@@ -1278,6 +1285,25 @@ pub fun resolve_action(state: EditorState, evt: Event) : Action {
 
 // ------------------- Action -> EditorState apply -------------------------
 
+/// Clear the head cursor's selection unless it's `sticky` (see
+/// `Cursor.anchor_sticky`) — wraps every plain movement action so a
+/// mouse-drag/`SelectAll` selection collapses on the very next arrow
+/// press, matching what a mouse click already does, while a `SetMark`
+/// selection keeps extending across movement as intended.
+fun collapse_unless_sticky(state: EditorState) : EditorState {
+  let buf = state.buffer
+  let cur = head_cursor(buf)
+  match cur.anchor {
+    None => state,
+    Some(_) =>
+      if cur.anchor_sticky { state }
+      else {
+        let new_cursors = map(buf.cursors, (cc) => Cursor { ...cc, anchor: None })
+        EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
+      }
+  }
+}
+
 /// Apply an Action to state, producing the next EditorState.
 // Save/Copy/Paste/Undo/Redo/Kill*/PromptSubmit no-op here — they carry
 // <fsys>/<Clipboard>/<Buffer> effects handled by event_loop, keeping this
@@ -1291,14 +1317,14 @@ pub fun apply_action(state: EditorState, action: Action) : EditorState =>
     NewLine        => insert_newline(state),
     DeleteBackward => delete_backward(state),
     DeleteForward  => delete_forward(state),
-    MoveUp         => move_up(state),
-    MoveDown     => move_down(state),
-    MoveLeft     => move_left(state),
-    MoveRight    => move_right(state),
-    MoveLineStart => move_line_start(state),
-    MoveLineEnd   => move_line_end(state),
-    MoveWordForward => move_word_forward(state),
-    MoveWordBack    => move_word_back(state),
+    MoveUp         => collapse_unless_sticky(move_up(state)),
+    MoveDown     => collapse_unless_sticky(move_down(state)),
+    MoveLeft     => collapse_unless_sticky(move_left(state)),
+    MoveRight    => collapse_unless_sticky(move_right(state)),
+    MoveLineStart => collapse_unless_sticky(move_line_start(state)),
+    MoveLineEnd   => collapse_unless_sticky(move_line_end(state)),
+    MoveWordForward => collapse_unless_sticky(move_word_forward(state)),
+    MoveWordBack    => collapse_unless_sticky(move_word_back(state)),
     Resize(w, h) => EditorState { ...state, screen_size: (w, h) },
     Save         => state, // event_loop: <fsys>
     Copy         => state, // event_loop: <Clipboard>

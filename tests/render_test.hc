@@ -216,7 +216,7 @@ fun render_lines(n: int) : list<string> =>
 
 test "cursor_row is 0 (hidden) when the cursor's line is scrolled out of view" {
   let s0 = with_lines_render(render_lines(20), (40, 10)) // n_content = 8
-  let scrolled = TextBuffer { ...s0.buffer, scroll_line: 0, cursors: [Cursor { cid: 0, pos: Position { line: 15, col: 0 }, anchor: None }] }
+  let scrolled = TextBuffer { ...s0.buffer, scroll_line: 0, cursors: [Cursor { cid: 0, pos: Position { line: 15, col: 0 }, anchor: None, anchor_sticky: false }] }
   let s1  = EditorState { ...s0, buffer: scrolled }
   let buf = render_editor_to_buffer(s1)
   assert(buf.cursor_row == 0)
@@ -224,7 +224,7 @@ test "cursor_row is 0 (hidden) when the cursor's line is scrolled out of view" {
 
 test "cursor_row is a real row when the cursor is within the scrolled viewport" {
   let s0 = with_lines_render(render_lines(20), (40, 10))
-  let scrolled = TextBuffer { ...s0.buffer, scroll_line: 10, cursors: [Cursor { cid: 0, pos: Position { line: 12, col: 0 }, anchor: None }] }
+  let scrolled = TextBuffer { ...s0.buffer, scroll_line: 10, cursors: [Cursor { cid: 0, pos: Position { line: 12, col: 0 }, anchor: None, anchor_sticky: false }] }
   let s1  = EditorState { ...s0, buffer: scrolled }
   let buf = render_editor_to_buffer(s1)
   assert(buf.cursor_row == 4) // (12 - 10) + 2

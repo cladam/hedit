@@ -14,7 +14,16 @@ pub struct Position {
 pub struct Cursor {
   cid: int,
   pos: Position,
-  anchor: maybe<Position>
+  anchor: maybe<Position>,
+  // `true` only for an anchor set via `SetMark` (Ctrl-Space) — plain
+  // movement (see `actions.hc::collapse_unless_sticky`) keeps extending
+  // a sticky selection, matching Emacs' persistent-mark convention, but
+  // collapses a non-sticky one (mouse-drag/`SelectAll`) instead, the
+  // same way a mouse click already does. Without this, navigating away
+  // from a drag-selection with plain arrows silently kept it active,
+  // so a subsequent Paste replaced it instead of inserting at the
+  // cursor (M18 follow-up).
+  anchor_sticky: bool
 }
 
 /// A buffer of text lines plus its cursors and dirty flag.
@@ -447,7 +456,7 @@ pub fun new_buffer(bid: int, path: maybe<string>) : TextBuffer =>
     bid: bid,
     path: path,
     lines: [""],
-    cursors: [Cursor { cid: 0, pos: Position { line: 0, col: 0 }, anchor: None }],
+    cursors: [Cursor { cid: 0, pos: Position { line: 0, col: 0 }, anchor: None, anchor_sticky: false }],
     is_dirty: false,
     scroll_line: 0
   }

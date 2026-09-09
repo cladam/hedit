@@ -937,6 +937,35 @@ test "MouseDrag after MouseClick extends a selection from the click" {
   assert(selection_span(s3) == Some((0, 0, 0, 8)))
 }
 
+// A drag-created selection is non-sticky: unlike SetMark, plain arrow
+// movement afterward collapses it instead of extending it (matches a
+// mouse click) — otherwise navigating away with arrows then Paste
+// silently replaced the stale selection instead of inserting (M18
+// follow-up: real-terminal testing found this exact surprise).
+test "a plain arrow move after MouseDrag collapses the selection instead of extending it" {
+  let s0 = with_lines(["hello world", "second line"])
+  let s1 = apply_action(s0, MouseClick(1, 2))
+  let s2 = apply_action(s1, MouseDrag(6, 2))
+  assert(selection_span(s2) != None)
+  let s3 = handle_action(s2, KeyEvent(KSpecial(ArrowDown)))
+  assert(selection_span(s3) == None)
+}
+
+test "a plain arrow move after SelectAll collapses the selection instead of extending it" {
+  let s0 = with_lines(["hello world", "second line"])
+  let s1 = apply_action(s0, SelectAll)
+  assert(selection_span(s1) != None)
+  let s2 = handle_action(s1, KeyEvent(KSpecial(ArrowLeft)))
+  assert(selection_span(s2) == None)
+}
+
+test "a plain arrow move after SetMark still extends the selection (sticky)" {
+  let s0 = with_lines(["hello world"])
+  let s1 = apply_action(s0, SetMark)
+  let s2 = handle_action(s1, KeyEvent(KSpecial(ArrowRight)))
+  assert(selection_span(s2) != None)
+}
+
 test "MouseClick focuses whichever split pane the click landed in" {
   let node = Split(Vertical, 0.5, Leaf(0), Leaf(1))
   let s0 = with_two_panes(node)
@@ -973,7 +1002,7 @@ test "clamp_scroll never goes negative" {
 
 test "sync_scroll leaves the viewport alone when the cursor is already visible" {
   let s0 = with_lines(many_lines(60))
-  let scrolled = TextBuffer { ...s0.buffer, scroll_line: 20, cursors: [Cursor { cid: 0, pos: Position { line: 25, col: 0 }, anchor: None }] }
+  let scrolled = TextBuffer { ...s0.buffer, scroll_line: 20, cursors: [Cursor { cid: 0, pos: Position { line: 25, col: 0 }, anchor: None, anchor_sticky: false }] }
   let s1 = EditorState { ...s0, buffer: scrolled }
   let s2 = sync_scroll(s1)
   assert(s2.buffer.scroll_line == 20) // old design would've snapped this to 4
@@ -981,7 +1010,7 @@ test "sync_scroll leaves the viewport alone when the cursor is already visible" 
 
 test "MouseClick on an already-visible row doesn't move the viewport (bug fix)" {
   let s0 = with_lines(many_lines(60))
-  let scrolled = TextBuffer { ...s0.buffer, scroll_line: 20, cursors: [Cursor { cid: 0, pos: Position { line: 25, col: 0 }, anchor: None }] }
+  let scrolled = TextBuffer { ...s0.buffer, scroll_line: 20, cursors: [Cursor { cid: 0, pos: Position { line: 25, col: 0 }, anchor: None, anchor_sticky: false }] }
   let s1 = EditorState { ...s0, buffer: scrolled }
   let s2 = handle_action(s1, MouseEvent(Press, 1, 5)) // content row 3 -> buffer line 23, already visible
   assert(s2.buffer.scroll_line == 20)
