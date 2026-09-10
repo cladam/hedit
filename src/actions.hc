@@ -924,28 +924,93 @@ pub fun screen_to_buffer_pos(state: EditorState, x: int, y: int) : maybe<(int, P
   }
 }
 
-/// `MouseClick` (SGR press): focus whichever pane the click landed in and
-/// place the cursor there, clearing any active selection. A click on the
-/// tabline/status row or a divider gap is a no-op.
-pub fun mouse_click(state: EditorState, x: int, y: int) : EditorState =>
-  match screen_to_buffer_pos(state, x, y) {
+/// The divider index (`split_dividers`'s pre-order traversal) whose
+/// rectangle contains content-space point `(x, y)`, or `None`.
+fun divider_hit(dividers: list<(int, int, int, int)>, x: int, y: int, idx: int) : maybe<int> =>
+  match dividers {
+    []                    => None,
+    [(dx, dy, dw, dh), ..rest] =>
+      if x >= dx && x < dx + dw && y >= dy && y < dy + dh { Some(idx) }
+      else { divider_hit(rest, x, y, idx + 1) }
+  }
+
+/// `xs[idx]`, or `None` past the end — `split_divider_specs`
+/// specialised, since it's the only list this file indexes by a
+/// divider index rather than searching by key.
+fun spec_at(xs: list<(Axis, (int, int, int, int))>, idx: int) : maybe<(Axis, (int, int, int, int))> =>
+  match xs {
+    []          => None,
+    [x, ..rest] => if idx <= 0 { Some(x) } else { spec_at(rest, idx - 1) }
+  }
+
+/// A drag's raw content-space column (`Vertical`) or row (`Horizontal`)
+/// turned into a 0.0-1.0 ratio relative to the divider's enclosing
+/// rect, clamped so neither side of the split can shrink to nothing —
+/// `vsplit_extents`/`hsplit_extents` clamp the actual pane widths/
+/// heights again at render time regardless, this just keeps the stored
+/// ratio itself sane.
+fun ratio_from_drag(axis: Axis, rect: (int, int, int, int), cx: int, cy: int) : float {
+  let (x, y, w, h) = rect
+  let raw = match axis {
+    Vertical   => to_float(cx - x) / to_float(max(w, 1)),
+    Horizontal => to_float(cy - y) / to_float(max(h, 1))
+  }
+  if raw < 0.05 { 0.05 } else if raw > 0.95 { 0.95 } else { raw }
+}
+
+/// Recompute divider `idx`'s ratio from the drag's current screen
+/// coordinate `(x, y)` — a no-op if the content area's geometry can't
+/// locate that divider anymore (shouldn't happen mid-drag).
+fun resize_divider(state: EditorState, idx: int, x: int, y: int) : EditorState {
+  let (w, h)    = state.screen_size
+  let n_content = h - 2
+  let cx        = x - 1
+  let cy        = y - 2
+  let specs     = split_divider_specs((0, 0, w, n_content), state.panes)
+  match spec_at(specs, idx) {
     None => state,
+    Some((axis, rect)) => EditorState { ...state, panes: resize_split(state.panes, idx, ratio_from_drag(axis, rect, cx, cy)) }
+  }
+}
+
+/// The click/place-cursor behaviour `mouse_click` falls through to once
+/// a click is known not to have landed on a divider.
+fun mouse_click_pane(state: EditorState, x: int, y: int) : EditorState =>
+  match screen_to_buffer_pos(state, x, y) {
+    None => EditorState { ...state, resizing_divider: None },
     Some((pane_bid, click_pos)) => {
       let focused     = activate_buffer(state, pane_bid)
       let buf         = focused.buffer
       let new_cursors = map(buf.cursors, (cc) => Cursor { ...cc, pos: click_pos, anchor: None, anchor_sticky: false })
-      EditorState { ...focused, buffer: TextBuffer { ...buf, cursors: new_cursors } }
+      EditorState { ...focused, buffer: TextBuffer { ...buf, cursors: new_cursors }, resizing_divider: None }
     }
   }
 
-/// `MouseDrag` (SGR motion with a button held): extend a selection from
-/// wherever the drag started (the anchor is set on the first drag tick
-/// after a press, same as `SetMark` + movement) to the current drag
-/// position. Ignored once the drag has left the pane the gesture started
-/// in — a mouse gesture shouldn't silently refocus mid-drag. Non-sticky:
-/// unlike `SetMark`, a plain arrow press after the drag ends collapses
-/// the selection instead of extending it (see `Cursor.anchor_sticky`).
-pub fun mouse_drag(state: EditorState, x: int, y: int) : EditorState =>
+/// `MouseClick` (SGR press): a click on a divider strip starts a resize
+/// gesture (`resizing_divider`, ended by the matching `MouseRelease`)
+/// instead of moving the cursor. Otherwise focuses whichever pane the
+/// click landed in and places the cursor there, clearing any active
+/// selection. A click on the tabline/status row is a no-op. Every
+/// branch resets `resizing_divider` to `None` except the one that
+/// starts a new gesture, so a stray leftover from an interrupted drag
+/// can never make a later plain drag misbehave.
+pub fun mouse_click(state: EditorState, x: int, y: int) : EditorState {
+  let (w, h)    = state.screen_size
+  let n_content = h - 2
+  let cx        = x - 1
+  let cy        = y - 2
+  if cx < 0 || cx >= w || cy < 0 || cy >= n_content { EditorState { ...state, resizing_divider: None } }
+  else {
+    match divider_hit(split_dividers((0, 0, w, n_content), state.panes), cx, cy, 0) {
+      Some(idx) => EditorState { ...state, resizing_divider: Some(idx) },
+      None      => mouse_click_pane(state, x, y)
+    }
+  }
+}
+
+/// The text-selection behaviour `mouse_drag` falls through to when no
+/// divider resize is in progress.
+fun mouse_drag_select(state: EditorState, x: int, y: int) : EditorState =>
   match screen_to_buffer_pos(state, x, y) {
     None => state,
     Some((pane_bid, drag_pos)) =>
@@ -957,6 +1022,21 @@ pub fun mouse_drag(state: EditorState, x: int, y: int) : EditorState =>
         let new_cursors = map(buf.cursors, (cc) => Cursor { ...cc, pos: drag_pos, anchor: new_anchor, anchor_sticky: false })
         EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
       }
+  }
+
+/// `MouseDrag` (SGR motion with a button held): while `resizing_divider`
+/// is active, recompute that divider's ratio instead of touching any
+/// selection. Otherwise extends a selection from wherever the drag
+/// started (the anchor is set on the first drag tick after a press,
+/// same as `SetMark` + movement) to the current drag position. Ignored
+/// once the drag has left the pane the gesture started in — a mouse
+/// gesture shouldn't silently refocus mid-drag. Non-sticky: unlike
+/// `SetMark`, a plain arrow press after the drag ends collapses the
+/// selection instead of extending it (see `Cursor.anchor_sticky`).
+pub fun mouse_drag(state: EditorState, x: int, y: int) : EditorState =>
+  match state.resizing_divider {
+    Some(idx) => resize_divider(state, idx, x, y),
+    None      => mouse_drag_select(state, x, y)
   }
 
 /// Adjust `target_bid`'s `scroll_line` by `delta` lines (positive = down),
@@ -1264,6 +1344,7 @@ fun resolve_normal_action(state: EditorState, evt: Event) : Action =>
       lookup_binding(state.config.bindings, KeyChord { m: m, c: c }),
     MouseEvent(Press, x, y)      => MouseClick(x, y),
     MouseEvent(Drag, x, y)       => MouseDrag(x, y),
+    MouseEvent(Release, _, _)    => MouseRelease,
     MouseEvent(ScrollUp, x, y)   => ScrollViewUp(x, y),
     MouseEvent(ScrollDown, x, y) => ScrollViewDown(x, y),
     ResizeEvent(w, h)         => Resize(w, h),
@@ -1351,6 +1432,7 @@ pub fun apply_action(state: EditorState, action: Action) : EditorState =>
     SelectAll    => select_all(state),
     MouseClick(x, y) => mouse_click(state, x, y),
     MouseDrag(x, y)  => mouse_drag(state, x, y),
+    MouseRelease     => EditorState { ...state, resizing_divider: None },
     ScrollViewUp(x, y)   => scroll_view(state, x, y, -1),
     ScrollViewDown(x, y) => scroll_view(state, x, y, 1),
     PromptChar(c)   => refresh_find_matches(prompt_insert_char(state, c)),

@@ -108,6 +108,7 @@ pub type Action {
   SelectAll,
   MouseClick(x: int, y: int),
   MouseDrag(x: int, y: int),
+  MouseRelease,
   ScrollViewUp(x: int, y: int),
   ScrollViewDown(x: int, y: int),
   Ignore
@@ -366,7 +367,11 @@ pub struct EditorState {
   prompt: Prompt,
   show_help: bool,
   search: SearchState,
-  panes: PaneNode
+  panes: PaneNode,
+  // The divider index (`split_dividers`/`split_divider_specs`'s
+  // pre-order traversal) currently being drag-resized, or `None`
+  // outside a resize gesture (M18 divider drag-resize).
+  resizing_divider: maybe<int>
 }
 
 /// The pixel-free "screen buffer" the Terminal handler flushes.
@@ -538,7 +543,8 @@ pub fun init_editor_with_buffer(buf: TextBuffer, cfg: Config) : EditorState =>
     prompt: NoPrompt,
     show_help: false,
     search: NoSearch,
-    panes: Leaf(buf.bid)
+    panes: Leaf(buf.bid),
+    resizing_divider: None
   }
 
 /// Split file content into lines, dropping one trailing newline
@@ -756,6 +762,47 @@ pub fun find_rect(rects: list<(int, (int, int, int, int))>, bid: int, default: (
     []                     => default,
     [(rbid, rect), ..rest] => if rbid == bid { rect } else { find_rect(rest, bid, default) }
   }
+
+/// Each `Split` node's `(axis, enclosing_rect)`, in the same pre-order
+/// traversal `split_dividers` uses — divider index `k` here is exactly
+/// divider index `k` there. `enclosing_rect` is the `Split` node's OWN
+/// rectangle *before* it's divided into left/right, which
+/// `actions.hc`'s divider drag-resize needs to turn a drag's raw
+/// column/row back into a 0.0-1.0 ratio. `[]` for a single `Leaf`.
+pub fun split_divider_specs(rect: (int, int, int, int), node: PaneNode) : list<(Axis, (int, int, int, int))> =>
+  match node {
+    Leaf(_) => [],
+    Split(Vertical, ratio, left, right) => {
+      let (x, y, w, h) = rect
+      let (lw, rw) = vsplit_extents(w, ratio)
+      [(Vertical, rect)] + split_divider_specs((x, y, lw, h), left) + split_divider_specs((x + lw + 1, y, rw, h), right)
+    },
+    Split(Horizontal, ratio, left, right) => {
+      let (x, y, w, h) = rect
+      let (th, bh) = hsplit_extents(h, ratio)
+      [(Horizontal, rect)] + split_divider_specs((x, y, w, th), left) + split_divider_specs((x, y + th + 1, w, bh), right)
+    }
+  }
+
+/// Replace the `target_idx`-th `Split` node's ratio (same pre-order
+/// traversal as `split_dividers`/`split_divider_specs`) with
+/// `new_ratio`, leaving every other node untouched. A no-op (returns
+/// `node` unchanged) if `target_idx` is out of range — shouldn't
+/// happen mid-drag, but this stays total either way.
+fun resize_split_go(node: PaneNode, target_idx: int, new_ratio: float, idx: int) : (PaneNode, int) =>
+  match node {
+    Leaf(_) => (node, idx),
+    Split(axis, ratio, left, right) =>
+      if idx == target_idx { (Split(axis, new_ratio, left, right), idx + 1) }
+      else {
+        let (left2, idx2)  = resize_split_go(left, target_idx, new_ratio, idx + 1)
+        let (right2, idx3) = resize_split_go(right, target_idx, new_ratio, idx2)
+        (Split(axis, ratio, left2, right2), idx3)
+      }
+  }
+
+pub fun resize_split(node: PaneNode, target_idx: int, new_ratio: float) : PaneNode =>
+  resize_split_go(node, target_idx, new_ratio, 0).0
 
 /// The center point of a rectangle — the reference point pane-focus
 /// movement (`actions.hc`) compares to find the nearest neighbour.

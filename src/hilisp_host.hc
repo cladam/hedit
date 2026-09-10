@@ -175,6 +175,7 @@ pub fun action_to_string(a: Action) : string =>
     SelectAll       => "select-all",
     MouseClick(_, _) => "mouse-click",
     MouseDrag(_, _)  => "mouse-drag",
+    MouseRelease     => "mouse-release",
     ScrollViewUp(_, _)   => "scroll-view-up",
     ScrollViewDown(_, _) => "scroll-view-down"
   }

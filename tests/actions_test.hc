@@ -881,9 +881,9 @@ test "resolve_action maps mouse wheel events to ScrollViewUp/ScrollViewDown" {
   assert(resolve_action(s0, MouseEvent(ScrollDown, 5, 3)) == ScrollViewDown(5, 3))
 }
 
-test "mouse Release is ignored in v1" {
+test "resolve_action maps a mouse Release to MouseRelease" {
   let s0 = init_editor(None)
-  assert(resolve_action(s0, MouseEvent(Release, 5, 3)) == Ignore)
+  assert(resolve_action(s0, MouseEvent(Release, 5, 3)) == MouseRelease)
 }
 
 test "mouse events are ignored while a prompt or the help overlay is active" {
@@ -974,6 +974,59 @@ test "MouseClick focuses whichever split pane the click landed in" {
   assert(head_cursor_pos(s1) == Position { line: 0, col: 0 })
   let s2 = apply_action(s1, MouseClick(1, 2))  // left pane (bid 0)
   assert(s2.buffer.bid == 0)
+}
+
+// ------------------- Divider drag-resize (M18 follow-up) ------------------
+// Screen (80, 24) -> n_content 22, w 80; a vertical split at ratio 0.5
+// reserves its divider at content column 40 (screen x 41).
+
+test "MouseClick on a divider starts a resize gesture instead of moving the cursor" {
+  let node = Split(Vertical, 0.5, Leaf(0), Leaf(1))
+  let s0 = with_two_panes(node)
+  let s1 = apply_action(s0, MouseClick(41, 2))
+  assert(s1.resizing_divider == Some(0))
+  assert(s1.buffer.bid == 0) // focus untouched
+}
+
+test "MouseDrag while resizing a divider recomputes its ratio, not a selection" {
+  let node = Split(Vertical, 0.5, Leaf(0), Leaf(1))
+  let s0 = with_two_panes(node)
+  let s1 = apply_action(s0, MouseClick(41, 2))
+  let s2 = apply_action(s1, MouseDrag(61, 2)) // content col 60 -> ratio 60/80 = 0.75
+  match s2.panes {
+    Split(Vertical, r, Leaf(0), Leaf(1)) => assert(r > 0.74 && r < 0.76),
+    _                                    => assert(false)
+  }
+  assert(selection_span(s2) == None)
+}
+
+test "MouseRelease ends a divider resize gesture" {
+  let node = Split(Vertical, 0.5, Leaf(0), Leaf(1))
+  let s0 = with_two_panes(node)
+  let s1 = apply_action(s0, MouseClick(41, 2))
+  let s2 = apply_action(s1, MouseRelease)
+  assert(s2.resizing_divider == None)
+}
+
+test "a drag after MouseRelease is a normal selection, not a leftover resize" {
+  let s0 = with_lines(["hello world"])
+  let s1 = apply_action(s0, MouseRelease) // no-op: resizing_divider was already None
+  let s2 = apply_action(s1, MouseClick(1, 2))
+  let s3 = apply_action(s2, MouseDrag(6, 2))
+  assert(selection_span(s3) == Some((0, 0, 0, 5)))
+}
+
+test "resize_split replaces only the target divider's ratio in a nested tree" {
+  let inner   = Split(Horizontal, 0.5, Leaf(0), Leaf(1))
+  let node    = Split(Vertical, 0.5, inner, Leaf(2))
+  let resized = resize_split(node, 1, 0.25) // index 1 = the nested horizontal divider
+  match resized {
+    Split(Vertical, outer_r, Split(Horizontal, inner_r, Leaf(0), Leaf(1)), Leaf(2)) => {
+      assert(outer_r == 0.5)
+      assert(inner_r == 0.25)
+    },
+    _ => assert(false)
+  }
 }
 
 // ------------------- Persisted scroll / click-jump fix (M18 follow-up) ----
