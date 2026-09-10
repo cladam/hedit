@@ -588,28 +588,38 @@ pub fun kill_whole_line(state: EditorState) : EditorState {
 /// Push the active buffer onto the background ring and make a fresh,
 /// empty scratch buffer active.
 // Pure: opening a file from disk needs a path-prompt input widget (M9).
+// `panes` must track which bid the focused leaf shows — see the
+// `pane_leaf_current` note on `cycle_next_buffer` below.
 pub fun new_buffer_action(state: EditorState) : EditorState {
-  let bid = state.next_bid
+  let new_bid = state.next_bid
   EditorState {
     ...state,
-    buffer: new_buffer(bid, None),
+    buffer: new_buffer(new_bid, None),
     background_buffers: state.background_buffers + [state.buffer],
-    next_bid: bid + 1
+    next_bid: new_bid + 1,
+    panes: replace_leaf(state.panes, state.buffer.bid, Leaf(new_bid))
   }
 }
 
 /// Rotate to the next open buffer. A no-op with 0 or 1 open buffers.
+// `panes`' leaf for the currently focused pane must be updated to the
+// newly active bid (not just `state.buffer`) — otherwise a mouse click
+// or a later VSplit/HSplit resolves against the stale bid still on the
+// tree (`screen_to_buffer_pos`/`run_split` both key off `PaneNode`
+// leaves, not `state.buffer.bid`), which looks like a click "jumping"
+// back to whatever buffer the tree still remembers and silently no-ops
+// a split (`replace_leaf` can't find the target bid to replace).
 pub fun cycle_next_buffer(state: EditorState) : EditorState =>
   match state.background_buffers {
     []          => state,
-    [x, ..rest] => EditorState { ...state, buffer: x, background_buffers: rest + [state.buffer] }
+    [x, ..rest] => EditorState { ...state, buffer: x, background_buffers: rest + [state.buffer], panes: replace_leaf(state.panes, state.buffer.bid, Leaf(x.bid)) }
   }
 
 /// Rotate to the previous open buffer. A no-op with 0 or 1 open buffers.
 pub fun cycle_prev_buffer(state: EditorState) : EditorState =>
   match reverse(state.background_buffers) {
     []          => state,
-    [x, ..rest] => EditorState { ...state, buffer: x, background_buffers: [state.buffer] + reverse(rest) }
+    [x, ..rest] => EditorState { ...state, buffer: x, background_buffers: [state.buffer] + reverse(rest), panes: replace_leaf(state.panes, state.buffer.bid, Leaf(x.bid)) }
   }
 
 /// Close the active buffer and activate the next background buffer.
@@ -618,7 +628,7 @@ pub fun cycle_prev_buffer(state: EditorState) : EditorState =>
 pub fun close_buffer_action(state: EditorState) : EditorState =>
   match state.background_buffers {
     []          => set_status_message(state, "Can't close the last buffer"),
-    [x, ..rest] => EditorState { ...state, buffer: x, background_buffers: rest }
+    [x, ..rest] => EditorState { ...state, buffer: x, background_buffers: rest, panes: replace_leaf(state.panes, state.buffer.bid, Leaf(x.bid)) }
   }
 
 // ------------------- Close pane (M15 follow-up, Ctrl-q) -------------------

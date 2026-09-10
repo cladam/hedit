@@ -115,7 +115,8 @@ fun submit_open_file(state: EditorState, path: string, pool: list<(int, ref<Buff
     buffer: new_buf,
     background_buffers: state.background_buffers + [state.buffer],
     next_bid: new_bid + 1,
-    prompt: NoPrompt
+    prompt: NoPrompt,
+    panes: replace_leaf(state.panes, state.buffer.bid, Leaf(new_bid))
   }
   let final = match load_status {
     None      => opened,
