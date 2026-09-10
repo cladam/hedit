@@ -230,6 +230,16 @@ fun syntax_highlights(buf: TextBuffer, offset: int, n_content: int, w: int) : li
   spans_to_screen_spans(visible_rows, 0, w)
 }
 
+/// Reposition `syntax_highlights`' pane-local spans (rows/cols relative
+/// to a `(0, 0, w, h)` rectangle) onto the active pane's rectangle within
+/// the shared split canvas — used by `render_split_buffer` so the M16
+/// highlighter isn't just a single-pane-only feature.
+fun shift_syntax_spans(spans: list<(int, int, int, TokenKind)>, drow: int, dcol: int) : list<(int, int, int, TokenKind)> =>
+  match spans {
+    []                     => [],
+    [(r, s, e, k), ..rest] => [(r + drow, s + dcol, e + dcol, k)] + shift_syntax_spans(rest, drow, dcol)
+  }
+
 /// Build a ScreenBuffer from `state`'s normal (non-help) editing view.
 // `cursor_row`/`cursor_col` are the head cursor's position clamped to the
 // visible viewport (1-indexed, tabline occupies row 1). Vertical scrolling
@@ -410,6 +420,7 @@ fun render_split_buffer(state: EditorState) : ScreenBuffer {
   let offset       = state.buffer.scroll_line
   let visible_col  = max(min(cur.col, max(aw - 1, 0)), 0)
   let in_view      = cur.line >= offset && cur.line <= offset + ah - 1
+  let active_syntax = shift_syntax_spans(syntax_highlights(state.buffer, offset, ah, aw), ay, ax)
 
   let (crow, ccol) = match state.prompt {
     NoPrompt => if in_view { (ay + cur.line - offset + 2, ax + visible_col + 1) } else { (0, 1) }
@@ -423,7 +434,7 @@ fun render_split_buffer(state: EditorState) : ScreenBuffer {
     cursor_row: crow,
     cursor_col: ccol,
     highlights: [],
-    syntax_spans: [],
+    syntax_spans: active_syntax,
     selection_spans: []
   }
 }

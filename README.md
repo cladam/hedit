@@ -1,13 +1,118 @@
 # hedit
 
-`hedit` is a lightweight, terminal-based text editor written in [`hica`](https://www.hica.dev/). 
-It aims to pair modern editor UX (standard keybindings, mouse, multiple cursors, split views) with `hica`'s
-algebraic effects and Perceus-based memory management (FBIP).
+`hedit` is a lightweight, terminal-based text editor written in [`hica`](https://www.hica.dev/).
+It pairs modern editor UX (standard keybindings, mouse support, split panes, syntax
+highlighting) with `hica`'s algebraic effects and Perceus-based memory management (FBIP).
 
 <p align="center">
-    <img src="assets/hedit1.png" alt="hedit edit mode" width="300">
-    <img src="assets/hedit2.png" alt="hedit key mappings" width="300">
+    <img src="assets/hedit3.png" alt="hedit edit mode" width="150">
+    <img src="assets/hedit1.png" alt="hedit key mappings" width="130">
+    <img src="assets/hedit2.png" alt="hedit key mappings" width="130">
 </p>
+
+## Features
+
+- **Familiar keybindings** — `Ctrl-s`/`Ctrl-o`/`Ctrl-q` for save/open/quit, readline-style
+  motions (`Ctrl-a/e`, `Meta-f/b`, `Ctrl-k`, `Ctrl-w`, …), undo/redo, a shared clipboard
+- **Selections** — set a mark with `Ctrl-Space`, extend it with the arrow keys, then
+  copy/cut/paste just the selected text
+- **Incremental search** — `Ctrl-f` to search live as you type, `Ctrl-Right`/`Ctrl-Left`
+  to jump between wrapping matches
+- **Multiple buffers** — a buffer ring (`Meta-o/n/p/w`) with a tabline showing every open file
+- **Split panes** — vertical and horizontal splits (`Meta-v`/`Meta-h`), focus movement
+  between panes, mouse-driven divider resizing
+- **Mouse support** — click to place the cursor, drag to select, click/drag to move
+  focus or resize a split, scroll to move the viewport
+- **Syntax highlighting** — a fast, built-in line-by-line lexer highlights `hica`/`koka` source
+- **Live keybindings overlay** — `Ctrl-g` shows every currently bound chord, generated
+  straight from the active bindings
+- **Scriptable** — settings, keybindings, and plugins are all just [HiLisp](https://github.com/cladam/hica-lisp) (see below)
+
+Full reference with every chord: [`docs/hedit-cheatsheet.md`](docs/hedit-cheatsheet.md)
+(or press `Ctrl-g` inside hedit for a live overlay).
+
+## Quick Install
+
+Using standard `curl`:
+```sh
+curl -fsSL https://github.com/cladam/hedit/releases/latest/download/install.sh | sh
+```
+
+Or install hedit using [`hicurl`](https://github.com/cladam/hicurl):
+
+```sh
+hicurl https://github.com/cladam/hedit/releases/latest/download/install.sh | sh
+```
+
+Installs binary (`macos-arm64`, `linux-arm64`, `linux-x86_64`) to `~/.local/bin`. Override target location with `HEDIT_INSTALL_DIR=/usr/local/bin`.
+
+```sh
+HEDIT_INSTALL_DIR=/usr/local/bin curl -fsSL https://github.com/cladam/hedit/releases/latest/download/install.sh | sh
+# Or with hicurl
+HEDIT_INSTALL_DIR=/usr/local/bin hicurl https://github.com/cladam/hedit/releases/latest/download/install.sh | sh
+```
+
+**Note:** _No Windows support!_
+
+## Usage
+
+```sh
+hica build -o hedit           # compile to ./hedit
+./hedit                       # open an empty scratch buffer
+./hedit somefile.txt          # open a real file
+```
+
+Default keybindings (overridable from `init.hl`):
+
+- File: `Ctrl-s` save, `Ctrl-o` open-file prompt, `Ctrl-q` quit (with
+  2+ panes open, closes the active pane/buffer first)
+- Readline-style editing: `Ctrl-a`/`Ctrl-e` line start/end, `Ctrl-d` delete-forward, `Ctrl-k` kill-line, `Ctrl-w`
+  kill-word-back, `Meta-f`/`Meta-b` word forward/back, `Meta-d`
+  kill-word-forward, `Meta-l` kill-whole-line
+- Clipboard & history: `Ctrl-c`/`Ctrl-v` copy/paste, `Ctrl-y` yank
+  (same clipboard slot as paste), `Ctrl-z` undo, `Ctrl-r` redo
+- Selection: `Ctrl-Space` set/clear the mark, use arrows or navigation chords to select, `Meta-a` select all; with
+  a selection active, `Ctrl-c`/`Ctrl-v` copy/replace just the selected
+  text instead of the whole line
+- Search: `Ctrl-f` open search prompt, `Ctrl-Right` next occurance, `Ctrl-Left` previous occurance.
+- Buffers: `Meta-o`/`Meta-n`/`Meta-p`/`Meta-w` new/next/prev/close buffer
+- Split panes: `Meta-v`/`Meta-h` open a vertical/horizontal split prompt
+  (type a path + Enter to open that file in the new pane, or a bare
+  Enter to duplicate the current buffer), `Meta-Arrows` move focus to
+  the nearest pane, `Meta-Tab` cycles through panes
+- Help: `Ctrl-g` toggle the keybindings overlay
+
+### Command-line flags
+
+```sh
+hedit                                   # empty scratch buffer
+hedit file.txt                          # open a file
+hedit +42 file.txt                      # open at line 42
+hedit +42:8 file.txt                    # open at line 42, column 8
+hedit --readonly file.txt               # -R — open read-only (Save disabled)
+hedit --tabsize 2 file.txt              # override tabsize for this run
+hedit --config init.hl file.txt         # load config from elsewhere
+hedit --no-config file.txt              # skip init.hl entirely
+hedit --help / --version
+```
+
+CLI flags always win over `init.hl`, e.g. `--tabsize` overrides a `(set "tabsize" ...)` in the loaded config.
+
+## Cloning
+
+Because HiLisp is a submodule:
+
+```sh
+git clone --recurse-submodules https://github.com/cladam/hedit.git
+# or, if already cloned:
+git submodule update --init --recursive
+```
+
+To bump the pinned HiLisp version:
+
+```sh
+git submodule update --remote lib/hilisp
+```
 
 ## Configuration & plugins: HiLisp
 
@@ -101,92 +206,6 @@ loading.
 
 See [`examples/plugins/`](examples/plugins) for six reference plugins and [`examples/init.hl`](examples/init.hl)
 for the `(plugin ...)` opt-in syntax.
-
-## Quick Install
-
-Using standard `curl`:
-```sh
-curl -fsSL https://github.com/cladam/hedit/releases/latest/download/install.sh | sh
-```
-
-Or install hedit using [`hicurl`](https://github.com/cladam/hicurl):
-
-```sh
-hicurl https://github.com/cladam/hedit/releases/latest/download/install.sh | sh
-```
-
-Installs binary (`macos-arm64`, `linux-arm64`, `linux-x86_64`) to `~/.local/bin`. Override target location with `HEDIT_INSTALL_DIR=/usr/local/bin`.
-
-```sh
-HEDIT_INSTALL_DIR=/usr/local/bin curl -fsSL https://github.com/cladam/hedit/releases/latest/download/install.sh | sh
-# Or with hicurl
-HEDIT_INSTALL_DIR=/usr/local/bin hicurl https://github.com/cladam/hedit/releases/latest/download/install.sh | sh
-```
-
-**Note:** _No Windows support!_
-
-## Cloning
-
-Because HiLisp is a submodule:
-
-```sh
-git clone --recurse-submodules https://github.com/cladam/hedit.git
-# or, if already cloned:
-git submodule update --init --recursive
-```
-
-To bump the pinned HiLisp version:
-
-```sh
-git submodule update --remote lib/hilisp
-```
-
-### Usage
-
-```sh
-hica build -o hedit           # compile to ./hedit
-./hedit                       # open an empty scratch buffer
-./hedit somefile.txt          # open a real file
-```
-
-Default keybindings (overridable from `init.hl`). 
-Full reference with every chord: [`docs/hedit-cheatsheets.md`](docs/hedit-cheatsheet.md)
-(or press `Ctrl-g` inside hedit for a live overlay).
-
-- File: `Ctrl-s` save, `Ctrl-o` open-file prompt, `Ctrl-q` quit (with
-  2+ panes open, closes the active pane/buffer first)
-- Readline-style editing: `Ctrl-a`/`Ctrl-e` line start/end, `Ctrl-d` delete-forward, `Ctrl-k` kill-line, `Ctrl-w`
-  kill-word-back, `Meta-f`/`Meta-b` word forward/back, `Meta-d`
-  kill-word-forward, `Meta-l` kill-whole-line
-- Clipboard & history: `Ctrl-c`/`Ctrl-v` copy/paste, `Ctrl-y` yank
-  (same clipboard slot as paste), `Ctrl-z` undo, `Ctrl-r` redo
-- Selection: `Ctrl-Space` set/clear the mark, use arrows or navigation chords to select, `Meta-a` select all; with
-  a selection active, `Ctrl-c`/`Ctrl-v` copy/replace just the selected
-  text instead of the whole line
-- Search: `Ctrl-f` open search prompt, `Ctrl-Right` next occurance, `Ctrl-Left` previous occurance.
-- Buffers: `Meta-o`/`Meta-n`/`Meta-p`/`Meta-w` new/next/prev/close buffer
-- Split panes: `Meta-v`/`Meta-h` open a vertical/horizontal split prompt
-  (type a path + Enter to open that file in the new pane, or a bare
-  Enter to duplicate the current buffer), `Meta-Arrows` move focus to
-  the nearest pane, `Meta-Tab` cycles through panes
-- Help: `Ctrl-g` toggle the keybindings overlay
-
-### Command-line flags
-
-```sh
-hedit                                   # empty scratch buffer
-hedit file.txt                          # open a file
-hedit +42 file.txt                      # open at line 42
-hedit +42:8 file.txt                    # open at line 42, column 8
-hedit --readonly file.txt               # -R — open read-only (Save disabled)
-hedit --tabsize 2 file.txt              # override tabsize for this run
-hedit --config init.hl file.txt         # load config from elsewhere
-hedit --no-config file.txt              # skip init.hl entirely
-hedit --help / --version
-```
-
-CLI flags always win over `init.hl`, e.g. `--tabsize` overrides a `(set "tabsize" ...)` in the loaded config.
-
 
 ## License
 

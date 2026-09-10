@@ -1,6 +1,7 @@
 .build/
 .koka/
 .clinerules
+.DS_Store
 
 docs/hica-issues.md
 docs/effects-journal.md
