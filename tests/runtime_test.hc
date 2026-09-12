@@ -845,3 +845,29 @@ test "Meta-h with a typed path opens that file into a new horizontal pane" {
   assert(final.panes == Leaf(0))
   assert(final.background_buffers == [])
 }
+
+// ------------------- M19: live config reload (Meta-r) ------------------
+
+test "M19: scripted Meta-r in event loop reloads config dynamically" {
+  let init_path = "/tmp/hedit_test_m19_runtime/init.hl"
+  write_file(init_path, "(bind \"Ctrl-x\" 'quit)")
+  let cfg0 = Config { ...default_config(), custom_config_path: Some(init_path) }
+  let s0 = init_editor_with_config(None, cfg0)
+  assert(lookup_binding(s0.config.bindings, KeyChord { m: Ctrl, c: 'x' }) == Ignore)
+  let final: EditorState = handle Terminal {
+    poll_event() => match ev {
+      []          => KeyEvent(KShortcut(Ctrl, 'q')),
+      [e, ..rest] => { ev = rest; e }
+    },
+    render_frame(_buf)   => (),
+    get_dimensions()     => (80, 24),
+    set_cursor_style(_s) => ()
+  } with var ev = [
+    KeyEvent(KShortcut(Meta, 'r')),
+    KeyEvent(KShortcut(Ctrl, 'x'))
+  ] in {
+    event_loop(s0)
+  }
+  assert(final.should_quit == true)
+  assert(lookup_binding(final.config.bindings, KeyChord { m: Ctrl, c: 'x' }) == Quit)
+}

@@ -10,6 +10,7 @@ import "keys"
 import "model"
 import "actions"
 import "render"
+import "config_loader"
 import "hilisp_host"
 import "../lib/hilisp/src/lisp"
 
@@ -305,6 +306,10 @@ fun dispatch_action(sized: EditorState, action: Action, buf_pool: list<(int, ref
     // Effectful actions handled inline; pure ones fall through.
     Save      => {
       let (s2, e2) = run_save(sized, hl_env)
+      (s2, e2, buf_pool)
+    },
+    ReloadConfig => {
+      let (s2, e2) = reload_config_with_env(sized, hl_env)
       (s2, e2, buf_pool)
     },
     Copy      => {

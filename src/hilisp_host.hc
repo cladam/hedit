@@ -177,11 +177,12 @@ pub fun action_to_string(a: Action) : string =>
     MouseDrag(_, _)  => "mouse-drag",
     MouseRelease     => "mouse-release",
     ScrollViewUp(_, _)   => "scroll-view-up",
-    ScrollViewDown(_, _) => "scroll-view-down"
+    ScrollViewDown(_, _) => "scroll-view-down",
+    ReloadConfig    => "reload-config"
   }
 
 /// Inverse of `action_to_string`; unrecognised names resolve to `None`.
-fun string_to_action(s: string) : maybe<Action> =>
+pub fun string_to_action(s: string) : maybe<Action> =>
   match s {
     "quit"         => Some(Quit),
     "save"         => Some(Save),
@@ -218,6 +219,7 @@ fun string_to_action(s: string) : maybe<Action> =>
     "next-pane"    => Some(NextPane),
     "set-mark"     => Some(SetMark),
     "select-all"   => Some(SelectAll),
+    "reload-config" => Some(ReloadConfig),
     "ignore"       => Some(Ignore),
     _              => None
   }
@@ -301,7 +303,7 @@ pub fun config_from_env(env: Env, fallback: Config) : Config {
     LHash(entries) => entries_to_values(entries),
     _              => fallback.values
   }
-  Config { bindings: kb, values: vs, readonly: fallback.readonly }
+  Config { bindings: kb, values: vs, readonly: fallback.readonly, custom_config_path: fallback.custom_config_path }
 }
 
 /// Decode a hash's entries into a hedit-side bindings alist,

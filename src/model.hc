@@ -111,6 +111,7 @@ pub type Action {
   MouseRelease,
   ScrollViewUp(x: int, y: int),
   ScrollViewDown(x: int, y: int),
+  ReloadConfig,
   Ignore
 }
 
@@ -156,6 +157,7 @@ pub fun default_bindings() : list<(KeyChord, Action)> =>
     (KeyChord { m: Meta, c: 'd' }, KillWordForward),
     (KeyChord { m: Meta, c: 'l' }, KillWholeLine),
     (KeyChord { m: Meta, c: 'a' }, SelectAll),
+    (KeyChord { m: Meta, c: 'r' }, ReloadConfig),
     (KeyChord { m: Ctrl, c: ' ' }, SetMark)
   ]
 
@@ -173,16 +175,19 @@ pub fun lookup_binding(kb: list<(KeyChord, Action)>, chord: KeyChord) : Action =
 // bridge without an extra ADT (stringified at the boundary; helpers below
 // decode them back). `readonly` (M8) gates `Save` in
 // `runtime.hc::save_buffer` — a plain field since it's only ever set from
-// `--readonly` on the CLI, never from HiLisp.
+// `--readonly` on the CLI, never from HiLisp. `custom_config_path` (M19)
+// retains any explicit `--config <path>` passed at startup, so `ReloadConfig`
+// (Meta-r) can reload the exact same file.
 pub struct Config {
   bindings: list<(KeyChord, Action)>,
   values: list<(string, string)>,
-  readonly: bool
+  readonly: bool,
+  custom_config_path: maybe<string>
 }
 
 /// The default `Config`: default bindings, no HiLisp values, not readonly.
 pub fun default_config() : Config =>
-  Config { bindings: default_bindings(), values: [], readonly: false }
+  Config { bindings: default_bindings(), values: [], readonly: false, custom_config_path: None }
 
 /// Look up a `(set key value)` value from the config, or `default` if
 /// absent.

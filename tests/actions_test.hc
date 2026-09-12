@@ -314,12 +314,25 @@ test "apply_action leaves state untouched for Redo" {
   assert(s1.buffer.is_dirty == false)
 }
 
+test "resolve_action maps Meta-r to ReloadConfig via default_bindings" {
+  let s0 = init_editor(None)
+  let a  = resolve_action(s0, KeyEvent(KShortcut(Meta, 'r')))
+  assert(a == ReloadConfig)
+}
+
+test "apply_action leaves state untouched for ReloadConfig" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, ReloadConfig)
+  assert(s1.buffer.lines == s0.buffer.lines)
+  assert(s1.config.bindings == s0.config.bindings)
+}
+
 test "custom bindings override defaults — Ctrl-x becomes Quit" {
   // Simulate a HiLisp init.hl that did `(bind "Ctrl-x" 'quit)`.
   let custom: list<(KeyChord, Action)> =
     [(KeyChord { m: Ctrl, c: 'x' }, Quit)]
   let s0 = init_editor(None)
-  let s1 = EditorState { ...s0, config: Config { bindings: custom, values: [], readonly: false } }
+  let s1 = EditorState { ...s0, config: Config { bindings: custom, values: [], readonly: false, custom_config_path: None } }
   // Ctrl-x now resolves to Quit …
   assert(resolve_action(s1, KeyEvent(KShortcut(Ctrl, 'x'))) == Quit)
   // … and Ctrl-q, which was default, is now Ignore (custom map replaces).

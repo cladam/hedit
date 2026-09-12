@@ -80,7 +80,7 @@ Default keybindings (overridable from `init.hl`):
   (type a path + Enter to open that file in the new pane, or a bare
   Enter to duplicate the current buffer), `Meta-Arrows` move focus to
   the nearest pane, `Meta-Tab` cycles through panes
-- Help: `Ctrl-g` toggle the keybindings overlay
+- Help & Config: `Ctrl-g` toggle the keybindings overlay, `Meta-r` reload config and plugins live
 
 ### Command-line flags
 

@@ -177,3 +177,38 @@ pub fun load_user_config_opts(cfg0:Config, explicit_path: maybe<string>, skip: b
     }
   }
 }
+
+// ------------------- live config reload (M19) --------------------------
+
+/// Load the raw configuration from either the custom path or user default paths.
+fun load_raw_config(base_cfg: Config) : (Config, Env, maybe<string>) =>
+  match base_cfg.custom_config_path {
+    Some(p) => load_config_from_path(base_cfg, p),
+    None    => load_user_config(base_cfg)
+  }
+
+/// Apply the result of a config reload to EditorState and Env.
+/// On failure (syntax error in config, bad chord, unknown action), preserves
+/// the existing Config and Env, only updating the status message.
+/// On clean success, updates Config and Env, and sets status to "Config reloaded".
+fun apply_reload_result(state: EditorState, hl_env: Env, new_cfg0:Config, new_env: Env, status: maybe<string>) : (EditorState, Env) =>
+  match status {
+    Some(err_msg) => (set_status_message(state, err_msg), hl_env),
+    None => {
+      let new_cfg = Config { ...new_cfg0, custom_config_path: state.config.custom_config_path }
+      (set_status_message(EditorState { ...state, config: new_cfg }, "Config reloaded"), new_env)
+    }
+  }
+
+/// Reload configuration from disk and update state and environment.
+pub fun reload_config_with_env(state: EditorState, hl_env: Env) : (EditorState, Env) {
+  let base_cfg = Config { ...default_config(), readonly: state.config.readonly, custom_config_path: state.config.custom_config_path }
+  let (new_cfg0, new_env, status) = load_raw_config(base_cfg)
+  apply_reload_result(state, hl_env, new_cfg0, new_env, status)
+}
+
+/// Standalone reload helper returning EditorState with updated config / status.
+pub fun reload_config(state: EditorState) : EditorState {
+  let dummy_env = make_hedit_env(state.config)
+  reload_config_with_env(state, dummy_env).0
+}

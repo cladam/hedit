@@ -295,9 +295,11 @@ fun apply_readonly_override(cfg: Config, ro: bool) : Config =>
 /// Terminal/Clipboard handlers and run `event_loop`.
 fun run_editor(r: CliResult, pos_arg: maybe<string>) {
   let cfg0             = default_config()
-  let (cfg1, hl_env, cfg_status) = load_user_config_opts(cfg0, get_opt(r, "config"), has_flag(r, "no-config"))
+  let explicit_cfg     = get_opt(r, "config")
+  let (cfg1, hl_env, cfg_status) = load_user_config_opts(cfg0, explicit_cfg, has_flag(r, "no-config"))
   let cfg2             = apply_tabsize_override(cfg1, get_opt(r, "tabsize"))
-  let cfg              = apply_readonly_override(cfg2, has_flag(r, "readonly"))
+  let cfg3             = apply_readonly_override(cfg2, has_flag(r, "readonly"))
+  let cfg              = Config { ...cfg3, custom_config_path: explicit_cfg }
   let (theme, theme_status) = resolve_theme_with_status(cfg)
   let (loaded_buf0, load_status) = load_buffer(0, get_positional(r, 0))
   let start_pos        = match pos_arg {

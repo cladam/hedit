@@ -109,11 +109,12 @@ Esc cancels the prompt. A `│`/`─` divider marks the seam between panes.
 
 **Not yet:** interactive resizing, cross-pane search highlighting.
 
-## Help
+## Help & Config
 
 | Key    | Does                                                              |
 |------- |--------------------------------------------------------------------|
 | Ctrl-g | Toggle a full-screen keybindings overlay, generated live from the current bindings (any key closes it) |
+| Meta-r | Reload `init.hl` and plugins live without restarting (`reload-config`, M19) |
 
 ## Customization — `init.hl`
 

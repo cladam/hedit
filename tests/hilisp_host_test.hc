@@ -403,3 +403,15 @@ test "recent-files: accumulates opened paths into one status line" {
   assert(hook_status(r1) == Some("recently opened: a.txt"))
   assert(hook_status(r2) == Some("recently opened: a.txt, b.txt"))
 }
+
+test "action_to_string and string_to_action for reload-config" {
+  assert(action_to_string(ReloadConfig) == "reload-config")
+  assert(string_to_action("reload-config") == Some(ReloadConfig))
+}
+
+test "load_config: (bind) rewires Meta-r to reload-config" {
+  let src = "(bind \"Meta-r\" 'reload-config)"
+  let (cfg, err) = load_config(src, default_config())
+  assert(err == None)
+  assert(lookup_binding(cfg.bindings, KeyChord { m: Meta, c: 'r' }) == ReloadConfig)
+}

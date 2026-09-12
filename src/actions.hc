@@ -1418,6 +1418,7 @@ pub fun apply_action(state: EditorState, action: Action) : EditorState =>
     MoveWordBack    => collapse_unless_sticky(move_word_back(state)),
     Resize(w, h) => EditorState { ...state, screen_size: (w, h) },
     Save         => state, // event_loop: <fsys>
+    ReloadConfig => state, // event_loop: <fsys>
     Copy         => state, // event_loop: <Clipboard>
     Paste        => state, // event_loop: <Clipboard>
     Undo         => state, // event_loop: <Buffer>

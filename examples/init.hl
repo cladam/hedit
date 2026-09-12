@@ -108,6 +108,9 @@
 (bind "Meta-p" 'prev-buffer)
 (bind "Meta-w" 'close-buffer)
 
+;; Hot reload config (this file)
+(bind "Meta-r" 'reload-config)
+
 ;; 'ignore is also a valid target — binds a chord to a no-op, e.g. to
 ;; silence a default without giving it a new job:
 ;; (bind "Ctrl-w" 'ignore)

@@ -5,6 +5,7 @@
 // model_test.hc's approach for load_buffer.
 
 import "../src/model"
+import "../src/keys"
 import "../src/config_loader"
 import "../src/hilisp_host"
 import "../lib/hilisp/src/lisp"
@@ -95,4 +96,59 @@ test "load_user_config_opts: a broken plugin doesn't block a good one loaded aft
     [LStr(s)] => assert_eq(s, "Welcome to hedit!"),
     _         => assert(false)
   }
+}
+
+// ------------------- live config reload (M19) --------------------------
+
+test "reload_config: valid change updates config and sets status message" {
+  let init_path = "/tmp/hedit_test_m19_reload/init.hl"
+  write_file(init_path, "(bind \"Ctrl-x\" 'quit)")
+  let cfg0 = Config { ...default_config(), custom_config_path: Some(init_path) }
+  let s0 = init_editor_with_config(None, cfg0)
+  let s1 = reload_config(s0)
+  assert(lookup_binding(s1.config.bindings, KeyChord { m: Ctrl, c: 'x' }) == Quit)
+  assert(s1.status_message == Some("Config reloaded"))
+
+  // Now update the file with a different binding and reload again
+  write_file(init_path, "(bind \"Ctrl-x\" 'save)")
+  let s2 = reload_config(s1)
+  assert(lookup_binding(s2.config.bindings, KeyChord { m: Ctrl, c: 'x' }) == Save)
+  assert(s2.status_message == Some("Config reloaded"))
+}
+
+test "reload_config: syntax error preserves existing config and surfaces error status" {
+  let init_path = "/tmp/hedit_test_m19_err/init.hl"
+  write_file(init_path, "(bind \"Ctrl-x\" 'quit)")
+  let cfg0 = Config { ...default_config(), custom_config_path: Some(init_path) }
+  let s0 = init_editor_with_config(None, cfg0)
+  let s1 = reload_config(s0)
+  assert(lookup_binding(s1.config.bindings, KeyChord { m: Ctrl, c: 'x' }) == Quit)
+
+  // Now update the file with a syntax error
+  write_file(init_path, "(this is an unclosed (expression")
+  let s2 = reload_config(s1)
+  // Old binding is preserved (never apply a partially-parsed config)
+  assert(lookup_binding(s2.config.bindings, KeyChord { m: Ctrl, c: 'x' }) == Quit)
+  let mentions_error = match s2.status_message {
+    Some(msg) => index_of(msg, "Config error") != None,
+    None      => false
+  }
+  assert(mentions_error)
+}
+
+test "reload_config_with_env: updates env hooks on reload" {
+  let init_path = "/tmp/hedit_test_m19_hooks/init.hl"
+  write_file(init_path, "(on 'buffer-open (fn (path) \"v1\"))")
+  let cfg0 = Config { ...default_config(), custom_config_path: Some(init_path) }
+  let s0 = init_editor_with_config(None, cfg0)
+  let (s1, env1) = reload_config_with_env(s0, make_hedit_env(s0.config))
+  let (res1, _) = fire_hook(env1, "buffer-open", [LStr("test.txt")])
+  assert(res1 == [LStr("v1")])
+
+  // Update hook definition and reload
+  write_file(init_path, "(on 'buffer-open (fn (path) \"v2\"))")
+  let (s2, env2) = reload_config_with_env(s1, env1)
+  let (res2, _) = fire_hook(env2, "buffer-open", [LStr("test.txt")])
+  assert(res2 == [LStr("v2")])
+  assert(s2.status_message == Some("Config reloaded"))
 }
