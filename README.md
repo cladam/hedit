@@ -66,6 +66,7 @@ Default keybindings (overridable from `init.hl`):
 
 - File: `Ctrl-s` save, `Ctrl-o` open-file prompt, `Ctrl-q` quit (with
   2+ panes open, closes the active pane/buffer first)
+- Multi-cursor: `Meta-c` add cursor at next match (word-select on first press, adds next match on repeat), `Escape` collapse cursors to single, `Meta-click` add extra cursor at mouse click
 - Readline-style editing: `Ctrl-a`/`Ctrl-e` line start/end, `Ctrl-d` delete-forward, `Ctrl-k` kill-line, `Ctrl-w`
   kill-word-back, `Meta-f`/`Meta-b` word forward/back, `Meta-d`
   kill-word-forward, `Meta-l` kill-whole-line

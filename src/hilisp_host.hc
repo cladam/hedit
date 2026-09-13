@@ -178,7 +178,10 @@ pub fun action_to_string(a: Action) : string =>
     MouseRelease     => "mouse-release",
     ScrollViewUp(_, _)   => "scroll-view-up",
     ScrollViewDown(_, _) => "scroll-view-down",
-    ReloadConfig    => "reload-config"
+    ReloadConfig    => "reload-config",
+    AddCursorNextMatch => "add-cursor-next-match",
+    CollapseCursors => "collapse-cursors",
+    MetaMouseClick(_, _) => "meta-mouse-click"
   }
 
 /// Inverse of `action_to_string`; unrecognised names resolve to `None`.
@@ -220,6 +223,8 @@ pub fun string_to_action(s: string) : maybe<Action> =>
     "set-mark"     => Some(SetMark),
     "select-all"   => Some(SelectAll),
     "reload-config" => Some(ReloadConfig),
+    "add-cursor-next-match" => Some(AddCursorNextMatch),
+    "collapse-cursors" => Some(CollapseCursors),
     "ignore"       => Some(Ignore),
     _              => None
   }

@@ -229,3 +229,23 @@ test "cursor_row is a real row when the cursor is within the scrolled viewport" 
   let buf = render_editor_to_buffer(s1)
   assert(buf.cursor_row == 4) // (12 - 10) + 2
 }
+
+test "secondary cursor without anchor renders a 1-character selection marker" {
+  let c1 = Cursor { cid: 0, pos: Position { line: 0, col: 2 }, anchor: None, anchor_sticky: false }
+  let c2 = Cursor { cid: 1, pos: Position { line: 1, col: 3 }, anchor: None, anchor_sticky: false }
+  let s0 = with_lines_render(["hello", "world"], (40, 10))
+  let s1 = EditorState { ...s0, buffer: TextBuffer { ...s0.buffer, cursors: [c1, c2] } }
+  let buf = render_editor_to_buffer(s1)
+  // c1 is head cursor (gets hardware cursor_row/col, no fake span)
+  // c2 is secondary cursor on line 1 (screen row 3), col 3 -> span (3, 3, 4)
+  assert(buf.selection_spans == [(3, 3, 4)])
+}
+
+test "multiple cursors with selections render all their spans" {
+  let c1 = Cursor { cid: 0, pos: Position { line: 0, col: 4 }, anchor: Some(Position { line: 0, col: 1 }), anchor_sticky: false }
+  let c2 = Cursor { cid: 1, pos: Position { line: 1, col: 5 }, anchor: Some(Position { line: 1, col: 2 }), anchor_sticky: false }
+  let s0 = with_lines_render(["hello", "world"], (40, 10))
+  let s1 = EditorState { ...s0, buffer: TextBuffer { ...s0.buffer, cursors: [c1, c2] } }
+  let buf = render_editor_to_buffer(s1)
+  assert(buf.selection_spans == [(2, 1, 4), (3, 2, 5)])
+}

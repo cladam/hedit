@@ -415,3 +415,17 @@ test "load_config: (bind) rewires Meta-r to reload-config" {
   assert(err == None)
   assert(lookup_binding(cfg.bindings, KeyChord { m: Meta, c: 'r' }) == ReloadConfig)
 }
+
+test "action_to_string and string_to_action for multi-cursor actions" {
+  assert(action_to_string(AddCursorNextMatch) == "add-cursor-next-match")
+  assert(string_to_action("add-cursor-next-match") == Some(AddCursorNextMatch))
+  assert(action_to_string(CollapseCursors) == "collapse-cursors")
+  assert(string_to_action("collapse-cursors") == Some(CollapseCursors))
+}
+
+test "load_config: (bind) rewires Meta-c to add-cursor-next-match" {
+  let src = "(bind \"Meta-c\" 'add-cursor-next-match)"
+  let (cfg, err) = load_config(src, default_config())
+  assert(err == None)
+  assert(lookup_binding(cfg.bindings, KeyChord { m: Meta, c: 'c' }) == AddCursorNextMatch)
+}

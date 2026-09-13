@@ -51,11 +51,255 @@ fun list_remove_at(xs: list<string>, idx: int) : list<string> =>
 
 /// Return the buffer's primary cursor (multi-cursor is future work),
 /// defaulting to (0, 0) if the buffer has none.
-fun head_cursor(buf: TextBuffer) : Cursor =>
+pub fun head_cursor(buf: TextBuffer) : Cursor =>
   match buf.cursors {
     []       => Cursor { cid: 0, pos: Position { line: 0, col: 0 }, anchor: None, anchor_sticky: false },
     [x, .._] => x
   }
+
+// ------------------- multi-cursor sorting & shift helpers -----------------
+
+fun pos_compare(p1:Position, p2:Position) : int {
+  if p1.line < p2.line { -1 }
+  else if p1.line > p2.line { 1 }
+  else if p1.col < p2.col { -1 }
+  else if p1.col > p2.col { 1 }
+  else { 0 }
+}
+
+fun cursor_pos_gt(c1:Cursor, c2:Cursor) : bool =>
+  pos_compare(c1.pos, c2.pos) > 0
+
+fun cursor_pos_lt(c1:Cursor, c2:Cursor) : bool =>
+  pos_compare(c1.pos, c2.pos) < 0
+
+fun insert_cursor_desc(c: Cursor, cs: list<Cursor>) : list<Cursor> =>
+  match cs {
+    []          => [c],
+    [x, ..rest] =>
+      if cursor_pos_gt(c, x) { [c, x] + rest }
+      else { [x] + insert_cursor_desc(c, rest) }
+  }
+
+fun sort_cursors_desc(cs: list<Cursor>) : list<Cursor> =>
+  match cs {
+    []          => [],
+    [c, ..rest] => insert_cursor_desc(c, sort_cursors_desc(rest))
+  }
+
+fun insert_cursor_asc(c: Cursor, cs: list<Cursor>) : list<Cursor> =>
+  match cs {
+    []          => [c],
+    [x, ..rest] =>
+      if cursor_pos_lt(c, x) { [c, x] + rest }
+      else { [x] + insert_cursor_asc(c, rest) }
+  }
+
+fun sort_cursors_asc(cs: list<Cursor>) : list<Cursor> =>
+  match cs {
+    []          => [],
+    [c, ..rest] => insert_cursor_asc(c, sort_cursors_asc(rest))
+  }
+
+fun deduplicate_cursors(cs: list<Cursor>) : list<Cursor> =>
+  match cs {
+    []  => [],
+    [c] => [c],
+    [c1, c2, ..rest] =>
+      if c1.pos.line == c2.pos.line && c1.pos.col == c2.pos.col {
+        deduplicate_cursors([c1] + rest)
+      } else {
+        [c1] + deduplicate_cursors([c2] + rest)
+      }
+  }
+
+fun finalize_cursors(cs: list<Cursor>) : list<Cursor> {
+  let sorted_cs = sort_cursors_asc(cs)
+  deduplicate_cursors(sorted_cs)
+}
+
+fun max_cid(cs: list<Cursor>) : int =>
+  match cs {
+    []          => 0,
+    [c, ..rest] => max(c.cid, max_cid(rest))
+  }
+
+fun next_cid(buf: TextBuffer) : int =>
+  max_cid(buf.cursors) + 1
+
+fun last_cursor(cs: list<Cursor>) : Cursor =>
+  match cs {
+    []          => Cursor { cid: 0, pos: Position { line: 0, col: 0 }, anchor: None, anchor_sticky: false },
+    [c]         => c,
+    [_, ..rest] => last_cursor(rest)
+  }
+
+fun drop_head_cursor(cs: list<Cursor>) : list<Cursor> =>
+  match cs {
+    []          => [],
+    [_, ..rest] => rest
+  }
+
+fun shift_pos_after_insert(p: Position, line_idx: int, col_idx: int, k: int) : Position {
+  if p.line == line_idx && p.col >= col_idx {
+    Position { line: line_idx, col: p.col + k }
+  } else {
+    p
+  }
+}
+
+fun shift_cursor_after_insert(c: Cursor, line_idx: int, col_idx: int, k: int) : Cursor {
+  let new_p = shift_pos_after_insert(c.pos, line_idx, col_idx, k)
+  let new_a = match c.anchor {
+    None    => None,
+    Some(a) => Some(shift_pos_after_insert(a, line_idx, col_idx, k))
+  }
+  Cursor { ...c, pos: new_p, anchor: new_a }
+}
+
+fun shift_cursors_after_insert(cs: list<Cursor>, line_idx: int, col_idx: int, k: int) : list<Cursor> =>
+  map(cs, (c) => shift_cursor_after_insert(c, line_idx, col_idx, k))
+
+fun shift_pos_after_newline(p: Position, line_idx: int, col_idx: int) : Position {
+  if p.line == line_idx && p.col >= col_idx {
+    Position { line: line_idx + 1, col: p.col - col_idx }
+  } else if p.line > line_idx {
+    Position { line: p.line + 1, col: p.col }
+  } else {
+    p
+  }
+}
+
+fun shift_cursor_after_newline(c: Cursor, line_idx: int, col_idx: int) : Cursor {
+  let new_p = shift_pos_after_newline(c.pos, line_idx, col_idx)
+  let new_a = match c.anchor {
+    None    => None,
+    Some(a) => Some(shift_pos_after_newline(a, line_idx, col_idx))
+  }
+  Cursor { ...c, pos: new_p, anchor: new_a }
+}
+
+fun shift_cursors_after_newline(cs: list<Cursor>, line_idx: int, col_idx: int) : list<Cursor> =>
+  map(cs, (c) => shift_cursor_after_newline(c, line_idx, col_idx))
+
+fun shift_pos_after_backspace_char(p: Position, line_idx: int, col_idx: int) : Position {
+  if p.line == line_idx && p.col >= col_idx {
+    Position { line: line_idx, col: max(p.col - 1, 0) }
+  } else {
+    p
+  }
+}
+
+fun shift_cursor_after_backspace_char(c: Cursor, line_idx: int, col_idx: int) : Cursor {
+  let new_p = shift_pos_after_backspace_char(c.pos, line_idx, col_idx)
+  let new_a = match c.anchor {
+    None    => None,
+    Some(a) => Some(shift_pos_after_backspace_char(a, line_idx, col_idx))
+  }
+  Cursor { ...c, pos: new_p, anchor: new_a }
+}
+
+fun shift_cursors_after_backspace_char(cs: list<Cursor>, line_idx: int, col_idx: int) : list<Cursor> =>
+  map(cs, (c) => shift_cursor_after_backspace_char(c, line_idx, col_idx))
+
+fun shift_pos_after_backspace_merge(p: Position, line_idx: int, prev_len: int) : Position {
+  if p.line == line_idx {
+    Position { line: line_idx - 1, col: prev_len + p.col }
+  } else if p.line > line_idx {
+    Position { line: p.line - 1, col: p.col }
+  } else {
+    p
+  }
+}
+
+fun shift_cursor_after_backspace_merge(c: Cursor, line_idx: int, prev_len: int) : Cursor {
+  let new_p = shift_pos_after_backspace_merge(c.pos, line_idx, prev_len)
+  let new_a = match c.anchor {
+    None    => None,
+    Some(a) => Some(shift_pos_after_backspace_merge(a, line_idx, prev_len))
+  }
+  Cursor { ...c, pos: new_p, anchor: new_a }
+}
+
+fun shift_cursors_after_backspace_merge(cs: list<Cursor>, line_idx: int, prev_len: int) : list<Cursor> =>
+  map(cs, (c) => shift_cursor_after_backspace_merge(c, line_idx, prev_len))
+
+fun shift_pos_after_delete_forward_char(p: Position, line_idx: int, col_idx: int) : Position {
+  if p.line == line_idx && p.col > col_idx {
+    Position { line: line_idx, col: p.col - 1 }
+  } else {
+    p
+  }
+}
+
+fun shift_cursor_after_delete_forward_char(c: Cursor, line_idx: int, col_idx: int) : Cursor {
+  let new_p = shift_pos_after_delete_forward_char(c.pos, line_idx, col_idx)
+  let new_a = match c.anchor {
+    None    => None,
+    Some(a) => Some(shift_pos_after_delete_forward_char(a, line_idx, col_idx))
+  }
+  Cursor { ...c, pos: new_p, anchor: new_a }
+}
+
+fun shift_cursors_after_delete_forward_char(cs: list<Cursor>, line_idx: int, col_idx: int) : list<Cursor> =>
+  map(cs, (c) => shift_cursor_after_delete_forward_char(c, line_idx, col_idx))
+
+fun shift_pos_after_delete_forward_merge(p: Position, line_idx: int, col_idx: int) : Position {
+  if p.line == line_idx + 1 {
+    Position { line: line_idx, col: col_idx + p.col }
+  } else if p.line > line_idx + 1 {
+    Position { line: p.line - 1, col: p.col }
+  } else {
+    p
+  }
+}
+
+fun shift_cursor_after_delete_forward_merge(c: Cursor, line_idx: int, col_idx: int) : Cursor {
+  let new_p = shift_pos_after_delete_forward_merge(c.pos, line_idx, col_idx)
+  let new_a = match c.anchor {
+    None    => None,
+    Some(a) => Some(shift_pos_after_delete_forward_merge(a, line_idx, col_idx))
+  }
+  Cursor { ...c, pos: new_p, anchor: new_a }
+}
+
+fun shift_cursors_after_delete_forward_merge(cs: list<Cursor>, line_idx: int, col_idx: int) : list<Cursor> =>
+  map(cs, (c) => shift_cursor_after_delete_forward_merge(c, line_idx, col_idx))
+
+fun shift_pos_after_delete_span(p: Position, sl: int, sc: int, el: int, ec: int) : Position {
+  if sl == el {
+    if p.line == sl {
+      if p.col >= ec { Position { line: sl, col: p.col - (ec - sc) } }
+      else if p.col > sc { Position { line: sl, col: sc } }
+      else { p }
+    } else { p }
+  } else {
+    if p.line == sl {
+      if p.col >= sc { Position { line: sl, col: sc } } else { p }
+    } else if p.line > sl && p.line < el {
+      Position { line: sl, col: sc }
+    } else if p.line == el {
+      if p.col >= ec { Position { line: sl, col: sc + (p.col - ec) } }
+      else { Position { line: sl, col: sc } }
+    } else if p.line > el {
+      Position { line: p.line - (el - sl), col: p.col }
+    } else {
+      p
+    }
+  }
+}
+
+fun shift_cursor_after_delete_span(c: Cursor, sl: int, sc: int, el: int, ec: int) : Cursor {
+  let new_p = shift_pos_after_delete_span(c.pos, sl, sc, el, ec)
+  let new_a = match c.anchor {
+    None    => None,
+    Some(a) => Some(shift_pos_after_delete_span(a, sl, sc, el, ec))
+  }
+  Cursor { ...c, pos: new_p, anchor: new_a }
+}
+
+fun shift_cursors_after_delete_span(cs: list<Cursor>, sl: int, sc: int, el: int, ec: int) : list<Cursor> =>
+  map(cs, (c) => shift_cursor_after_delete_span(c, sl, sc, el, ec))
 
 /// Clamp `col` to a valid column within the line at `line_idx`.
 fun clamp_col(lines: list<string>, line_idx: int, col: int) : int {
@@ -63,182 +307,245 @@ fun clamp_col(lines: list<string>, line_idx: int, col: int) : int {
   max(min(col, line_len), 0)
 }
 
-/// Insert `c` at the cursor's column and advance the cursor by one.
-// Simplification: only the primary cursor is used; true multi-cursor
-// insertion needs per-cursor line/column bookkeeping that doesn't exist yet.
+fun fold_insert_char(lines: list<string>, remaining_cs: list<Cursor>, processed_cs: list<Cursor>, c: char) : (list<string>, list<Cursor>) =>
+  match remaining_cs {
+    [] => (lines, processed_cs),
+    [cur, ..rest] => {
+      let line_idx = cur.pos.line
+      let col_idx  = cur.pos.col
+      let current  = list_get(lines, line_idx, "")
+      let before   = current[0:col_idx]
+      let after    = current[col_idx: ]
+      let updated  = before + char_to_string(c) + after
+      let next_lines = list_set(lines, line_idx, updated)
+      let cur_new  = Cursor { ...cur, pos: Position { line: line_idx, col: col_idx + 1 }, anchor: None, anchor_sticky: false }
+      let shifted_processed = shift_cursors_after_insert(processed_cs, line_idx, col_idx, 1)
+      fold_insert_char(next_lines, rest, [cur_new] + shifted_processed, c)
+    }
+  }
+
+/// Insert `c` at each cursor's column and advance each cursor by one.
 pub fun insert_char(state: EditorState, c: char) : EditorState {
-  let buf         = state.buffer
-  let cur         = head_cursor(buf)
-  let line_idx    = cur.pos.line
-  let col         = cur.pos.col
-  let current     = list_get(buf.lines, line_idx, "")
-  let before      = current[0:col]
-  let after       = current[col: ]
-  let updated     = before + char_to_string(c) + after
-  let new_lines   = list_set(buf.lines, line_idx, updated)
-  let new_cursors = map(buf.cursors, (cc) =>
-    Cursor { ...cc, pos: Position { line: line_idx, col: col + 1 } })
+  let s_base = if has_any_selection(state) { delete_selection(state) } else { state }
+  let buf = s_base.buffer
+  let sorted_cs = sort_cursors_desc(buf.cursors)
+  let (new_lines, new_cs) = fold_insert_char(buf.lines, sorted_cs, [], c)
+  let final_cs = finalize_cursors(new_cs)
   let new_buf = TextBuffer {
     ...buf,
     lines: new_lines,
-    cursors: new_cursors,
+    cursors: final_cs,
     is_dirty: true
   }
-  EditorState { ...state, buffer: new_buf }
+  EditorState { ...s_base, buffer: new_buf }
 }
 
-/// Split the current line at the cursor into two lines, cursor moves
-/// to column 0 of the new (second) line.
+fun fold_insert_newline(lines: list<string>, remaining_cs: list<Cursor>, processed_cs: list<Cursor>) : (list<string>, list<Cursor>) =>
+  match remaining_cs {
+    [] => (lines, processed_cs),
+    [cur, ..rest] => {
+      let line_idx    = cur.pos.line
+      let col_idx     = cur.pos.col
+      let current     = list_get(lines, line_idx, "")
+      let first_part  = current[0:col_idx]
+      let second_part = current[col_idx: ]
+      let next_lines  = list_split_at(lines, line_idx, first_part, second_part)
+      let cur_new     = Cursor { ...cur, pos: Position { line: line_idx + 1, col: 0 }, anchor: None, anchor_sticky: false }
+      let shifted_processed = shift_cursors_after_newline(processed_cs, line_idx, col_idx)
+      fold_insert_newline(next_lines, rest, [cur_new] + shifted_processed)
+    }
+  }
+
+/// Split the line at each cursor into two lines, each cursor moving
+/// to column 0 of the new line.
 pub fun insert_newline(state: EditorState) : EditorState {
-  let buf         = state.buffer
-  let cur         = head_cursor(buf)
-  let line_idx    = cur.pos.line
-  let col         = cur.pos.col
-  let current     = list_get(buf.lines, line_idx, "")
-  let before      = current[0:col]
-  let after       = current[col: ]
-  let new_lines   = list_split_at(buf.lines, line_idx, before, after)
-  let new_cursors = map(buf.cursors, (cc) =>
-    Cursor { ...cc, pos: Position { line: line_idx + 1, col: 0 } })
+  let s_base = if has_any_selection(state) { delete_selection(state) } else { state }
+  let buf = s_base.buffer
+  let sorted_cs = sort_cursors_desc(buf.cursors)
+  let (new_lines, new_cs) = fold_insert_newline(buf.lines, sorted_cs, [])
+  let final_cs = finalize_cursors(new_cs)
   let new_buf = TextBuffer {
     ...buf,
     lines: new_lines,
-    cursors: new_cursors,
+    cursors: final_cs,
     is_dirty: true
   }
-  EditorState { ...state, buffer: new_buf }
+  EditorState { ...s_base, buffer: new_buf }
 }
 
-/// Move the cursor to column 0 of its current line.
+fun move_line_start_pos(p: Position) : Position =>
+  Position { line: p.line, col: 0 }
+
+/// Move each cursor to column 0 of its current line.
 pub fun move_line_start(state: EditorState) : EditorState {
   let buf = state.buffer
-  let cur = head_cursor(buf)
-  let new_pos = Position { line: cur.pos.line, col: 0 }
-  let new_cursors = map(buf.cursors, (cc) => Cursor { ...cc, pos: new_pos })
+  let moved_cs = map(buf.cursors, (cc) => Cursor { ...cc, pos: move_line_start_pos(cc.pos) })
+  let new_cursors = finalize_cursors(moved_cs)
   EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
 }
 
-/// Move the cursor to the end of its current line.
+fun move_line_end_pos(lines: list<string>, p: Position) : Position =>
+  Position { line: p.line, col: length(list_get(lines, p.line, "")) }
+
+/// Move each cursor to the end of its current line.
 pub fun move_line_end(state: EditorState) : EditorState {
-  let buf      = state.buffer
-  let cur      = head_cursor(buf)
-  let line_len = length(list_get(buf.lines, cur.pos.line, ""))
-  let new_pos  = Position { line: cur.pos.line, col: line_len }
-  let new_cursors = map(buf.cursors, (cc) => Cursor { ...cc, pos: new_pos })
+  let buf = state.buffer
+  let moved_cs = map(buf.cursors, (cc) => Cursor { ...cc, pos: move_line_end_pos(buf.lines, cc.pos) })
+  let new_cursors = finalize_cursors(moved_cs)
   EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
 }
 
-/// Delete the char before the cursor, merging with the previous line
-/// at column 0. A no-op at the very start of the buffer.
+fun fold_delete_backward(lines: list<string>, remaining_cs: list<Cursor>, processed_cs: list<Cursor>) : (list<string>, list<Cursor>) =>
+  match remaining_cs {
+    [] => (lines, processed_cs),
+    [cur, ..rest] => {
+      let line_idx = cur.pos.line
+      let col_idx  = cur.pos.col
+      if col_idx > 0 {
+        let current    = list_get(lines, line_idx, "")
+        let updated    = current[0:col_idx - 1] + current[col_idx: ]
+        let next_lines = list_set(lines, line_idx, updated)
+        let cur_new    = Cursor { ...cur, pos: Position { line: line_idx, col: col_idx - 1 }, anchor: None, anchor_sticky: false }
+        let shifted_processed = shift_cursors_after_backspace_char(processed_cs, line_idx, col_idx)
+        fold_delete_backward(next_lines, rest, [cur_new] + shifted_processed)
+      } else if line_idx > 0 {
+        let prev_idx   = line_idx - 1
+        let prev_line  = list_get(lines, prev_idx, "")
+        let curr_line  = list_get(lines, line_idx, "")
+        let prev_len   = length(prev_line)
+        let merged     = prev_line + curr_line
+        let joined     = list_set(lines, prev_idx, merged)
+        let next_lines = list_remove_at(joined, line_idx)
+        let cur_new    = Cursor { ...cur, pos: Position { line: prev_idx, col: prev_len }, anchor: None, anchor_sticky: false }
+        let shifted_processed = shift_cursors_after_backspace_merge(processed_cs, line_idx, prev_len)
+        fold_delete_backward(next_lines, rest, [cur_new] + shifted_processed)
+      } else {
+        fold_delete_backward(lines, rest, [cur] + processed_cs)
+      }
+    }
+  }
+
+/// Delete the char before each cursor, merging with the previous line
+/// at column 0.
 pub fun delete_backward(state: EditorState) : EditorState {
-  let buf      = state.buffer
-  let cur      = head_cursor(buf)
-  let line_idx = cur.pos.line
-  let col      = cur.pos.col
-  if col > 0 {
-    let current     = list_get(buf.lines, line_idx, "")
-    let updated     = current[0:col - 1] + current[col: ]
-    let new_lines   = list_set(buf.lines, line_idx, updated)
-    let new_cursors = map(buf.cursors, (cc) =>
-      Cursor { ...cc, pos: Position { line: line_idx, col: col - 1 } })
-    let new_buf = TextBuffer { ...buf, lines: new_lines, cursors: new_cursors, is_dirty: true }
-    EditorState { ...state, buffer: new_buf }
-  } else if line_idx > 0 {
-    let prev_idx    = line_idx - 1
-    let prev        = list_get(buf.lines, prev_idx, "")
-    let current     = list_get(buf.lines, line_idx, "")
-    let merged      = prev + current
-    let merged_col  = length(prev)
-    let joined      = list_set(buf.lines, prev_idx, merged)
-    let new_lines   = list_remove_at(joined, line_idx)
-    let new_cursors = map(buf.cursors, (cc) =>
-      Cursor { ...cc, pos: Position { line: prev_idx, col: merged_col } })
-    let new_buf = TextBuffer { ...buf, lines: new_lines, cursors: new_cursors, is_dirty: true }
-    EditorState { ...state, buffer: new_buf }
+  if has_any_selection(state) {
+    delete_selection(state)
   } else {
-    state
+    let buf = state.buffer
+    let sorted_cs = sort_cursors_desc(buf.cursors)
+    let (new_lines, new_cs) = fold_delete_backward(buf.lines, sorted_cs, [])
+    let final_cs = finalize_cursors(new_cs)
+    let new_buf = TextBuffer { ...buf, lines: new_lines, cursors: final_cs, is_dirty: true }
+    EditorState { ...state, buffer: new_buf }
   }
 }
 
-/// Delete the char under the cursor, merging the next line up into
-/// this one at the end of a non-last line. A no-op at the very end of
-/// the buffer.
+fun fold_delete_forward(lines: list<string>, remaining_cs: list<Cursor>, processed_cs: list<Cursor>) : (list<string>, list<Cursor>) =>
+  match remaining_cs {
+    [] => (lines, processed_cs),
+    [cur, ..rest] => {
+      let line_idx = cur.pos.line
+      let col_idx  = cur.pos.col
+      let current  = list_get(lines, line_idx, "")
+      let line_len = length(current)
+      if col_idx < line_len {
+        let updated    = current[0:col_idx] + current[col_idx + 1:]
+        let next_lines = list_set(lines, line_idx, updated)
+        let cur_new    = Cursor { ...cur, pos: Position { line: line_idx, col: col_idx }, anchor: None, anchor_sticky: false }
+        let shifted_processed = shift_cursors_after_delete_forward_char(processed_cs, line_idx, col_idx)
+        fold_delete_forward(next_lines, rest, [cur_new] + shifted_processed)
+      } else if line_idx < length(lines) - 1 {
+        let next_idx   = line_idx + 1
+        let next_line  = list_get(lines, next_idx, "")
+        let merged     = current + next_line
+        let joined     = list_set(lines, line_idx, merged)
+        let next_lines = list_remove_at(joined, next_idx)
+        let cur_new    = Cursor { ...cur, pos: Position { line: line_idx, col: col_idx }, anchor: None, anchor_sticky: false }
+        let shifted_processed = shift_cursors_after_delete_forward_merge(processed_cs, line_idx, col_idx)
+        fold_delete_forward(next_lines, rest, [cur_new] + shifted_processed)
+      } else {
+        fold_delete_forward(lines, rest, [cur] + processed_cs)
+      }
+    }
+  }
+
+/// Delete the char under each cursor, merging the next line up into
+/// this one at the end of a non-last line.
 pub fun delete_forward(state: EditorState) : EditorState {
-  let buf      = state.buffer
-  let cur      = head_cursor(buf)
-  let line_idx = cur.pos.line
-  let col      = cur.pos.col
-  let current  = list_get(buf.lines, line_idx, "")
-  let line_len = length(current)
-  if col < line_len {
-    let updated   = current[0:col] + current[col + 1:]
-    let new_lines = list_set(buf.lines, line_idx, updated)
-    let new_buf   = TextBuffer { ...buf, lines: new_lines, is_dirty: true }
-    EditorState { ...state, buffer: new_buf }
-  } else if line_idx < length(buf.lines) - 1 {
-    let next_idx  = line_idx + 1
-    let next      = list_get(buf.lines, next_idx, "")
-    let merged    = current + next
-    let joined    = list_set(buf.lines, line_idx, merged)
-    let new_lines = list_remove_at(joined, next_idx)
-    let new_buf   = TextBuffer { ...buf, lines: new_lines, is_dirty: true }
-    EditorState { ...state, buffer: new_buf }
+  if has_any_selection(state) {
+    delete_selection(state)
   } else {
-    state
+    let buf = state.buffer
+    let sorted_cs = sort_cursors_desc(buf.cursors)
+    let (new_lines, new_cs) = fold_delete_forward(buf.lines, sorted_cs, [])
+    let final_cs = finalize_cursors(new_cs)
+    let new_buf = TextBuffer { ...buf, lines: new_lines, cursors: final_cs, is_dirty: true }
+    EditorState { ...state, buffer: new_buf }
   }
 }
 
-/// Move the cursor left one column, wrapping onto the end of the
+fun move_left_pos(lines: list<string>, p: Position) : Position {
+  if p.col > 0 { Position { line: p.line, col: p.col - 1 } }
+  else if p.line > 0 {
+    let prev_idx = p.line - 1
+    Position { line: prev_idx, col: length(list_get(lines, prev_idx, "")) }
+  } else {
+    p
+  }
+}
+
+/// Move each cursor left one column, wrapping onto the end of the
 /// previous line at a line boundary.
 pub fun move_left(state: EditorState) : EditorState {
   let buf = state.buffer
-  let cur = head_cursor(buf)
-  let new_pos =
-    if cur.pos.col > 0 { Position { line: cur.pos.line, col: cur.pos.col - 1 } }
-    else if cur.pos.line > 0 {
-      let prev_idx = cur.pos.line - 1
-      Position { line: prev_idx, col: length(list_get(buf.lines, prev_idx, "")) }
-    }
-    else { cur.pos }
-  let new_cursors = map(buf.cursors, (cc) => Cursor { ...cc, pos: new_pos })
+  let moved_cs = map(buf.cursors, (cc) => Cursor { ...cc, pos: move_left_pos(buf.lines, cc.pos) })
+  let new_cursors = finalize_cursors(moved_cs)
   EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
 }
 
-/// Move the cursor right one column, wrapping onto the start of the
+fun move_right_pos(lines: list<string>, p: Position) : Position {
+  let line_len = length(list_get(lines, p.line, ""))
+  let n_lines  = length(lines)
+  if p.col < line_len { Position { line: p.line, col: p.col + 1 } }
+  else if p.line < n_lines - 1 { Position { line: p.line + 1, col: 0 } }
+  else { p }
+}
+
+/// Move each cursor right one column, wrapping onto the start of the
 /// next line at a line boundary.
 pub fun move_right(state: EditorState) : EditorState {
-  let buf      = state.buffer
-  let cur      = head_cursor(buf)
-  let line_len = length(list_get(buf.lines, cur.pos.line, ""))
-  let n_lines  = length(buf.lines)
-  let new_pos =
-    if cur.pos.col < line_len { Position { line: cur.pos.line, col: cur.pos.col + 1 } }
-    else if cur.pos.line < n_lines - 1 { Position { line: cur.pos.line + 1, col: 0 } }
-    else { cur.pos }
-  let new_cursors = map(buf.cursors, (cc) => Cursor { ...cc, pos: new_pos })
+  let buf         = state.buffer
+  let moved_cs    = map(buf.cursors, (cc) => Cursor { ...cc, pos: move_right_pos(buf.lines, cc.pos) })
+  let new_cursors = finalize_cursors(moved_cs)
   EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
 }
 
-/// Move the cursor up one line, clamping the column to the target
+fun move_up_pos(lines: list<string>, p: Position) : Position {
+  let new_line = max(p.line - 1, 0)
+  Position { line: new_line, col: clamp_col(lines, new_line, p.col) }
+}
+
+/// Move each cursor up one line, clamping the column to the target
 /// line's length rather than tracking a "sticky" column.
 pub fun move_up(state: EditorState) : EditorState {
-  let buf      = state.buffer
-  let cur      = head_cursor(buf)
-  let new_line = max(cur.pos.line - 1, 0)
-  let new_pos  = Position { line: new_line, col: clamp_col(buf.lines, new_line, cur.pos.col) }
-  let new_cursors = map(buf.cursors, (cc) => Cursor { ...cc, pos: new_pos })
+  let buf         = state.buffer
+  let moved_cs    = map(buf.cursors, (cc) => Cursor { ...cc, pos: move_up_pos(buf.lines, cc.pos) })
+  let new_cursors = finalize_cursors(moved_cs)
   EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
 }
 
-/// Move the cursor down one line, clamping the column to the target
+fun move_down_pos(lines: list<string>, p: Position) : Position {
+  let n_lines  = length(lines)
+  let new_line = min(p.line + 1, n_lines - 1)
+  Position { line: new_line, col: clamp_col(lines, new_line, p.col) }
+}
+
+/// Move each cursor down one line, clamping the column to the target
 /// line's length rather than tracking a "sticky" column.
 pub fun move_down(state: EditorState) : EditorState {
-  let buf      = state.buffer
-  let cur      = head_cursor(buf)
-  let n_lines  = length(buf.lines)
-  let new_line = min(cur.pos.line + 1, n_lines - 1)
-  let new_pos  = Position { line: new_line, col: clamp_col(buf.lines, new_line, cur.pos.col) }
-  let new_cursors = map(buf.cursors, (cc) => Cursor { ...cc, pos: new_pos })
+  let buf         = state.buffer
+  let moved_cs    = map(buf.cursors, (cc) => Cursor { ...cc, pos: move_down_pos(buf.lines, cc.pos) })
+  let new_cursors = finalize_cursors(moved_cs)
   EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
 }
 
@@ -249,32 +556,32 @@ pub fun current_line(state: EditorState) : string {
   list_get(buf.lines, head_cursor(buf).pos.line, "")
 }
 
-/// Append `text` to the end of the cursor's line and advance the
-/// cursor by `length(text)`.
-// No multi-line splitting: an embedded '\n' (e.g. from the clipboard)
-// is inserted as a literal two-char sequence, not a new line.
-/// Insert `text` at the cursor's column and advance the cursor by
-/// `length(text)`.
-// No multi-line splitting: an embedded '\n' (e.g. from the clipboard)
-// is inserted as a literal two-char sequence, not a new line. Inserts
-// at the cursor column (not always at end-of-line) so `Paste` lands in
-// the right place after `delete_selection` moves the cursor to a
-// selection's start.
+fun fold_paste_text(lines: list<string>, remaining_cs: list<Cursor>, processed_cs: list<Cursor>, text: string) : (list<string>, list<Cursor>) =>
+  match remaining_cs {
+    [] => (lines, processed_cs),
+    [cur, ..rest] => {
+      let line_idx = cur.pos.line
+      let col_idx  = cur.pos.col
+      let current  = list_get(lines, line_idx, "")
+      let updated  = current[0:col_idx] + text + current[col_idx: ]
+      let next_lines = list_set(lines, line_idx, updated)
+      let bump     = length(text)
+      let cur_new  = Cursor { ...cur, pos: Position { line: line_idx, col: col_idx + bump }, anchor: None, anchor_sticky: false }
+      let shifted_processed = shift_cursors_after_insert(processed_cs, line_idx, col_idx, bump)
+      fold_paste_text(next_lines, rest, [cur_new] + shifted_processed, text)
+    }
+  }
+
+/// Insert `text` at each cursor's column and advance each cursor by `length(text)`.
 pub fun paste_text(state: EditorState, text: string) : EditorState {
   let buf = state.buffer
-  let cur = head_cursor(buf)
-  let line_idx  = cur.pos.line
-  let at_col    = cur.pos.col
-  let current   = list_get(buf.lines, line_idx, "")
-  let updated   = current[0:at_col] + text + current[at_col: ]
-  let new_lines = list_set(buf.lines, line_idx, updated)
-  let bump      = length(text)
-  let new_cursors = map(buf.cursors, (c) =>
-    Cursor { ...c, pos: Position { line: c.pos.line, col: c.pos.col + bump } })
+  let sorted_cs = sort_cursors_desc(buf.cursors)
+  let (new_lines, new_cs) = fold_paste_text(buf.lines, sorted_cs, [], text)
+  let final_cs = finalize_cursors(new_cs)
   let new_buf = TextBuffer {
     ...buf,
     lines: new_lines,
-    cursors: new_cursors,
+    cursors: final_cs,
     is_dirty: true
   }
   EditorState { ...state, buffer: new_buf }
@@ -287,60 +594,69 @@ pub fun paste_text(state: EditorState, text: string) : EditorState {
 // extend a selection: every motion helper above rebuilds `Cursor` via
 // `{ ...cc, pos: ... }`, which already carries `anchor` along for free.
 
-/// Normalised `(start_line, start_col, end_line, end_col)` span between
-/// the head cursor's anchor and its current position, ordered so
-/// `start <= end` regardless of which direction the user moved from the
-/// anchor. `None` outside an active selection.
-pub fun selection_span(state: EditorState) : maybe<(int, int, int, int)> {
-  let cur = head_cursor(state.buffer)
-  match cur.anchor {
-    None    => None,
-    Some(a) =>
-      if a.line < cur.pos.line || (a.line == cur.pos.line && a.col <= cur.pos.col) {
-        Some((a.line, a.col, cur.pos.line, cur.pos.col))
-      } else {
-        Some((cur.pos.line, cur.pos.col, a.line, a.col))
-      }
-  }
+pub fun normalize_span(p1:Position, p2:Position) : (int, int, int, int) {
+  if p1.line < p2.line { (p1.line, p1.col, p2.line, p2.col) }
+  else if p1.line > p2.line { (p2.line, p2.col, p1.line, p1.col) }
+  else if p1.col <= p2.col { (p1.line, p1.col, p2.line, p2.col) }
+  else { (p2.line, p2.col, p1.line, p1.col) }
 }
 
-/// Toggle the head cursor's mark: sets `anchor` to the current position
-/// if no selection is active, or clears it (cancelling the selection)
+fun find_first_selection_span(cs: list<Cursor>) : maybe<(int, int, int, int)> =>
+  match cs {
+    [] => None,
+    [c, ..rest] =>
+      match c.anchor {
+        Some(a) => Some(normalize_span(c.pos, a)),
+        None    => find_first_selection_span(rest)
+      }
+  }
+
+/// Normalised `(start_line, start_col, end_line, end_col)` span between
+/// an active selection's anchor and cursor position. `None` if no cursor
+/// has an active selection.
+pub fun selection_span(state: EditorState) : maybe<(int, int, int, int)> =>
+  find_first_selection_span(state.buffer.cursors)
+
+fun any_has_anchor(cs: list<Cursor>) : bool =>
+  match cs {
+    []          => false,
+    [c, ..rest] => match c.anchor { Some(_) => true, None => any_has_anchor(rest) }
+  }
+
+/// True if any cursor in the active buffer has a selection anchor.
+pub fun has_any_selection(state: EditorState) : bool =>
+  any_has_anchor(state.buffer.cursors)
+
+/// Toggle marks for every cursor: sets `anchor` to the current position
+/// if no selection is active, or clears it (cancelling selections)
 /// if one already is. The resulting anchor is `sticky` (see
-/// `Cursor.anchor_sticky`) — plain arrow movement keeps extending it
-/// until this is called again, Emacs-mark style.
+/// `Cursor.anchor_sticky`).
 pub fun set_mark(state: EditorState) : EditorState {
   let buf = state.buffer
-  let cur = head_cursor(buf)
-  let new_anchor = match cur.anchor { None => Some(cur.pos), Some(_) => None }
-  let new_sticky = match new_anchor { None => false, Some(_) => true }
-  let new_cursors = map(buf.cursors, (cc) => Cursor { ...cc, anchor: new_anchor, anchor_sticky: new_sticky })
+  let active = has_any_selection(state)
+  let new_cursors = map(buf.cursors, (cc) =>
+    if active { Cursor { ...cc, anchor: None, anchor_sticky: false } }
+    else { Cursor { ...cc, anchor: Some(cc.pos), anchor_sticky: true } })
   EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
 }
 
 /// Select the whole buffer: anchor at the very start, cursor at the
-/// very end of the last line. Non-sticky: unlike `SetMark`, this is a
-/// one-shot selection — the next plain arrow press collapses it instead
-/// of extending it, same as a mouse-drag selection.
+/// very end of the last line. Non-sticky.
 pub fun select_all(state: EditorState) : EditorState {
   let buf       = state.buffer
   let last_line = max(length(buf.lines) - 1, 0)
   let last_col  = length(list_get(buf.lines, last_line, ""))
   let end_pos   = Position { line: last_line, col: last_col }
-  let new_cursors = map(buf.cursors, (cc) =>
-    Cursor { ...cc, pos: end_pos, anchor: Some(Position { line: 0, col: 0 }), anchor_sticky: false })
+  let new_cursors = [Cursor { cid: 0, pos: end_pos, anchor: Some(Position { line: 0, col: 0 }), anchor_sticky: false }]
   EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
 }
 
 /// The lines strictly between `lo` and `hi` (inclusive), or `[]` if
-/// `lo > hi` — used by `selection_text`/`delete_selection` to gather
-/// (and later drop) any fully-selected middle lines of a multi-line span.
+/// `lo > hi`.
 fun middle_lines(lines: list<string>, lo: int, hi: int) : list<string> =>
   if lo > hi { [] } else { [list_get(lines, lo, "")] + middle_lines(lines, lo + 1, hi) }
 
-/// Remove `hi - lo + 1` lines starting at `lo` (inclusive) — the
-/// inverse of `middle_lines`, folding a multi-line selection's now-
-/// merged interior back out of the buffer in a single pass.
+/// Remove `hi - lo + 1` lines starting at `lo` (inclusive).
 fun remove_lines_between(lines: list<string>, lo: int, hi: int) : list<string> =>
   match lines {
     []          => [],
@@ -349,42 +665,79 @@ fun remove_lines_between(lines: list<string>, lo: int, hi: int) : list<string> =
       else { [x] + remove_lines_between(rest, lo - 1, hi - 1) }
   }
 
-/// The text spanned by the active selection (single- or multi-line), or
-/// `None` outside an active selection. `Copy` falls back to
-/// `current_line` when this is `None`.
-pub fun selection_text(state: EditorState) : maybe<string> =>
-  match selection_span(state) {
-    None => None,
-    Some((sl, sc, el, ec)) =>
-      if sl == el {
-        Some(list_get(state.buffer.lines, sl, "")[sc: ec])
-      } else {
-        let first  = list_get(state.buffer.lines, sl, "")[sc: ]
-        let last   = list_get(state.buffer.lines, el, "")[0:ec]
-        let middle = middle_lines(state.buffer.lines, sl + 1, el - 1)
-        Some(join([first] + middle + [last], "\n"))
+fun span_text_from_lines(lines: list<string>, sl: int, sc: int, el: int, ec: int) : string {
+  if sl == el {
+    list_get(lines, sl, "")[sc: ec]
+  } else {
+    let first_line = list_get(lines, sl, "")[sc: ]
+    let last_line  = list_get(lines, el, "")[0:ec]
+    let mid_lines  = middle_lines(lines, sl + 1, el - 1)
+    join([first_line] + mid_lines + [last_line], "\n")
+  }
+}
+
+fun collect_selection_texts(lines: list<string>, cs: list<Cursor>) : list<string> =>
+  match cs {
+    [] => [],
+    [c, ..rest] =>
+      match c.anchor {
+        None => collect_selection_texts(lines, rest),
+        Some(a) => {
+          let (sl, sc, el, ec) = normalize_span(c.pos, a)
+          let txt = span_text_from_lines(lines, sl, sc, el, ec)
+          [txt] + collect_selection_texts(lines, rest)
+        }
       }
   }
 
-/// Remove the active selection's text, moving the cursor to the
-/// selection's start and clearing the anchor. A no-op if no selection
-/// is active.
-pub fun delete_selection(state: EditorState) : EditorState =>
-  match selection_span(state) {
-    None => state,
-    Some((sl, sc, el, ec)) => {
-      let buf        = state.buffer
-      let start_line = list_get(buf.lines, sl, "")
-      let end_line   = list_get(buf.lines, el, "")
-      let merged     = start_line[0:sc] + end_line[ec: ]
-      let after_merge = list_set(buf.lines, sl, merged)
-      let trimmed    = remove_lines_between(after_merge, sl + 1, el)
-      let new_cursors = map(buf.cursors, (cc) =>
-        Cursor { ...cc, pos: Position { line: sl, col: sc }, anchor: None, anchor_sticky: false })
-      let new_buf = TextBuffer { ...buf, lines: trimmed, cursors: new_cursors, is_dirty: true }
-      EditorState { ...state, buffer: new_buf }
-    }
+/// The text spanned by active selections across all cursors (joined with newlines),
+/// or `None` outside an active selection.
+pub fun selection_text(state: EditorState) : maybe<string> {
+  let texts = collect_selection_texts(state.buffer.lines, state.buffer.cursors)
+  match texts {
+    [] => None,
+    _  => Some(join(texts, "\n"))
   }
+}
+
+fun delete_one_selection(lines: list<string>, sl: int, sc: int, el: int, ec: int) : list<string> {
+  let start_line  = list_get(lines, sl, "")
+  let end_line    = list_get(lines, el, "")
+  let merged      = start_line[0:sc] + end_line[ec: ]
+  let after_merge = list_set(lines, sl, merged)
+  remove_lines_between(after_merge, sl + 1, el)
+}
+
+fun fold_delete_selection(lines: list<string>, remaining_cs: list<Cursor>, processed_cs: list<Cursor>) : (list<string>, list<Cursor>) =>
+  match remaining_cs {
+    [] => (lines, processed_cs),
+    [cur, ..rest] =>
+      match cur.anchor {
+        None => fold_delete_selection(lines, rest, [cur] + processed_cs),
+        Some(a) => {
+          let (sl, sc, el, ec) = normalize_span(cur.pos, a)
+          let next_lines = delete_one_selection(lines, sl, sc, el, ec)
+          let cur_new    = Cursor { ...cur, pos: Position { line: sl, col: sc }, anchor: None, anchor_sticky: false }
+          let shifted_processed = shift_cursors_after_delete_span(processed_cs, sl, sc, el, ec)
+          fold_delete_selection(next_lines, rest, [cur_new] + shifted_processed)
+        }
+      }
+  }
+
+/// Remove all active selections across all cursors, moving each cursor to
+/// its selection's start and clearing the anchor.
+pub fun delete_selection(state: EditorState) : EditorState {
+  if !has_any_selection(state) {
+    state
+  } else {
+    let buf = state.buffer
+    let sorted_cs = sort_cursors_desc(buf.cursors)
+    let (new_lines, new_cs) = fold_delete_selection(buf.lines, sorted_cs, [])
+    let final_cs = finalize_cursors(new_cs)
+    let new_buf = TextBuffer { ...buf, lines: new_lines, cursors: final_cs, is_dirty: true }
+    EditorState { ...state, buffer: new_buf }
+  }
+}
 
 // ------------------- kill / yank (Ctrl-k, Ctrl-w) -------------------------
 // Reuses the same Clipboard sink as Copy/Paste (Ctrl-y/yank is Paste bound
@@ -393,23 +746,41 @@ pub fun delete_selection(state: EditorState) : EditorState =>
 // mutator, so event_loop can hand the text to set_selection before applying
 // the truncation.
 
-/// Return the text from the cursor to the end of the current line.
+/// Return the text from each cursor to the end of its line (joined with newlines).
 pub fun kill_line_text(state: EditorState) : string {
-  let buf  = state.buffer
-  let cur  = head_cursor(buf)
-  let line = list_get(buf.lines, cur.pos.line, "")
-  line[cur.pos.col: ]
+  let buf   = state.buffer
+  let texts = map(buf.cursors, (c) => {
+    let line_str = list_get(buf.lines, c.pos.line, "")
+    line_str[c.pos.col: ]
+  })
+  join(texts, "\n")
 }
 
-/// Truncate the current line at the cursor.
+fun fold_kill_line(lines: list<string>, remaining_cs: list<Cursor>, processed_cs: list<Cursor>) : (list<string>, list<Cursor>) =>
+  match remaining_cs {
+    [] => (lines, processed_cs),
+    [cur, ..rest] => {
+      let line_idx = cur.pos.line
+      let col_idx  = cur.pos.col
+      let current  = list_get(lines, line_idx, "")
+      let updated  = current[0:col_idx]
+      let next_lines = list_set(lines, line_idx, updated)
+      let cur_new  = Cursor { ...cur, anchor: None, anchor_sticky: false }
+      let shifted_processed = map(processed_cs, (pc) =>
+        if pc.pos.line == line_idx && pc.pos.col > col_idx {
+          Cursor { ...pc, pos: Position { line: line_idx, col: col_idx } }
+        } else { pc })
+      fold_kill_line(next_lines, rest, [cur_new] + shifted_processed)
+    }
+  }
+
+/// Truncate the line at each cursor.
 pub fun kill_line(state: EditorState) : EditorState {
-  let buf      = state.buffer
-  let cur      = head_cursor(buf)
-  let line_idx = cur.pos.line
-  let current  = list_get(buf.lines, line_idx, "")
-  let updated  = current[0:cur.pos.col]
-  let new_lines = list_set(buf.lines, line_idx, updated)
-  let new_buf   = TextBuffer { ...buf, lines: new_lines, is_dirty: true }
+  let buf = state.buffer
+  let sorted_cs = sort_cursors_desc(buf.cursors)
+  let (new_lines, new_cs) = fold_kill_line(buf.lines, sorted_cs, [])
+  let final_cs = finalize_cursors(new_cs)
+  let new_buf = TextBuffer { ...buf, lines: new_lines, cursors: final_cs, is_dirty: true }
   EditorState { ...state, buffer: new_buf }
 }
 
@@ -490,93 +861,145 @@ fun word_forward_col(line: string, col: int) : int {
   col + (length(suffix) - length(no_word))
 }
 
-/// Return the whitespace-delimited word before the cursor.
+/// Return the whitespace-delimited word before each cursor (joined with newlines).
 pub fun kill_word_back_text(state: EditorState) : string {
-  let buf     = state.buffer
-  let cur     = head_cursor(buf)
-  let line    = list_get(buf.lines, cur.pos.line, "")
-  let new_col = word_back_col(line, cur.pos.col)
-  line[new_col: cur.pos.col]
+  let buf   = state.buffer
+  let texts = map(buf.cursors, (c) => {
+    let ln      = list_get(buf.lines, c.pos.line, "")
+    let new_col = word_back_col(ln, c.pos.col)
+    ln[new_col: c.pos.col]
+  })
+  join(texts, "\n")
 }
 
-/// Delete the whitespace-delimited word before the cursor, moving the
-/// cursor to the start of the removed span.
+fun fold_delete_word_back(lines: list<string>, remaining_cs: list<Cursor>, processed_cs: list<Cursor>) : (list<string>, list<Cursor>) =>
+  match remaining_cs {
+    [] => (lines, processed_cs),
+    [cur, ..rest] => {
+      let line_idx = cur.pos.line
+      let col_idx  = cur.pos.col
+      let ln       = list_get(lines, line_idx, "")
+      let new_col  = word_back_col(ln, col_idx)
+      let k        = col_idx - new_col
+      let updated  = ln[0:new_col] + ln[col_idx: ]
+      let next_lines = list_set(lines, line_idx, updated)
+      let cur_new  = Cursor { ...cur, pos: Position { line: line_idx, col: new_col }, anchor: None, anchor_sticky: false }
+      let shifted_processed = map(processed_cs, (pc) =>
+        if pc.pos.line == line_idx && pc.pos.col >= col_idx {
+          Cursor { ...pc, pos: Position { line: line_idx, col: max(pc.pos.col - k, new_col) } }
+        } else { pc })
+      fold_delete_word_back(next_lines, rest, [cur_new] + shifted_processed)
+    }
+  }
+
+/// Delete the whitespace-delimited word before each cursor.
 pub fun delete_word_back(state: EditorState) : EditorState {
-  let buf      = state.buffer
-  let cur      = head_cursor(buf)
-  let line_idx = cur.pos.line
-  let col      = cur.pos.col
-  let line     = list_get(buf.lines, line_idx, "")
-  let new_col  = word_back_col(line, col)
-  let updated  = line[0:new_col] + line[col: ]
-  let new_lines   = list_set(buf.lines, line_idx, updated)
-  let new_cursors = map(buf.cursors, (cc) =>
-    Cursor { ...cc, pos: Position { line: line_idx, col: new_col } })
-  let new_buf = TextBuffer { ...buf, lines: new_lines, cursors: new_cursors, is_dirty: true }
-  EditorState { ...state, buffer: new_buf }
-}
-
-/// Move the cursor one whitespace-delimited word back.
-pub fun move_word_back(state: EditorState) : EditorState {
-  let buf     = state.buffer
-  let cur     = head_cursor(buf)
-  let ln      = list_get(buf.lines, cur.pos.line, "")
-  let new_col = word_back_col(ln, cur.pos.col)
-  let new_cursors = map(buf.cursors, (cc) =>
-    Cursor { ...cc, pos: Position { line: cur.pos.line, col: new_col } })
-  EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
-}
-
-/// Move the cursor one whitespace-delimited word forward.
-pub fun move_word_forward(state: EditorState) : EditorState {
-  let buf     = state.buffer
-  let cur     = head_cursor(buf)
-  let ln      = list_get(buf.lines, cur.pos.line, "")
-  let new_col = word_forward_col(ln, cur.pos.col)
-  let new_cursors = map(buf.cursors, (cc) =>
-    Cursor { ...cc, pos: Position { line: cur.pos.line, col: new_col } })
-  EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
-}
-
-/// Return the whitespace-delimited word after the cursor.
-pub fun kill_word_forward_text(state: EditorState) : string {
-  let buf     = state.buffer
-  let cur     = head_cursor(buf)
-  let ln      = list_get(buf.lines, cur.pos.line, "")
-  let new_col = word_forward_col(ln, cur.pos.col)
-  ln[cur.pos.col: new_col]
-}
-
-/// Delete the whitespace-delimited word after the cursor. The cursor
-/// column is unchanged (still valid at the truncation point).
-pub fun delete_word_forward(state: EditorState) : EditorState {
-  let buf      = state.buffer
-  let cur      = head_cursor(buf)
-  let line_idx = cur.pos.line
-  let col      = cur.pos.col
-  let ln       = list_get(buf.lines, line_idx, "")
-  let new_col  = word_forward_col(ln, col)
-  let updated  = ln[0:col] + ln[new_col: ]
-  let new_lines = list_set(buf.lines, line_idx, updated)
-  let new_buf   = TextBuffer { ...buf, lines: new_lines, is_dirty: true }
-  EditorState { ...state, buffer: new_buf }
-}
-
-/// Return the full text of the cursor's current line.
-pub fun kill_whole_line_text(state: EditorState) : string {
   let buf = state.buffer
-  list_get(buf.lines, head_cursor(buf).pos.line, "")
+  let sorted_cs = sort_cursors_desc(buf.cursors)
+  let (new_lines, new_cs) = fold_delete_word_back(buf.lines, sorted_cs, [])
+  let final_cs = finalize_cursors(new_cs)
+  let new_buf = TextBuffer { ...buf, lines: new_lines, cursors: final_cs, is_dirty: true }
+  EditorState { ...state, buffer: new_buf }
 }
 
-/// Clear the current line's content; the line itself stays (an empty
-/// line, not removed from the buffer). Cursor moves to column 0.
+fun move_word_back_pos(lines: list<string>, p: Position) : Position {
+  let ln = list_get(lines, p.line, "")
+  Position { line: p.line, col: word_back_col(ln, p.col) }
+}
+
+/// Move each cursor one whitespace-delimited word back.
+pub fun move_word_back(state: EditorState) : EditorState {
+  let buf         = state.buffer
+  let moved_cs    = map(buf.cursors, (cc) => Cursor { ...cc, pos: move_word_back_pos(buf.lines, cc.pos) })
+  let new_cursors = finalize_cursors(moved_cs)
+  EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
+}
+
+fun move_word_forward_pos(lines: list<string>, p: Position) : Position {
+  let ln = list_get(lines, p.line, "")
+  Position { line: p.line, col: word_forward_col(ln, p.col) }
+}
+
+/// Move each cursor one whitespace-delimited word forward.
+pub fun move_word_forward(state: EditorState) : EditorState {
+  let buf         = state.buffer
+  let moved_cs    = map(buf.cursors, (cc) => Cursor { ...cc, pos: move_word_forward_pos(buf.lines, cc.pos) })
+  let new_cursors = finalize_cursors(moved_cs)
+  EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
+}
+
+/// Return the whitespace-delimited word after each cursor (joined with newlines).
+pub fun kill_word_forward_text(state: EditorState) : string {
+  let buf   = state.buffer
+  let texts = map(buf.cursors, (c) => {
+    let ln      = list_get(buf.lines, c.pos.line, "")
+    let new_col = word_forward_col(ln, c.pos.col)
+    ln[c.pos.col: new_col]
+  })
+  join(texts, "\n")
+}
+
+fun fold_delete_word_forward(lines: list<string>, remaining_cs: list<Cursor>, processed_cs: list<Cursor>) : (list<string>, list<Cursor>) =>
+  match remaining_cs {
+    [] => (lines, processed_cs),
+    [cur, ..rest] => {
+      let line_idx = cur.pos.line
+      let col_idx  = cur.pos.col
+      let ln       = list_get(lines, line_idx, "")
+      let new_col  = word_forward_col(ln, col_idx)
+      let k        = new_col - col_idx
+      let updated  = ln[0:col_idx] + ln[new_col: ]
+      let next_lines = list_set(lines, line_idx, updated)
+      let cur_new  = Cursor { ...cur, pos: Position { line: line_idx, col: col_idx }, anchor: None, anchor_sticky: false }
+      let shifted_processed = map(processed_cs, (pc) =>
+        if pc.pos.line == line_idx && pc.pos.col >= new_col {
+          Cursor { ...pc, pos: Position { line: line_idx, col: pc.pos.col - k } }
+        } else if pc.pos.line == line_idx && pc.pos.col > col_idx {
+          Cursor { ...pc, pos: Position { line: line_idx, col: col_idx } }
+        } else { pc })
+      fold_delete_word_forward(next_lines, rest, [cur_new] + shifted_processed)
+    }
+  }
+
+/// Delete the whitespace-delimited word after each cursor.
+pub fun delete_word_forward(state: EditorState) : EditorState {
+  let buf = state.buffer
+  let sorted_cs = sort_cursors_desc(buf.cursors)
+  let (new_lines, new_cs) = fold_delete_word_forward(buf.lines, sorted_cs, [])
+  let final_cs = finalize_cursors(new_cs)
+  let new_buf = TextBuffer { ...buf, lines: new_lines, cursors: final_cs, is_dirty: true }
+  EditorState { ...state, buffer: new_buf }
+}
+
+/// Return the full text of each cursor's line (joined with newlines).
+pub fun kill_whole_line_text(state: EditorState) : string {
+  let buf   = state.buffer
+  let texts = map(buf.cursors, (c) => list_get(buf.lines, c.pos.line, ""))
+  join(texts, "\n")
+}
+
+fun fold_kill_whole_line(lines: list<string>, remaining_cs: list<Cursor>, processed_cs: list<Cursor>) : (list<string>, list<Cursor>) =>
+  match remaining_cs {
+    [] => (lines, processed_cs),
+    [cur, ..rest] => {
+      let line_idx = cur.pos.line
+      let next_lines = list_set(lines, line_idx, "")
+      let cur_new  = Cursor { ...cur, pos: Position { line: line_idx, col: 0 }, anchor: None, anchor_sticky: false }
+      let shifted_processed = map(processed_cs, (pc) =>
+        if pc.pos.line == line_idx {
+          Cursor { ...pc, pos: Position { line: line_idx, col: 0 } }
+        } else { pc })
+      fold_kill_whole_line(next_lines, rest, [cur_new] + shifted_processed)
+    }
+  }
+
+/// Clear each cursor's line content; cursor moves to column 0.
 pub fun kill_whole_line(state: EditorState) : EditorState {
-  let buf      = state.buffer
-  let line_idx = head_cursor(buf).pos.line
-  let new_lines   = list_set(buf.lines, line_idx, "")
-  let new_cursors = map(buf.cursors, (cc) =>
-    Cursor { ...cc, pos: Position { line: line_idx, col: 0 } })
-  let new_buf = TextBuffer { ...buf, lines: new_lines, cursors: new_cursors, is_dirty: true }
+  let buf = state.buffer
+  let sorted_cs = sort_cursors_desc(buf.cursors)
+  let (new_lines, new_cs) = fold_kill_whole_line(buf.lines, sorted_cs, [])
+  let final_cs = finalize_cursors(new_cs)
+  let new_buf = TextBuffer { ...buf, lines: new_lines, cursors: final_cs, is_dirty: true }
   EditorState { ...state, buffer: new_buf }
 }
 
@@ -991,8 +1414,23 @@ fun mouse_click_pane(state: EditorState, x: int, y: int) : EditorState =>
     Some((pane_bid, click_pos)) => {
       let focused     = activate_buffer(state, pane_bid)
       let buf         = focused.buffer
-      let new_cursors = map(buf.cursors, (cc) => Cursor { ...cc, pos: click_pos, anchor: None, anchor_sticky: false })
+      let new_cursors = [Cursor { cid: 0, pos: click_pos, anchor: None, anchor_sticky: false }]
       EditorState { ...focused, buffer: TextBuffer { ...buf, cursors: new_cursors }, resizing_divider: None }
+    }
+  }
+
+/// `MetaMouseClick` (SGR press with Meta/Alt held): adds an extra
+/// independent cursor at the clicked position without removing existing cursors.
+pub fun meta_mouse_click(state: EditorState, x: int, y: int) : EditorState =>
+  match screen_to_buffer_pos(state, x, y) {
+    None => EditorState { ...state, resizing_divider: None },
+    Some((pane_bid, click_pos)) => {
+      let focused = activate_buffer(state, pane_bid)
+      let buf     = focused.buffer
+      let new_cur = Cursor { cid: next_cid(buf), pos: click_pos, anchor: None, anchor_sticky: false }
+      let appended_cs = buf.cursors + [new_cur]
+      let new_cs      = finalize_cursors(appended_cs)
+      EditorState { ...focused, buffer: TextBuffer { ...buf, cursors: new_cs }, resizing_divider: None }
     }
   }
 
@@ -1287,6 +1725,144 @@ pub fun cancel_prompt(state: EditorState) : EditorState =>
     _                => prompt_cancel(state)
   }
 
+// ------------------- Multi-cursor (M20) ------------------------------------
+
+fun is_word_char_str(s: string) : bool =>
+  (s >= "a" && s <= "z") || (s >= "A" && s <= "Z") || (s >= "0" && s <= "9") || s == "_"
+
+fun is_word_char_at(line_str: string, col_idx: int) : bool {
+  if col_idx < 0 || col_idx >= length(line_str) { false }
+  else { is_word_char_str(line_str[col_idx: col_idx + 1]) }
+}
+
+fun find_word_start(line_str: string, col_idx: int) : int {
+  if col_idx <= 0 { 0 }
+  else if is_word_char_at(line_str, col_idx - 1) { find_word_start(line_str, col_idx - 1) }
+  else { col_idx }
+}
+
+fun find_word_end(line_str: string, col_idx: int) : int {
+  let n = length(line_str)
+  if col_idx >= n { n }
+  else if is_word_char_at(line_str, col_idx) { find_word_end(line_str, col_idx + 1) }
+  else { col_idx }
+}
+
+fun match_is_selected(m: SearchMatch, q_len: int, cs: list<Cursor>) : bool =>
+  match cs {
+    [] => false,
+    [c, ..rest] =>
+      match c.anchor {
+        None => match_is_selected(m, q_len, rest),
+        Some(a) => {
+          let (sl, sc, el, ec) = normalize_span(c.pos, a)
+          if sl == m.line && sc == m.col && el == m.line && ec == m.col + q_len {
+            true
+          } else {
+            match_is_selected(m, q_len, rest)
+          }
+        }
+      }
+  }
+
+fun filter_unselected_matches(matches: list<SearchMatch>, q_len: int, cs: list<Cursor>) : list<SearchMatch> =>
+  match matches {
+    [] => [],
+    [m, ..rest] =>
+      if match_is_selected(m, q_len, cs) {
+        filter_unselected_matches(rest, q_len, cs)
+      } else {
+        [m] + filter_unselected_matches(rest, q_len, cs)
+      }
+  }
+
+fun first_match_after(matches: list<SearchMatch>, p: Position) : maybe<SearchMatch> =>
+  match matches {
+    [] => None,
+    [m, ..rest] =>
+      if m.line > p.line || (m.line == p.line && m.col >= p.col) {
+        Some(m)
+      } else {
+        first_match_after(rest, p)
+      }
+  }
+
+fun head_selection_text(state: EditorState) : maybe<string> {
+  let cur = head_cursor(state.buffer)
+  match cur.anchor {
+    None => None,
+    Some(a) => {
+      let (sl, sc, el, ec) = normalize_span(cur.pos, a)
+      Some(span_text_from_lines(state.buffer.lines, sl, sc, el, ec))
+    }
+  }
+}
+
+/// Add cursor at next match (Ctrl-d): with no selection, selects the word
+/// under the head cursor; pressed again with selection active, finds the
+/// next occurrence and adds a new cursor with that match selected.
+pub fun add_cursor_next_match(state: EditorState) : EditorState {
+  let buf = state.buffer
+  if !has_any_selection(state) {
+    let cur = head_cursor(buf)
+    let line_str = list_get(buf.lines, cur.pos.line, "")
+    let line_len = length(line_str)
+    let col_check =
+      if cur.pos.col >= line_len && cur.pos.col > 0 { cur.pos.col - 1 }
+      else if cur.pos.col < line_len && !is_word_char_at(line_str, cur.pos.col) && cur.pos.col > 0 && is_word_char_at(line_str, cur.pos.col - 1) { cur.pos.col - 1 }
+      else { cur.pos.col }
+    if is_word_char_at(line_str, col_check) {
+      let w_start = find_word_start(line_str, col_check)
+      let w_end   = find_word_end(line_str, col_check)
+      let new_cur = Cursor {
+        ...cur,
+        pos: Position { line: cur.pos.line, col: w_end },
+        anchor: Some(Position { line: cur.pos.line, col: w_start }),
+        anchor_sticky: false
+      }
+      let new_cursors = [new_cur] + drop_head_cursor(buf.cursors)
+      EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
+    } else {
+      state
+    }
+  } else {
+    match head_selection_text(state) {
+      None => state,
+      Some(q) => {
+        let all_matches = find_all_matches(buf.lines, q)
+        let unselected  = filter_unselected_matches(all_matches, length(q), buf.cursors)
+        match unselected {
+          [] => state,
+          _  => {
+            let last_c = last_cursor(buf.cursors)
+            let chosen = match first_match_after(unselected, last_c.pos) {
+              Some(m) => m,
+              None    => match unselected { [m, .._] => m, [] => SearchMatch { line: 0, col: 0 } }
+            }
+            let new_cur = Cursor {
+              cid: next_cid(buf),
+              pos: Position { line: chosen.line, col: chosen.col + length(q) },
+              anchor: Some(Position { line: chosen.line, col: chosen.col }),
+              anchor_sticky: false
+            }
+            let appended_cs = buf.cursors + [new_cur]
+            let new_cursors = finalize_cursors(appended_cs)
+            EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
+          }
+        }
+      }
+    }
+  }
+}
+
+/// Collapse all cursors back to the primary cursor and clear selections (Escape).
+pub fun collapse_cursors(state: EditorState) : EditorState {
+  let buf = state.buffer
+  let cur = head_cursor(buf)
+  let new_cur = Cursor { ...cur, anchor: None, anchor_sticky: false }
+  EditorState { ...state, buffer: TextBuffer { ...buf, cursors: [new_cur] } }
+}
+
 // ------------------- Event -> Action resolution ---------------------------
 
 /// Resolve a raw event to an Action while a Save-As/Open prompt is active,
@@ -1350,9 +1926,11 @@ fun resolve_normal_action(state: EditorState, evt: Event) : Action =>
     KeyEvent(KMetaSpecial(ArrowUp))    => PaneUp,
     KeyEvent(KMetaSpecial(ArrowDown))  => PaneDown,
     KeyEvent(KMetaSpecial(Tab))        => NextPane,
+    KeyEvent(KSpecial(Esc))            => CollapseCursors,
     KeyEvent(KShortcut(m, c)) =>
       lookup_binding(state.config.bindings, KeyChord { m: m, c: c }),
     MouseEvent(Press, x, y)      => MouseClick(x, y),
+    MouseEvent(MetaPress, x, y)  => MetaMouseClick(x, y),
     MouseEvent(Drag, x, y)       => MouseDrag(x, y),
     MouseEvent(Release, _, _)    => MouseRelease,
     MouseEvent(ScrollUp, x, y)   => ScrollViewUp(x, y),
@@ -1376,22 +1954,25 @@ pub fun resolve_action(state: EditorState, evt: Event) : Action {
 
 // ------------------- Action -> EditorState apply -------------------------
 
-/// Clear the head cursor's selection unless it's `sticky` (see
-/// `Cursor.anchor_sticky`) — wraps every plain movement action so a
-/// mouse-drag/`SelectAll` selection collapses on the very next arrow
-/// press, matching what a mouse click already does, while a `SetMark`
-/// selection keeps extending across movement as intended.
+fun has_nonsticky_anchor(cs: list<Cursor>) : bool =>
+  match cs {
+    [] => false,
+    [c, ..rest] =>
+      match c.anchor {
+        Some(_) => !c.anchor_sticky || has_nonsticky_anchor(rest),
+        None    => has_nonsticky_anchor(rest)
+      }
+  }
+
+/// Clear non-sticky selections across all cursors (wraps every plain movement action).
 fun collapse_unless_sticky(state: EditorState) : EditorState {
   let buf = state.buffer
-  let cur = head_cursor(buf)
-  match cur.anchor {
-    None => state,
-    Some(_) =>
-      if cur.anchor_sticky { state }
-      else {
-        let new_cursors = map(buf.cursors, (cc) => Cursor { ...cc, anchor: None })
-        EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
-      }
+  if has_nonsticky_anchor(buf.cursors) {
+    let new_cursors = map(buf.cursors, (cc) =>
+      if cc.anchor_sticky { cc } else { Cursor { ...cc, anchor: None } })
+    EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
+  } else {
+    state
   }
 }
 
@@ -1441,6 +2022,9 @@ pub fun apply_action(state: EditorState, action: Action) : EditorState =>
     NextPane     => next_pane(state),
     SetMark      => set_mark(state),
     SelectAll    => select_all(state),
+    AddCursorNextMatch => add_cursor_next_match(state),
+    CollapseCursors    => collapse_cursors(state),
+    MetaMouseClick(x, y) => meta_mouse_click(state, x, y),
     MouseClick(x, y) => mouse_click(state, x, y),
     MouseDrag(x, y)  => mouse_drag(state, x, y),
     MouseRelease     => EditorState { ...state, resizing_divider: None },

@@ -81,6 +81,10 @@
 ;; binding on) jump to the next/previous match; Esc cancels the search.
 (bind "Ctrl-f" 'start-find)
 
+;; Find next match in a multicursor scenario.
+;; Mnemonic: next cursor
+(bind "Meta-c" 'add-cursor-next-match)
+
 ;; Word-level motion/kill (Meta = Alt on most terminals).
 (bind "Meta-f" 'move-word-forward)
 (bind "Meta-b" 'move-word-back)

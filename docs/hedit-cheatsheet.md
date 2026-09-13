@@ -36,18 +36,19 @@ hedit --help / --version
 | Enter    | Split the line at the cursor                         |
 | Backspace| Delete before the cursor (merges into previous line at column 0) |
 | Ctrl-d   | Delete the char under the cursor (forward-delete)    |
+| Meta-c   | Add cursor at next match (selects word on first press, adds next match on repeat) |
+| Esc      | Collapse all cursors back to single, clear selections|
 | Ctrl-k   | Kill from the cursor to the end of the line, into the clipboard |
 | Ctrl-w   | Kill the word before the cursor, into the clipboard  |
 | Meta-d   | Kill the word after the cursor, into the clipboard   |
 | Meta-l   | Kill the entire current line, into the clipboard     |
-| Ctrl-c   | Copy the current line                                |
+| Ctrl-c   | Copy current line or active selections               |
 | Ctrl-v   | Paste                                                |
 | Ctrl-y   | Yank — same as Ctrl-v (one shared clipboard slot)    |
 | Ctrl-z   | Undo                                                 |
 | Ctrl-r   | Redo                                                 |
 
-**Not yet:** selections (so cut/copy is whole-line only, not
-arbitrary ranges), replace, delete-line (`dd`-style).
+**Multi-cursor:** `Meta-c` to add cursors at occurrences of a word/selection, or `Meta-click` with the mouse to drop an extra cursor anywhere. `Esc` collapses back to the primary cursor. Type, delete, or paste to edit simultaneously at every cursor with automatic offset drift tracking.
 
 ## Find
 

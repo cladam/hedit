@@ -1110,3 +1110,146 @@ test "an unrelated no-op action after a wheel scroll doesn't snap the viewport b
   let s3 = handle_action(s2, Tick)
   assert(s3.buffer.scroll_line == 3)
 }
+
+// ------------------- Multi-cursor editing (M20) ---------------------------
+
+test "resolve_action maps Meta-c to AddCursorNextMatch via default_bindings" {
+  let s0 = init_editor(None)
+  assert(resolve_action(s0, KeyEvent(KShortcut(Meta, 'c'))) == AddCursorNextMatch)
+}
+
+test "resolve_action maps Esc to CollapseCursors during normal editing" {
+  let s0 = init_editor(None)
+  assert(resolve_action(s0, KeyEvent(KSpecial(Esc))) == CollapseCursors)
+}
+
+test "AddCursorNextMatch selects word under head cursor on first press" {
+  let s0 = with_lines(["hello world"])
+  let s1 = handle_action(s0, KeyEvent(KShortcut(Meta, 'c')))
+  assert(selection_text(s1) == Some("hello"))
+  assert(length(s1.buffer.cursors) == 1)
+  let cur = head_cursor(s1.buffer)
+  assert(cur.pos == Position { line: 0, col: 5 })
+  assert(cur.anchor == Some(Position { line: 0, col: 0 }))
+}
+
+test "AddCursorNextMatch pressed again adds a cursor at the next match" {
+  let s0 = with_lines(["foo bar foo baz foo"])
+  let s1 = apply_action(s0, AddCursorNextMatch)
+  assert(length(s1.buffer.cursors) == 1)
+  assert(selection_text(s1) == Some("foo"))
+  let s2 = apply_action(s1, AddCursorNextMatch)
+  assert(length(s2.buffer.cursors) == 2)
+  let s3 = apply_action(s2, AddCursorNextMatch)
+  assert(length(s3.buffer.cursors) == 3)
+  let s4 = apply_action(s3, AddCursorNextMatch)
+  assert(length(s4.buffer.cursors) == 3)
+}
+
+test "typing with multiple cursors replaces selections simultaneously" {
+  let s0 = with_lines(["foo bar foo baz foo"])
+  let s1 = apply_action(s0, AddCursorNextMatch)
+  let s2 = apply_action(s1, AddCursorNextMatch)
+  let s3 = apply_action(s2, AddCursorNextMatch)
+  let s4 = apply_action(s3, Insert('X'))
+  assert(s4.buffer.lines == ["X bar X baz X"])
+  assert(length(s4.buffer.cursors) == 3)
+}
+
+test "Escape collapses multiple cursors back to one" {
+  let s0 = with_lines(["foo bar foo"])
+  let s1 = apply_action(s0, AddCursorNextMatch)
+  let s2 = apply_action(s1, AddCursorNextMatch)
+  assert(length(s2.buffer.cursors) == 2)
+  let s3 = apply_action(s2, CollapseCursors)
+  assert(length(s3.buffer.cursors) == 1)
+  assert(s3.buffer.lines == ["foo bar foo"])
+  assert(selection_text(s3) == None)
+}
+
+test "typing with 2+ cursors on the same line maintains correct offset drift" {
+  let s0 = with_lines(["abc def"])
+  let c1 = Cursor { cid: 0, pos: Position { line: 0, col: 3 }, anchor: None, anchor_sticky: false }
+  let c2 = Cursor { cid: 1, pos: Position { line: 0, col: 7 }, anchor: None, anchor_sticky: false }
+  let s1 = EditorState { ...s0, buffer: TextBuffer { ...s0.buffer, cursors: [c1, c2] } }
+  let s2 = apply_action(s1, Insert('!'))
+  assert(s2.buffer.lines == ["abc! def!"])
+  assert(length(s2.buffer.cursors) == 2)
+  let cur0 = head_cursor(s2.buffer)
+  assert(cur0.pos == Position { line: 0, col: 4 })
+}
+
+test "typing with 2+ cursors across different lines inserts independently" {
+  let s0 = with_lines(["hello", "world"])
+  let c1 = Cursor { cid: 0, pos: Position { line: 0, col: 5 }, anchor: None, anchor_sticky: false }
+  let c2 = Cursor { cid: 1, pos: Position { line: 1, col: 5 }, anchor: None, anchor_sticky: false }
+  let s1 = EditorState { ...s0, buffer: TextBuffer { ...s0.buffer, cursors: [c1, c2] } }
+  let s2 = apply_action(s1, Insert('!'))
+  assert(s2.buffer.lines == ["hello!", "world!"])
+  assert(length(s2.buffer.cursors) == 2)
+}
+
+test "Enter splits lines and shifts lower cursors correctly" {
+  let s0 = with_lines(["abc def", "123 456"])
+  let c1 = Cursor { cid: 0, pos: Position { line: 0, col: 3 }, anchor: None, anchor_sticky: false }
+  let c2 = Cursor { cid: 1, pos: Position { line: 1, col: 3 }, anchor: None, anchor_sticky: false }
+  let s1 = EditorState { ...s0, buffer: TextBuffer { ...s0.buffer, cursors: [c1, c2] } }
+  let s2 = apply_action(s1, NewLine)
+  assert(s2.buffer.lines == ["abc", " def", "123", " 456"])
+  assert(length(s2.buffer.cursors) == 2)
+}
+
+test "Backspace with 2+ cursors deletes at all cursor positions" {
+  let s0 = with_lines(["abc! def!"])
+  let c1 = Cursor { cid: 0, pos: Position { line: 0, col: 4 }, anchor: None, anchor_sticky: false }
+  let c2 = Cursor { cid: 1, pos: Position { line: 0, col: 9 }, anchor: None, anchor_sticky: false }
+  let s1 = EditorState { ...s0, buffer: TextBuffer { ...s0.buffer, cursors: [c1, c2] } }
+  let s2 = apply_action(s1, DeleteBackward)
+  assert(s2.buffer.lines == ["abc def"])
+  assert(length(s2.buffer.cursors) == 2)
+}
+
+test "DeleteForward with 2+ cursors deletes forward at all cursor positions" {
+  let s0 = with_lines(["!abc !def"])
+  let c1 = Cursor { cid: 0, pos: Position { line: 0, col: 0 }, anchor: None, anchor_sticky: false }
+  let c2 = Cursor { cid: 1, pos: Position { line: 0, col: 5 }, anchor: None, anchor_sticky: false }
+  let s1 = EditorState { ...s0, buffer: TextBuffer { ...s0.buffer, cursors: [c1, c2] } }
+  let s2 = apply_action(s1, DeleteForward)
+  assert(s2.buffer.lines == ["abc def"])
+  assert(length(s2.buffer.cursors) == 2)
+}
+
+test "Arrow movement moves all cursors independently and deduplicates on collision" {
+  let s0 = with_lines(["a", "b"])
+  let c1 = Cursor { cid: 0, pos: Position { line: 0, col: 1 }, anchor: None, anchor_sticky: false }
+  let c2 = Cursor { cid: 1, pos: Position { line: 1, col: 1 }, anchor: None, anchor_sticky: false }
+  let s1 = EditorState { ...s0, buffer: TextBuffer { ...s0.buffer, cursors: [c1, c2] } }
+  let s2 = apply_action(s1, MoveLeft)
+  let s3 = apply_action(s2, MoveUp)
+  assert(length(s3.buffer.cursors) == 1)
+  assert(head_cursor_pos(s3) == Position { line: 0, col: 0 })
+}
+
+test "MetaMouseClick adds an extra cursor at the clicked position" {
+  let s0 = with_lines(["hello world"])
+  let s1 = apply_action(s0, MetaMouseClick(6, 2))
+  assert(length(s1.buffer.cursors) == 2)
+}
+
+test "Copy with multiple selections joins them with newlines" {
+  let s0 = with_lines(["hello foo world bar"])
+  let c1 = Cursor { cid: 0, pos: Position { line: 0, col: 9 }, anchor: Some(Position { line: 0, col: 6 }), anchor_sticky: false }
+  let c2 = Cursor { cid: 1, pos: Position { line: 0, col: 19 }, anchor: Some(Position { line: 0, col: 16 }), anchor_sticky: false }
+  let s1 = EditorState { ...s0, buffer: TextBuffer { ...s0.buffer, cursors: [c1, c2] } }
+  assert(selection_text(s1) == Some("foo\nbar"))
+}
+
+test "Paste with multiple cursors inserts the clipboard text at each cursor" {
+  let s0 = with_lines(["a", "b"])
+  let c1 = Cursor { cid: 0, pos: Position { line: 0, col: 1 }, anchor: None, anchor_sticky: false }
+  let c2 = Cursor { cid: 1, pos: Position { line: 1, col: 1 }, anchor: None, anchor_sticky: false }
+  let s1 = EditorState { ...s0, buffer: TextBuffer { ...s0.buffer, cursors: [c1, c2] } }
+  let s2 = paste_text(s1, "XYZ")
+  assert(s2.buffer.lines == ["aXYZ", "bXYZ"])
+  assert(length(s2.buffer.cursors) == 2)
+}

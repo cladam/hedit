@@ -154,13 +154,63 @@ fun selection_rows_go(lines: list<string>, sl: int, sc: int, el: int, ec: int, l
     }
   }
 
-/// The active selection's highlight spans for the current frame — `[]`
-/// outside an active selection.
-fun selection_highlights(state: EditorState, offset: int, n_content: int, w: int) : list<(int, int, int)> =>
-  match selection_span(state) {
-    None                   => [],
-    Some((sl, sc, el, ec)) => selection_rows_go(state.buffer.lines, sl, sc, el, ec, 0, offset, n_content, w)
+fun cursor_spans_go(lines: list<string>, cs: list<Cursor>, is_head: bool, offset: int, n_content: int, w: int) : list<(int, int, int)> =>
+  match cs {
+    [] => [],
+    [c, ..rest] => {
+      let tail = cursor_spans_go(lines, rest, false, offset, n_content, w)
+      match c.anchor {
+        Some(a) => {
+          let (sl, sc, el, ec) = normalize_span(c.pos, a)
+          selection_rows_go(lines, sl, sc, el, ec, 0, offset, n_content, w) + tail
+        },
+        None =>
+          if is_head { tail }
+          else {
+            let row_idx = c.pos.line - offset
+            if row_idx >= 0 && row_idx < n_content {
+              let sc = min(c.pos.col, w)
+              let ec = min(c.pos.col + 1, w)
+              if sc < ec { [(row_idx + 2, sc, ec)] + tail } else { tail }
+            } else { tail }
+          }
+      }
+    }
   }
+
+fun insert_render_span(s: (int, int, int), spans: list<(int, int, int)>) : list<(int, int, int)> =>
+  match spans {
+    []          => [s],
+    [x, ..rest] =>
+      if s.0 < x.0 || (s.0 == x.0 && s.1 < x.1) { [s, x] + rest }
+      else { [x] + insert_render_span(s, rest) }
+  }
+
+fun sort_render_spans(spans: list<(int, int, int)>) : list<(int, int, int)> =>
+  match spans {
+    []          => [],
+    [s, ..rest] => insert_render_span(s, sort_render_spans(rest))
+  }
+
+fun merge_render_spans(spans: list<(int, int, int)>) : list<(int, int, int)> =>
+  match spans {
+    []  => [],
+    [s] => [s],
+    [s1, s2, ..rest] =>
+      if s1.0 == s2.0 && s1.2 >= s2.1 {
+        let merged = (s1.0, s1.1, max(s1.2, s2.2))
+        merge_render_spans([merged] + rest)
+      } else {
+        [s1] + merge_render_spans([s2] + rest)
+      }
+  }
+
+/// All active selection spans and secondary-cursor markers for the current frame.
+fun selection_highlights(state: EditorState, offset: int, n_content: int, w: int) : list<(int, int, int)> {
+  let raw_spans = cursor_spans_go(state.buffer.lines, state.buffer.cursors, true, offset, n_content, w)
+  let sorted_spans = sort_render_spans(raw_spans)
+  merge_render_spans(sorted_spans)
+}
 
 // ------------------- Syntax highlighting (M16) -----------------------------
 // `ScreenBuffer.syntax_spans` carries `(row, start_col, end_col, TokenKind)`

@@ -35,6 +35,7 @@ pub type Key {
 /// A mouse button / wheel action.
 pub type MouseAction {
   Press,
+  MetaPress,
   Release,
   Drag,
   ScrollUp,
@@ -68,7 +69,8 @@ fun decode_mouse(code: int) : Event {
     1 => Release,
     2 => Drag,
     3 => ScrollUp,
-    _ => ScrollDown
+    4 => ScrollDown,
+    _ => MetaPress
   }
   MouseEvent(action, x, y)
 }

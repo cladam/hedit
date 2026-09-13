@@ -124,6 +124,7 @@ kk_integer_t hedit_read_key(void) {
                                 if      (ch == 'm')        action_code = 1;  // Release
                                 else if (cb & 64)          action_code = (cb & 1) ? 4 : 3;  // ScrollDown : ScrollUp
                                 else if (cb & 32)          action_code = 2;  // Drag
+                                else if (cb & 8)           action_code = 5;  // MetaPress (Alt/Meta click)
                                 else                       action_code = 0;  // Press
                                 if (cx < 0) cx = 0; if (cx > 9999) cx = 9999;
                                 if (cy < 0) cy = 0; if (cy > 9999) cy = 9999;

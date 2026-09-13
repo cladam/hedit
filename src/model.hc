@@ -112,6 +112,9 @@ pub type Action {
   ScrollViewUp(x: int, y: int),
   ScrollViewDown(x: int, y: int),
   ReloadConfig,
+  AddCursorNextMatch,
+  CollapseCursors,
+  MetaMouseClick(x: int, y: int),
   Ignore
 }
 
@@ -146,6 +149,7 @@ pub fun default_bindings() : list<(KeyChord, Action)> =>
     (KeyChord { m: Ctrl, c: 'k' }, KillLine),
     (KeyChord { m: Ctrl, c: 'w' }, KillWordBack),
     (KeyChord { m: Ctrl, c: 'y' }, Paste),
+    (KeyChord { m: Meta, c: 'c' }, AddCursorNextMatch),
     (KeyChord { m: Meta, c: 'o' }, NewBuffer),
     (KeyChord { m: Meta, c: 'n' }, NextBuffer),
     (KeyChord { m: Meta, c: 'p' }, PrevBuffer),

@@ -66,6 +66,7 @@ test "packed SGR mouse codes decode to MouseEvent (M18)" {
   assert(decode_key(2000000 + 2 * 100000000 + 10 * 10000 + 20) == MouseEvent(Drag, 10, 20))
   assert(decode_key(2000000 + 3 * 100000000 + 10 * 10000 + 20) == MouseEvent(ScrollUp, 10, 20))
   assert(decode_key(2000000 + 4 * 100000000 + 10 * 10000 + 20) == MouseEvent(ScrollDown, 10, 20))
+  assert(decode_key(2000000 + 5 * 100000000 + 10 * 10000 + 20) == MouseEvent(MetaPress, 10, 20))
 }
 
 test "a mouse code at column/row 0 decodes correctly (top-left corner)" {
