@@ -871,3 +871,54 @@ test "M19: scripted Meta-r in event loop reloads config dynamically" {
   assert(final.should_quit == true)
   assert(lookup_binding(final.config.bindings, KeyChord { m: Ctrl, c: 'x' }) == Quit)
 }
+
+// ------------------- M21: visual undo tree & branch switching -----------
+
+test "M21: Meta-u switches to diverged undo branch" {
+  let final: EditorState = handle Terminal {
+    poll_event() => match ev {
+      []          => KeyEvent(KShortcut(Ctrl, 'q')),
+      [e, ..rest] => { ev = rest; e }
+    },
+    render_frame(_buf)   => (),
+    get_dimensions()     => (80, 24),
+    set_cursor_style(_s) => ()
+  } with var ev = [
+    KeyEvent(KChar('h')),
+    KeyEvent(KChar('i')), // branch 1: "hi"
+    KeyEvent(KShortcut(Ctrl, 'z')), // undo back to "h"
+    KeyEvent(KChar('x')), // branch 2: "hx"
+    KeyEvent(KShortcut(Ctrl, 'z')), // undo back to "h"
+    KeyEvent(KShortcut(Meta, 'u')), // next-branch switches to "hi"!
+    KeyEvent(KShortcut(Ctrl, 'q'))
+  ] in {
+    event_loop(init_editor(None))
+  }
+  assert(final.buffer.lines == ["hi"])
+  assert(final.status_message == Some("Switched branch"))
+}
+
+test "M21: Meta-t opens undo tree, navigates revisions, and Enter restores snapshot" {
+  let final: EditorState = handle Terminal {
+    poll_event() => match ev {
+      []          => KeyEvent(KShortcut(Ctrl, 'q')),
+      [e, ..rest] => { ev = rest; e }
+    },
+    render_frame(_buf)   => (),
+    get_dimensions()     => (80, 24),
+    set_cursor_style(_s) => ()
+  } with var ev = [
+    KeyEvent(KChar('h')),
+    KeyEvent(KChar('i')), // "hi"
+    KeyEvent(KShortcut(Ctrl, 'z')), // undo back to "h"
+    KeyEvent(KChar('x')), // "hx"
+    KeyEvent(KShortcut(Meta, 't')), // opens Undo Tree overlay
+    KeyEvent(KSpecial(ArrowUp)), // navigates to prior revision
+    KeyEvent(KSpecial(Enter)), // commits snapshot
+    KeyEvent(KShortcut(Ctrl, 'q'))
+  ] in {
+    event_loop(init_editor(None))
+  }
+  assert(final.undo_tree == None)
+  assert(final.buffer.lines == ["hi"])
+}

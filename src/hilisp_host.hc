@@ -181,7 +181,13 @@ pub fun action_to_string(a: Action) : string =>
     ReloadConfig    => "reload-config",
     AddCursorNextMatch => "add-cursor-next-match",
     CollapseCursors => "collapse-cursors",
-    MetaMouseClick(_, _) => "meta-mouse-click"
+    MetaMouseClick(_, _) => "meta-mouse-click",
+    ToggleUndoTree      => "toggle-undo-tree",
+    NextBranch          => "next-branch",
+    UndoTreeNext        => "undo-tree-next",
+    UndoTreePrev        => "undo-tree-prev",
+    UndoTreeCommit      => "undo-tree-commit",
+    UndoTreeCancel      => "undo-tree-cancel"
   }
 
 /// Inverse of `action_to_string`; unrecognised names resolve to `None`.
@@ -225,6 +231,12 @@ pub fun string_to_action(s: string) : maybe<Action> =>
     "reload-config" => Some(ReloadConfig),
     "add-cursor-next-match" => Some(AddCursorNextMatch),
     "collapse-cursors" => Some(CollapseCursors),
+    "toggle-undo-tree" => Some(ToggleUndoTree),
+    "next-branch"      => Some(NextBranch),
+    "undo-tree-next"   => Some(UndoTreeNext),
+    "undo-tree-prev"   => Some(UndoTreePrev),
+    "undo-tree-commit" => Some(UndoTreeCommit),
+    "undo-tree-cancel" => Some(UndoTreeCancel),
     "ignore"       => Some(Ignore),
     _              => None
   }

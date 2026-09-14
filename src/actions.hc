@@ -1905,6 +1905,24 @@ fun resolve_help_action(evt: Event) : Action =>
     _                              => Ignore
   }
 
+/// Resolve a raw event to an Action while the visual undo tree overlay
+/// (M21) is active. Up/Down/j/k navigate revisions, Enter commits,
+/// Esc/Meta-t cancels. Ctrl-q still quits, Resize still resizes.
+fun resolve_undo_tree_action(evt: Event) : Action =>
+  match evt {
+    KeyEvent(KShortcut(Ctrl, 'q')) => Quit,
+    ResizeEvent(w, h)              => Resize(w, h),
+    KeyEvent(KSpecial(ArrowUp))    => UndoTreePrev,
+    KeyEvent(KSpecial(ArrowDown))  => UndoTreeNext,
+    KeyEvent(KChar('k'))           => UndoTreePrev,
+    KeyEvent(KChar('j'))           => UndoTreeNext,
+    KeyEvent(KSpecial(Enter))      => UndoTreeCommit,
+    KeyEvent(KSpecial(Esc))        => UndoTreeCancel,
+    KeyEvent(KShortcut(Meta, 't')) => UndoTreeCancel,
+    KeyEvent(KShortcut(Meta, 'u')) => NextBranch,
+    _                              => Ignore
+  }
+
 /// Resolve a raw event to an Action during normal editing, via
 /// `state.config.bindings` for user-remappable shortcuts.
 // Enter/Backspace/arrows are fixed (no `char` payload to key a binding
@@ -1940,14 +1958,17 @@ fun resolve_normal_action(state: EditorState, evt: Event) : Action =>
   }
 
 /// Resolve a raw event to a semantic Action, dispatching by editor mode
-/// (help overlay, active prompt, or normal editing).
+/// (help overlay, visual undo tree, active prompt, or normal editing).
 pub fun resolve_action(state: EditorState, evt: Event) : Action {
   if state.show_help {
     resolve_help_action(evt)
   } else {
-    match state.prompt {
-      NoPrompt => resolve_normal_action(state, evt),
-      _        => resolve_prompt_action(evt)
+    match state.undo_tree {
+      Some(_) => resolve_undo_tree_action(evt),
+      None    => match state.prompt {
+        NoPrompt => resolve_normal_action(state, evt),
+        _        => resolve_prompt_action(evt)
+      }
     }
   }
 }
@@ -1975,6 +1996,51 @@ fun collapse_unless_sticky(state: EditorState) : EditorState {
     state
   }
 }
+
+fun apply_preview_node(state: EditorState, uts: UndoTreeState, new_id: int) =>
+  match find_undo_node(uts.tree.nodes, new_id) {
+    None => state,
+    Some(target_node) => {
+      let next_uts = UndoTreeState { ...uts, selected_id: new_id }
+      EditorState { ...state, undo_tree: Some(next_uts), buffer: target_node.snapshot }
+    }
+  }
+
+fun select_next_row(state: EditorState, uts: UndoTreeState, rows: list<UndoTreeRow>, idx: int) {
+  let next_idx = min(length(rows) - 1, idx + 1)
+  let next_row = list_undo_row_get(rows, next_idx, UndoTreeRow { node_id: uts.selected_id, line: "" })
+  apply_preview_node(state, uts, next_row.node_id)
+}
+
+fun undo_tree_select_next(state: EditorState) =>
+  match state.undo_tree {
+    None => state,
+    Some(uts) => {
+      let rows = flatten_undo_tree(uts.tree, uts.selected_id)
+      match find_undo_tree_row_index(rows, uts.selected_id) {
+        None => state,
+        Some(idx) => select_next_row(state, uts, rows, idx)
+      }
+    }
+  }
+
+fun select_prev_row(state: EditorState, uts: UndoTreeState, rows: list<UndoTreeRow>, idx: int) {
+  let prev_idx = max(0, idx - 1)
+  let prev_row = list_undo_row_get(rows, prev_idx, UndoTreeRow { node_id: uts.selected_id, line: "" })
+  apply_preview_node(state, uts, prev_row.node_id)
+}
+
+fun undo_tree_select_prev(state: EditorState) =>
+  match state.undo_tree {
+    None => state,
+    Some(uts) => {
+      let rows = flatten_undo_tree(uts.tree, uts.selected_id)
+      match find_undo_tree_row_index(rows, uts.selected_id) {
+        None => state,
+        Some(idx) => select_prev_row(state, uts, rows, idx)
+      }
+    }
+  }
 
 /// Apply an Action to state, producing the next EditorState.
 // Save/Copy/Paste/Undo/Redo/Kill*/PromptSubmit no-op here — they carry
@@ -2044,6 +2110,24 @@ pub fun apply_action(state: EditorState, action: Action) : EditorState =>
     StartFind    => start_find(state),
     FindNext     => find_next(state),
     FindPrev     => find_prev(state),
+    ToggleUndoTree =>
+      match state.undo_tree {
+        Some(uts) => EditorState { ...state, undo_tree: None, buffer: uts.original_buffer },
+        None      => state
+      },
+    NextBranch     => state, // event_loop: <Buffer>
+    UndoTreeNext   => undo_tree_select_next(state),
+    UndoTreePrev   => undo_tree_select_prev(state),
+    UndoTreeCommit =>
+      match state.undo_tree {
+        Some(_) => EditorState { ...state, undo_tree: None },
+        None    => state
+      },
+    UndoTreeCancel =>
+      match state.undo_tree {
+        Some(uts) => EditorState { ...state, undo_tree: None, buffer: uts.original_buffer },
+        None      => state
+      },
     Ignore       => state
   }
 

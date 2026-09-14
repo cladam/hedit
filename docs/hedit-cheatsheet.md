@@ -47,8 +47,12 @@ hedit --help / --version
 | Ctrl-y   | Yank — same as Ctrl-v (one shared clipboard slot)    |
 | Ctrl-z   | Undo                                                 |
 | Ctrl-r   | Redo                                                 |
+| Meta-u   | Cycle sibling branches in the undo graph             |
+| Meta-t   | Toggle visual Unicode undo tree overlay              |
 
 **Multi-cursor:** `Meta-c` to add cursors at occurrences of a word/selection, or `Meta-click` with the mouse to drop an extra cursor anywhere. `Esc` collapses back to the primary cursor. Type, delete, or paste to edit simultaneously at every cursor with automatic offset drift tracking.
+
+**Undo Tree (`Meta-t`):** opens a full-screen Unicode branch diagram. Navigate revisions with **Up / Down** (or **k / j**) with real-time live buffer preview. **Enter** commits and restores the revision, **Esc** cancels.
 
 ## Find
 
@@ -91,8 +95,6 @@ hedit keeps open buffers in a ring:
 
 The tabline (row 0) lists every open buffer, active one bracketed —
 e.g. `[scratch] | notes.txt`.
-
-**Not yet:** multiple cursors.
 
 ## Split panes (M15)
 

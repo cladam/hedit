@@ -523,10 +523,55 @@ pub fun render_help_buffer(state: EditorState) : ScreenBuffer {
   }
 }
 
+fun slice_tree_rows(xs: list<string>, offset: int, n: int) : list<string> =>
+  if n <= 0 { [] }
+  else {
+    match xs {
+      [] => [""] + slice_tree_rows([], offset, n - 1),
+      [x, ..rest] =>
+        if offset > 0 { slice_tree_rows(rest, offset - 1, n) }
+        else { [x] + slice_tree_rows(rest, 0, n - 1) }
+    }
+  }
+
+/// Build the full-screen visual undo tree overlay ScreenBuffer (M21).
+pub fun render_undo_tree_buffer(state: EditorState, uts: UndoTreeState) : ScreenBuffer {
+  let (w, h)       = state.screen_size
+  let n_content    = h - 2
+  let title_row    = fit_to_width("Undo Tree — Up/Down: preview, Enter: restore, Esc: cancel, Meta-u: branch", w)
+  let rows         = flatten_undo_tree(uts.tree, uts.selected_id)
+  let row_lines    = map(rows, (r) => fit_to_width(r.line, w))
+  let sel_idx      = match find_undo_tree_row_index(rows, uts.selected_id) {
+    Some(i) => i,
+    None    => 0
+  }
+  let offset       = max(0, sel_idx - (n_content / 2))
+  let content_rows = slice_tree_rows(row_lines, offset, n_content)
+  let footer_text  = "hedit — " + show(length(uts.tree.nodes)) + " revisions | ● current: [" + show(uts.tree.current_id) + "] | preview: [" + show(uts.selected_id) + "]"
+  let footer_row   = fit_to_width(footer_text, w)
+  ScreenBuffer {
+    width: w,
+    height: h,
+    lines: [title_row] + content_rows + [footer_row],
+    cursor_row: 1,
+    cursor_col: 1,
+    highlights: [],
+    syntax_spans: [],
+    selection_spans: []
+  }
+}
+
 /// Build the ScreenBuffer for the current frame, dispatching on
-/// `state.show_help` ahead of the normal render pass, and on whether
+/// `state.show_help` ahead of the normal render pass, on whether
+/// `state.undo_tree` is open (M21), and on whether
 /// `state.panes` (M15) is still a single `Leaf` or has grown a `Split`.
 pub fun render_editor_to_buffer(state: EditorState) : ScreenBuffer =>
   if state.show_help { render_help_buffer(state) }
-  else if is_leaf(state.panes) { render_normal_buffer(state) }
-  else { render_split_buffer(state) }
+  else {
+    match state.undo_tree {
+      Some(uts) => render_undo_tree_buffer(state, uts),
+      None      =>
+        if is_leaf(state.panes) { render_normal_buffer(state) }
+        else { render_split_buffer(state) }
+    }
+  }

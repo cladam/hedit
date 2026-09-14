@@ -249,3 +249,34 @@ test "multiple cursors with selections render all their spans" {
   let buf = render_editor_to_buffer(s1)
   assert(buf.selection_spans == [(2, 1, 4), (3, 2, 5)])
 }
+
+// ------------------- Undo Tree rendering (M21) --------------------------
+
+test "render_undo_tree_buffer renders title, tree branch lines, and footer" {
+  let b0 = with_lines_render(["root"], (80, 24)).buffer
+  let b1 = with_lines_render(["branch 1"], (80, 24)).buffer
+  let b2 = with_lines_render(["branch 2"], (80, 24)).buffer
+  let n1 = UndoNode { id: 1, snapshot: b0, parent: 0, children: [2, 3], last_child: Some(3) }
+  let n2 = UndoNode { id: 2, snapshot: b1, parent: 1, children: [], last_child: None }
+  let n3 = UndoNode { id: 3, snapshot: b2, parent: 1, children: [], last_child: None }
+  let uts = UndoTreeState {
+    tree: UndoTree { current_id: 3, nodes: [n1, n2, n3] },
+    selected_id: 2,
+    original_buffer: b2,
+    original_id: 3
+  }
+  let s0 = init_editor(None)
+  let s1 = EditorState { ...s0, screen_size: (80, 6), undo_tree: Some(uts) }
+  let buf = render_editor_to_buffer(s1)
+  assert(buf.width == 80)
+  assert(buf.height == 6)
+  assert(length(buf.lines) == 6)
+  let l0 = match buf.lines { [x, .._] => x, [] => "" }
+  let l1 = match buf.lines { [_, x, .._] => x, _ => "" }
+  let l2 = match buf.lines { [_, _, x, .._] => x, _ => "" }
+  let l3 = match buf.lines { [_, _, _, x, .._] => x, _ => "" }
+  assert(starts_with(l0, "Undo Tree"))
+  assert(l1 == "  ○ [1] 1L: \"root\"")
+  assert(l2 == "> ├─○ [2] 1L: \"branch 1\"")
+  assert(l3 == "  ╰─● [3] 1L: \"branch 2\"")
+}

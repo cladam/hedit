@@ -115,6 +115,12 @@ pub type Action {
   AddCursorNextMatch,
   CollapseCursors,
   MetaMouseClick(x: int, y: int),
+  ToggleUndoTree,
+  NextBranch,
+  UndoTreeNext,
+  UndoTreePrev,
+  UndoTreeCommit,
+  UndoTreeCancel,
   Ignore
 }
 
@@ -162,6 +168,8 @@ pub fun default_bindings() : list<(KeyChord, Action)> =>
     (KeyChord { m: Meta, c: 'l' }, KillWholeLine),
     (KeyChord { m: Meta, c: 'a' }, SelectAll),
     (KeyChord { m: Meta, c: 'r' }, ReloadConfig),
+    (KeyChord { m: Meta, c: 't' }, ToggleUndoTree),
+    (KeyChord { m: Meta, c: 'u' }, NextBranch),
     (KeyChord { m: Ctrl, c: ' ' }, SetMark)
   ]
 
@@ -358,6 +366,40 @@ pub fun resolve_theme(cfg: Config) : Theme =>
 // Editor state
 // ---------------------------------------------------------------------------
 
+// ------------------- Undo Tree (M21) -----------------------------------
+
+/// A single node in the branching undo history graph.
+// Nodes are immutable snapshots stored in a flat pool, keyed by `id`.
+// Perceus reference counting makes structural sharing between snapshots
+// essentially free. `parent: 0` designates a root node.
+pub struct UndoNode {
+  id: int,
+  snapshot: TextBuffer,
+  parent: int,
+  children: list<int>,
+  last_child: maybe<int>
+}
+
+/// The complete branching undo graph for a buffer.
+pub struct UndoTree {
+  current_id: int,
+  nodes: list<UndoNode>
+}
+
+/// Active state for the visual undo tree overlay (Meta-t).
+pub struct UndoTreeState {
+  tree: UndoTree,
+  selected_id: int,
+  original_buffer: TextBuffer,
+  original_id: int
+}
+
+/// A formatted line in the flattened visual undo tree overlay.
+pub struct UndoTreeRow {
+  node_id: int,
+  line: string
+}
+
 /// Full editor state. `buffer` is always the active buffer;
 /// `background_buffers` holds the rest of the open buffers as a
 /// rotation ring with no separate active index to keep in sync.
@@ -380,7 +422,10 @@ pub struct EditorState {
   // The divider index (`split_dividers`/`split_divider_specs`'s
   // pre-order traversal) currently being drag-resized, or `None`
   // outside a resize gesture (M18 divider drag-resize).
-  resizing_divider: maybe<int>
+  resizing_divider: maybe<int>,
+  // Active visual undo tree overlay (M21, Meta-t), or `None` during
+  // normal editing.
+  undo_tree: maybe<UndoTreeState>
 }
 
 /// The pixel-free "screen buffer" the Terminal handler flushes.
@@ -553,7 +598,8 @@ pub fun init_editor_with_buffer(buf: TextBuffer, cfg: Config) : EditorState =>
     show_help: false,
     search: NoSearch,
     panes: Leaf(buf.bid),
-    resizing_divider: None
+    resizing_divider: None,
+    undo_tree: None
   }
 
 /// Split file content into lines, dropping one trailing newline
@@ -829,3 +875,159 @@ pub fun set_status_message(s: EditorState, msg: string) : EditorState =>
 /// Clear the status line message.
 pub fun clear_status_message(s: EditorState) : EditorState =>
   EditorState { ...s, status_message: None }
+
+// --- Undo Tree helpers (M21) ----------------------------------------------
+
+/// Look up an UndoNode by ID in the node list.
+pub fun find_undo_node(nodes: list<UndoNode>, target_id: int) : maybe<UndoNode> =>
+  match nodes {
+    [] => None,
+    [n, ..rest] => if n.id == target_id { Some(n) } else { find_undo_node(rest, target_id) }
+  }
+
+/// Update an UndoNode in the node list by replacing the matching ID.
+pub fun update_undo_node(nodes: list<UndoNode>, node: UndoNode) : list<UndoNode> =>
+  match nodes {
+    [] => [],
+    [n, ..rest] => if n.id == node.id { [node] + rest } else { [n] + update_undo_node(rest, node) }
+  }
+
+/// Set the `last_child` pointer on `parent_id`.
+pub fun set_last_child(nodes: list<UndoNode>, parent_id: int, child_id: int) : list<UndoNode> =>
+  match find_undo_node(nodes, parent_id) {
+    None => nodes,
+    Some(p) => update_undo_node(nodes, UndoNode { ...p, last_child: Some(child_id) })
+  }
+
+/// Add `child_id` to `parent_id`'s children list and set `last_child`.
+pub fun add_child(nodes: list<UndoNode>, parent_id: int, child_id: int) : list<UndoNode> =>
+  match find_undo_node(nodes, parent_id) {
+    None => nodes,
+    Some(p) => {
+      let ch = if any(p.children, (cid) => cid == child_id) { p.children } else { p.children + [child_id] }
+      update_undo_node(nodes, UndoNode { ...p, children: ch, last_child: Some(child_id) })
+    }
+  }
+
+fun child_matches(nodes: list<UndoNode>, cid: int, target: TextBuffer) : bool =>
+  match find_undo_node(nodes, cid) {
+    None => false,
+    Some(cn) => cn.snapshot == target
+  }
+
+/// Check if any of `child_ids` has a snapshot matching `target`.
+pub fun find_child_matching(nodes: list<UndoNode>, child_ids: list<int>, target: TextBuffer) : maybe<int> =>
+  match child_ids {
+    [] => None,
+    [cid, ..rest] =>
+      if child_matches(nodes, cid, target) { Some(cid) }
+      else { find_child_matching(nodes, rest, target) }
+  }
+
+/// Find all root nodes (parent == 0).
+pub fun find_root_nodes(nodes: list<UndoNode>) : list<UndoNode> =>
+  filter(nodes, (n) => n.parent == 0)
+
+/// Set `last_child` on all ancestors along the path up to the root.
+pub fun set_ancestor_last_children(nodes: list<UndoNode>, target_id: int) : list<UndoNode> =>
+  match find_undo_node(nodes, target_id) {
+    None => nodes,
+    Some(tn) =>
+      if tn.parent == 0 { nodes }
+      else {
+        let updated = set_last_child(nodes, tn.parent, tn.id)
+        set_ancestor_last_children(updated, tn.parent)
+      }
+  }
+
+fun list_int_get(xs: list<int>, idx: int, default: int) : int =>
+  match xs {
+    [] => default,
+    [x, ..rest] => if idx == 0 { x } else { list_int_get(rest, idx - 1, default) }
+  }
+
+fun list_int_index_of_go(xs: list<int>, target: int, idx: int) : maybe<int> =>
+  match xs {
+    [] => None,
+    [x, ..rest] => if x == target { Some(idx) } else { list_int_index_of_go(rest, target, idx + 1) }
+  }
+
+pub fun list_int_index_of(xs: list<int>, target: int) : maybe<int> =>
+  list_int_index_of_go(xs, target, 0)
+
+/// Find the next sibling ID in `children` after `curr_id`, wrapping around.
+pub fun next_sibling_id(children: list<int>, curr_id: int) : maybe<int> {
+  let len = length(children)
+  if len <= 1 {
+    None
+  } else {
+    match list_int_index_of(children, curr_id) {
+      None => None,
+      Some(i) => {
+        let next_idx = (i + 1) % len
+        Some(list_int_get(children, next_idx, curr_id))
+      }
+    }
+  }
+}
+
+/// A short preview of line 0 for tree display.
+pub fun first_line_preview(buf: TextBuffer) : string =>
+  match buf.lines {
+    [] => "(empty)",
+    [l, .._] => if l == "" { "(empty line)" } else { "\"" + l + "\"" }
+  }
+
+fun flatten_node_children(tree: UndoTree, children: list<int>, indent: string, selected_id: int) : list<UndoTreeRow> =>
+  match children {
+    [] => [],
+    [cid, ..rest] => {
+      let is_last = is_empty(rest)
+      let child_rows = match find_undo_node(tree.nodes, cid) {
+        None => [],
+        Some(cn) => flatten_node(tree, cn, indent, false, is_last, selected_id)
+      }
+      child_rows + flatten_node_children(tree, rest, indent, selected_id)
+    }
+  }
+
+fun flatten_node(tree: UndoTree, node: UndoNode, indent: string, is_root: bool, is_last: bool, selected_id: int) : list<UndoTreeRow> {
+  let sel_marker = if node.id == selected_id { "> " } else { "  " }
+  let branch_glyph = if is_root { "" } else if is_last { "╰─" } else { "├─" }
+  let node_circle = if node.id == tree.current_id { "● " } else { "○ " }
+  let preview = first_line_preview(node.snapshot)
+  let node_info = "[" + show(node.id) + "] " + show(length(node.snapshot.lines)) + "L: " + preview
+  let row = UndoTreeRow { node_id: node.id, line: sel_marker + indent + branch_glyph + node_circle + node_info }
+  let child_indent = if is_root { indent } else if is_last { indent + "  " } else { indent + "│ " }
+  let children_rows = flatten_node_children(tree, node.children, child_indent, selected_id)
+  [row] + children_rows
+}
+
+fun flatten_roots(tree: UndoTree, roots: list<UndoNode>, selected_id: int) : list<UndoTreeRow> =>
+  match roots {
+    [] => [],
+    [r, ..rest] => flatten_node(tree, r, "", true, is_empty(rest), selected_id) + flatten_roots(tree, rest, selected_id)
+  }
+
+/// Flatten the entire UndoTree into pre-order rows for visual rendering.
+pub fun flatten_undo_tree(tree: UndoTree, selected_id: int) : list<UndoTreeRow> {
+  let roots = find_root_nodes(tree.nodes)
+  flatten_roots(tree, roots, selected_id)
+}
+
+fun find_row_index_go(rows: list<UndoTreeRow>, target_id: int, idx: int) : maybe<int> =>
+  match rows {
+    [] => None,
+    [r, ..rest] => if r.node_id == target_id { Some(idx) } else { find_row_index_go(rest, target_id, idx + 1) }
+  }
+
+/// Find the 0-based index of the row matching `target_id`.
+pub fun find_undo_tree_row_index(rows: list<UndoTreeRow>, target_id: int) : maybe<int> =>
+  find_row_index_go(rows, target_id, 0)
+
+/// Get the element of `rows` at `idx`, or `default`.
+pub fun list_undo_row_get(rows: list<UndoTreeRow>, idx: int, default: UndoTreeRow) : UndoTreeRow =>
+  match rows {
+    [] => default,
+    [r, ..rest] => if idx == 0 { r } else { list_undo_row_get(rest, idx - 1, default) }
+  }

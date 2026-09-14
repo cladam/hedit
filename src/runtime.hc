@@ -36,21 +36,21 @@ pub effect Clipboard {
   fun set_selection(text: string)
 }
 
-// ------------------- Buffer effect (M5, named/spawned) ------------------
+// ------------------- Buffer effect (M5/M21, named/spawned) --------------
 
-/// Per-buffer undo/redo history, spawned once per `event_loop` call.
-// Ops take the *current* `TextBuffer` as an explicit argument rather
-// than mirroring it in handler-local state, so there's no separate
-// "current" var that can drift out of sync with `EditorState.buffer` —
-// the handler only ever owns the two stacks. `snapshot(b)` pushes `b`
-// onto the undo stack and clears the redo stack (the standard "new edit
-// invalidates redo history" rule). `undo`/`redo` pop their stack, push
-// `current` onto the other stack, and return `Some(restored)` — or
-// `None` on an empty stack (a no-op, not an error).
+/// Per-buffer branching undo history graph (M21), spawned per buffer.
+// Ops take the *current* `TextBuffer` explicitly where needed. Edits
+// create new child nodes rather than destroying redo chains, forming
+// a tree of revisions. `next_branch` cycles siblings at a divergence.
+// `snapshot_tree` exports the graph for visual rendering (Meta-t).
+// `jump_to` restores any historical node by ID.
 pub effect Buffer {
   fun snapshot(b: TextBuffer)
   fun undo(current: TextBuffer) : maybe<TextBuffer>
   fun redo(current: TextBuffer) : maybe<TextBuffer>
+  fun next_branch(current: TextBuffer) : maybe<TextBuffer>
+  fun snapshot_tree() : UndoTree
+  fun jump_to(target_id: int) : maybe<TextBuffer>
 }
 
 // ------------------- save (fsys) ---------------------------------------
@@ -378,6 +378,50 @@ fun dispatch_action(sized: EditorState, action: Action, buf_pool: list<(int, ref
       let buf_ref = pool_get(buf_pool, sized.buffer.bid)
       (apply_history(sized, buf_ref.redo(sized.buffer), "redo"), hl_env, buf_pool)
     },
+    ToggleUndoTree =>
+      match sized.undo_tree {
+        Some(uts) => (EditorState { ...sized, undo_tree: None, buffer: uts.original_buffer }, hl_env, buf_pool),
+        None => {
+          let buf_ref = pool_get(buf_pool, sized.buffer.bid)
+          buf_ref.snapshot(sized.buffer)
+          let tree = buf_ref.snapshot_tree()
+          if is_empty(tree.nodes) {
+            (set_status_message(sized, "No undo history"), hl_env, buf_pool)
+          } else {
+            let uts = UndoTreeState {
+              tree: tree,
+              selected_id: tree.current_id,
+              original_buffer: sized.buffer,
+              original_id: tree.current_id
+            }
+            (EditorState { ...sized, undo_tree: Some(uts) }, hl_env, buf_pool)
+          }
+        }
+      },
+    NextBranch => {
+      let buf_ref = pool_get(buf_pool, sized.buffer.bid)
+      let res = buf_ref.next_branch(sized.buffer)
+      let next_state = match res {
+        Some(b) => set_status_message(EditorState { ...sized, buffer: b }, "Switched branch"),
+        None    => set_status_message(sized, "No other branch")
+      }
+      (next_state, hl_env, buf_pool)
+    },
+    UndoTreeCommit =>
+      match sized.undo_tree {
+        Some(uts) => {
+          let buf_ref = pool_get(buf_pool, sized.buffer.bid)
+          let restored = buf_ref.jump_to(uts.selected_id)
+          let next_buf = match restored {
+            Some(b) => b,
+            None    => sized.buffer
+          }
+          let committed = EditorState { ...sized, undo_tree: None, buffer: next_buf }
+          let msg = "Restored snapshot [" + show(uts.selected_id) + "]"
+          (set_status_message(committed, msg), hl_env, buf_pool)
+        },
+        None => (sized, hl_env, buf_pool)
+      },
     PromptSubmit => run_prompt_submit(sized, hl_env, buf_pool),
     PromptKillLine => {
       set_selection(prompt_kill_text(sized))
@@ -458,6 +502,122 @@ fun event_loop_step(state: EditorState, buf_pool: list<(int, ref<Buffer>)>, last
   }
 }
 
+fun record_snapshot(nodes: list<UndoNode>, curr: UndoNode, b: TextBuffer, next_id: int) : (list<UndoNode>, int, int) {
+  if curr.snapshot == b {
+    (nodes, next_id, curr.id)
+  } else {
+    match find_child_matching(nodes, curr.children, b) {
+      Some(existing_cid) => (set_last_child(nodes, curr.id, existing_cid), next_id, existing_cid),
+      None => {
+        let nid = next_id
+        let new_node = UndoNode { id: nid, snapshot: b, parent: curr.id, children: [], last_child: None }
+        let updated = add_child(nodes, curr.id, nid) + [new_node]
+        (updated, next_id + 1, nid)
+      }
+    }
+  }
+}
+
+fun get_or_create_child(nodes: list<UndoNode>, curr: UndoNode, current: TextBuffer, next_id: int) : (list<UndoNode>, int, int) {
+  if curr.snapshot == current {
+    (nodes, next_id, curr.id)
+  } else {
+    match find_child_matching(nodes, curr.children, current) {
+      Some(cid) => (set_last_child(nodes, curr.id, cid), next_id, cid),
+      None => {
+        let cid = next_id
+        let child = UndoNode { id: cid, snapshot: current, parent: curr.id, children: [], last_child: None }
+        let updated = add_child(nodes, curr.id, cid) + [child]
+        (updated, next_id + 1, cid)
+      }
+    }
+  }
+}
+
+fun pick_redo_child(curr: UndoNode) : maybe<int> =>
+  match curr.last_child {
+    Some(cid) => Some(cid),
+    None => match curr.children {
+      [] => None,
+      [first_cid, .._] => Some(first_cid)
+    }
+  }
+
+fun find_child_by_id(nodes: list<UndoNode>, cid_opt: maybe<int>) : maybe<UndoNode> =>
+  match cid_opt {
+    None => None,
+    Some(cid) => find_undo_node(nodes, cid)
+  }
+
+fun find_sibling_by_id(nodes: list<UndoNode>, sib_id_opt: maybe<int>) : maybe<UndoNode> =>
+  match sib_id_opt {
+    None => None,
+    Some(sib_id) => find_undo_node(nodes, sib_id)
+  }
+
+fun find_sibling_node(nodes: list<UndoNode>, parent_id: int, curr_id: int) : maybe<UndoNode> =>
+  match find_undo_node(nodes, parent_id) {
+    None => None,
+    Some(parent_node) => find_sibling_by_id(nodes, next_sibling_id(parent_node.children, curr_id))
+  }
+
+fun step_to_parent(nodes: list<UndoNode>, eff_node: UndoNode) : (list<UndoNode>, int, maybe<TextBuffer>) =>
+  match find_undo_node(nodes, eff_node.parent) {
+    None => (nodes, eff_node.id, None),
+    Some(parent_node) => {
+      let updated = set_last_child(nodes, parent_node.id, eff_node.id)
+      (updated, parent_node.id, Some(parent_node.snapshot))
+    }
+  }
+
+fun execute_undo(nodes: list<UndoNode>, eff_id: int) : (list<UndoNode>, int, maybe<TextBuffer>) =>
+  match find_undo_node(nodes, eff_id) {
+    None => (nodes, eff_id, None),
+    Some(eff_node) =>
+      if eff_node.parent == 0 { (nodes, eff_node.id, None) }
+      else { step_to_parent(nodes, eff_node) }
+  }
+
+fun execute_redo(nodes: list<UndoNode>, curr: UndoNode) : (list<UndoNode>, int, maybe<TextBuffer>) =>
+  match find_child_by_id(nodes, pick_redo_child(curr)) {
+    None => (nodes, curr.id, None),
+    Some(child_node) => {
+      let updated = set_last_child(nodes, curr.id, child_node.id)
+      (updated, child_node.id, Some(child_node.snapshot))
+    }
+  }
+
+fun cycle_children_branch(nodes: list<UndoNode>, curr: UndoNode) : (list<UndoNode>, int, maybe<TextBuffer>) {
+  let active_cid = match curr.last_child {
+    Some(cid) => cid,
+    None => match curr.children {
+      [] => 0,
+      [c, .._] => c
+    }
+  }
+  match find_sibling_by_id(nodes, next_sibling_id(curr.children, active_cid)) {
+    None => (nodes, curr.id, None),
+    Some(sib_node) => {
+      let updated = set_last_child(nodes, curr.id, sib_node.id)
+      (updated, sib_node.id, Some(sib_node.snapshot))
+    }
+  }
+}
+
+fun find_branch_switch(nodes: list<UndoNode>, curr: UndoNode) : (list<UndoNode>, int, maybe<TextBuffer>) {
+  if curr.parent == 0 {
+    cycle_children_branch(nodes, curr)
+  } else {
+    match find_sibling_node(nodes, curr.parent, curr.id) {
+      Some(sib_node) => {
+        let updated = set_last_child(nodes, curr.parent, sib_node.id)
+        (updated, sib_node.id, Some(sib_node.snapshot))
+      },
+      None => cycle_children_branch(nodes, curr)
+    }
+  }
+}
+
 /// Spawn a fresh, empty-history `Buffer` instance and return its ref —
 /// the unit `pool_get`/`pool_drop`/M14's per-buffer pool is built from.
 // Returns a 2-tuple (both slots the same ref), not the bare ref: hica's
@@ -470,26 +630,89 @@ fun event_loop_step(state: EditorState, buf_pool: list<(int, ref<Buffer>)>, last
 pub fun spawn_buffer_handler() {
   spawn Buffer {
     snapshot(b) => {
-      undo_stack = [b] + undo_stack
-      redo_stack = []
-    },
-    undo(current) => match undo_stack {
-      [] => None,
-      [top, ..rest] => {
-        redo_stack = [current] + redo_stack
-        undo_stack = rest
-        Some(top)
+      if is_empty(nodes) {
+        let root = UndoNode { id: 1, snapshot: b, parent: 0, children: [], last_child: None }
+        nodes = [root]
+        current_id = 1
+        next_id = 2
+      } else {
+        match find_undo_node(nodes, current_id) {
+          None => {
+            let root = UndoNode { id: next_id, snapshot: b, parent: 0, children: [], last_child: None }
+            nodes = nodes + [root]
+            current_id = next_id
+            next_id = next_id + 1
+          },
+          Some(curr) => {
+            let (nodes1, next_id1, new_curr_id) = record_snapshot(nodes, curr, b, next_id)
+            nodes = nodes1
+            next_id = next_id1
+            current_id = new_curr_id
+          }
+        }
       }
     },
-    redo(current) => match redo_stack {
-      [] => None,
-      [top, ..rest] => {
-        undo_stack = [current] + undo_stack
-        redo_stack = rest
-        Some(top)
+    undo(current) => {
+      if is_empty(nodes) {
+        None
+      } else {
+        match find_undo_node(nodes, current_id) {
+          None => None,
+          Some(curr) => {
+            let (nodes1, next_id1, eff_id) = get_or_create_child(nodes, curr, current, next_id)
+            let (nodes2, new_curr_id, res) = execute_undo(nodes1, eff_id)
+            nodes = nodes2
+            next_id = next_id1
+            current_id = new_curr_id
+            res
+          }
+        }
+      }
+    },
+    redo(current) => {
+      if is_empty(nodes) {
+        None
+      } else {
+        match find_undo_node(nodes, current_id) {
+          None => None,
+          Some(curr) => {
+            let (nodes1, new_id, res) = execute_redo(nodes, curr)
+            nodes = nodes1
+            current_id = new_id
+            res
+          }
+        }
+      }
+    },
+    next_branch(current) => {
+      if is_empty(nodes) {
+        None
+      } else {
+        match find_undo_node(nodes, current_id) {
+          None => None,
+          Some(curr) => {
+            let (nodes1, new_id, res) = find_branch_switch(nodes, curr)
+            nodes = nodes1
+            current_id = new_id
+            res
+          }
+        }
+      }
+    },
+    snapshot_tree() => {
+      UndoTree { current_id: current_id, nodes: nodes }
+    },
+    jump_to(target_id) => {
+      match find_undo_node(nodes, target_id) {
+        None => None,
+        Some(target_node) => {
+          nodes = set_ancestor_last_children(nodes, target_id)
+          current_id = target_id
+          Some(target_node.snapshot)
+        }
       }
     }
-  } with var undo_stack = [], var redo_stack = [] as buf_ref
+  } with var nodes: list<UndoNode> = [], var current_id: int = 0, var next_id: int = 1 as buf_ref
   (buf_ref, buf_ref)
 }
 

@@ -26,6 +26,8 @@ highlighting) with `hica`'s algebraic effects and Perceus-based memory managemen
 - **Syntax highlighting** — a fast, built-in line-by-line lexer highlights `hica`/`koka` source
 - **Live keybindings overlay** — `Ctrl-g` shows every currently bound chord, generated
   straight from the active bindings
+- **Multi-cursor editing** — `Meta-c` adds cursors at occurrences of a word/selection, or Meta-click with the mouse; edits apply simultaneously across all cursors with offset-drift tracking
+- **Branching visual undo tree** — `Meta-t` opens an interactive Unicode tree graph to preview and restore historical revisions without losing diverged edits; `Meta-u` cycles sibling branches
 - **Scriptable** — settings, keybindings, and plugins are all just [HiLisp](https://github.com/cladam/hica-lisp) (see below)
 
 Full reference with every chord: [`docs/hedit-cheatsheet.md`](docs/hedit-cheatsheet.md)

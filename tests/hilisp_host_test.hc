@@ -429,3 +429,25 @@ test "load_config: (bind) rewires Meta-c to add-cursor-next-match" {
   assert(err == None)
   assert(lookup_binding(cfg.bindings, KeyChord { m: Meta, c: 'c' }) == AddCursorNextMatch)
 }
+
+test "action_to_string and string_to_action for undo tree actions" {
+  assert(action_to_string(ToggleUndoTree) == "toggle-undo-tree")
+  assert(string_to_action("toggle-undo-tree") == Some(ToggleUndoTree))
+  assert(action_to_string(NextBranch) == "next-branch")
+  assert(string_to_action("next-branch") == Some(NextBranch))
+  assert(action_to_string(UndoTreeNext) == "undo-tree-next")
+  assert(string_to_action("undo-tree-next") == Some(UndoTreeNext))
+  assert(action_to_string(UndoTreePrev) == "undo-tree-prev")
+  assert(string_to_action("undo-tree-prev") == Some(UndoTreePrev))
+  assert(action_to_string(UndoTreeCommit) == "undo-tree-commit")
+  assert(string_to_action("undo-tree-commit") == Some(UndoTreeCommit))
+  assert(action_to_string(UndoTreeCancel) == "undo-tree-cancel")
+  assert(string_to_action("undo-tree-cancel") == Some(UndoTreeCancel))
+}
+
+test "load_config: (bind) rewires Meta-t to toggle-undo-tree" {
+  let src = "(bind \"Meta-t\" 'toggle-undo-tree)"
+  let (cfg, err) = load_config(src, default_config())
+  assert(err == None)
+  assert(lookup_binding(cfg.bindings, KeyChord { m: Meta, c: 't' }) == ToggleUndoTree)
+}

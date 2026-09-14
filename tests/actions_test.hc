@@ -1253,3 +1253,86 @@ test "Paste with multiple cursors inserts the clipboard text at each cursor" {
   assert(s2.buffer.lines == ["aXYZ", "bXYZ"])
   assert(length(s2.buffer.cursors) == 2)
 }
+
+// ------------------- M21: Native visual undo tree actions ---------------
+
+test "resolve_action maps Meta-t to ToggleUndoTree and Meta-u to NextBranch" {
+  let s0 = init_editor(None)
+  assert(resolve_action(s0, KeyEvent(KShortcut(Meta, 't'))) == ToggleUndoTree)
+  assert(resolve_action(s0, KeyEvent(KShortcut(Meta, 'u'))) == NextBranch)
+}
+
+test "while undo tree is open, ArrowUp/ArrowDown resolve to UndoTreePrev/UndoTreeNext" {
+  let s0 = init_editor(None)
+  let n1 = UndoNode { id: 1, snapshot: s0.buffer, parent: 0, children: [], last_child: None }
+  let uts = UndoTreeState {
+    tree: UndoTree { current_id: 1, nodes: [n1] },
+    selected_id: 1,
+    original_buffer: s0.buffer,
+    original_id: 1
+  }
+  let s1 = EditorState { ...s0, undo_tree: Some(uts) }
+  assert(resolve_action(s1, KeyEvent(KSpecial(ArrowUp))) == UndoTreePrev)
+  assert(resolve_action(s1, KeyEvent(KSpecial(ArrowDown))) == UndoTreeNext)
+  assert(resolve_action(s1, KeyEvent(KChar('k'))) == UndoTreePrev)
+  assert(resolve_action(s1, KeyEvent(KChar('j'))) == UndoTreeNext)
+  assert(resolve_action(s1, KeyEvent(KSpecial(Enter))) == UndoTreeCommit)
+  assert(resolve_action(s1, KeyEvent(KSpecial(Esc))) == UndoTreeCancel)
+  assert(resolve_action(s1, KeyEvent(KShortcut(Meta, 't'))) == UndoTreeCancel)
+  assert(resolve_action(s1, KeyEvent(KShortcut(Ctrl, 'q'))) == Quit)
+  assert(resolve_action(s1, Tick) == Ignore)
+}
+
+test "undo tree navigation live-previews buffer and cancel restores original" {
+  let b_orig = with_lines(["original"]).buffer
+  let b1 = with_lines(["rev 1"]).buffer
+  let b2 = with_lines(["rev 2"]).buffer
+  let n1 = UndoNode { id: 1, snapshot: b1, parent: 0, children: [2], last_child: Some(2) }
+  let n2 = UndoNode { id: 2, snapshot: b2, parent: 1, children: [], last_child: None }
+  let uts = UndoTreeState {
+    tree: UndoTree { current_id: 2, nodes: [n1, n2] },
+    selected_id: 1,
+    original_buffer: b_orig,
+    original_id: 2
+  }
+  let s0 = init_editor(None)
+  let s1 = EditorState { ...s0, buffer: b_orig, undo_tree: Some(uts) }
+
+  // Next moves to node 2, previewing b2
+  let s2 = handle_action(s1, KeyEvent(KSpecial(ArrowDown)))
+  assert(s2.buffer.lines == ["rev 2"])
+  match s2.undo_tree {
+    Some(u) => assert(u.selected_id == 2),
+    None    => assert(false)
+  }
+
+  // Prev moves back to node 1, previewing b1
+  let s3 = handle_action(s2, KeyEvent(KSpecial(ArrowUp)))
+  assert(s3.buffer.lines == ["rev 1"])
+  match s3.undo_tree {
+    Some(u) => assert(u.selected_id == 1),
+    None    => assert(false)
+  }
+
+  // Esc cancels and restores original buffer
+  let s4 = handle_action(s3, KeyEvent(KSpecial(Esc)))
+  assert(s4.buffer.lines == ["original"])
+  assert(s4.undo_tree == None)
+}
+
+test "undo tree commit retains previewed buffer and clears overlay" {
+  let b_orig = with_lines(["original"]).buffer
+  let b1 = with_lines(["rev 1"]).buffer
+  let n1 = UndoNode { id: 1, snapshot: b1, parent: 0, children: [], last_child: None }
+  let uts = UndoTreeState {
+    tree: UndoTree { current_id: 1, nodes: [n1] },
+    selected_id: 1,
+    original_buffer: b_orig,
+    original_id: 1
+  }
+  let s0 = init_editor(None)
+  let s1 = EditorState { ...s0, buffer: b1, undo_tree: Some(uts) }
+  let s2 = apply_action(s1, UndoTreeCommit)
+  assert(s2.buffer.lines == ["rev 1"])
+  assert(s2.undo_tree == None)
+}
