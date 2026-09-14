@@ -115,6 +115,15 @@
 ;; Hot reload config (this file)
 (bind "Meta-r" 'reload-config)
 
+;; Undo tree & branching (M21): hedit retains an immutable branching
+;; revision graph — edits made after an undo diverge into sibling
+;; branches instead of discarding the redo chain.
+;; Meta-t opens the visual Unicode tree overlay (Up/Down to preview,
+;; Enter to restore, Esc to cancel). Meta-u cycles diverged branches
+;; directly without opening the overlay.
+(bind "Meta-t" 'toggle-undo-tree)
+(bind "Meta-u" 'next-branch)
+
 ;; 'ignore is also a valid target — binds a chord to a no-op, e.g. to
 ;; silence a default without giving it a new job:
 ;; (bind "Ctrl-w" 'ignore)
