@@ -54,6 +54,15 @@ HEDIT_INSTALL_DIR=/usr/local/bin curl -fsSL https://github.com/cladam/hedit/rele
 HEDIT_INSTALL_DIR=/usr/local/bin hicurl https://github.com/cladam/hedit/releases/latest/download/install.sh | sh
 ```
 
+`install.sh` also installs the `hedit(1)` man page — to the first writable
+system man directory it finds (e.g. `/usr/local/share/man/man1`), falling
+back to `~/.local/share/man/man1` otherwise. Override with
+`HEDIT_MAN_DIR=/path/to/man1`. View it with:
+
+```sh
+man hedit
+```
+
 **Note:** _No Windows support!_
 
 ## Usage

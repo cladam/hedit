@@ -1,0 +1,371 @@
+.TH HEDIT 1 "2026-09-16" "hedit 0.21.0" "User Commands"
+.SH NAME
+hedit \- a lightweight terminal-based text editor written in hica
+.SH SYNOPSIS
+.B hedit
+.RI [ OPTION ]...
+.RB [ + LINE [: COL ]]
+.RI [ FILE ]
+.br
+.B hedit
+.RB ( \-\-help | \-\-version )
+.SH DESCRIPTION
+.B hedit
+is a terminal text editor that pairs familiar, readline-style editing
+with a small Lisp-based configuration and plugin language called
+\fBHiLisp\fR. It supports multiple buffers, split panes, mouse input,
+multi-cursor editing, incremental search, and a branching visual undo
+tree.
+.PP
+With no
+.I FILE
+argument,
+.B hedit
+opens a single empty scratch buffer. If
+.I FILE
+does not exist yet, it is created in memory and only written to disk
+on the first save.
+.PP
+All configuration \(em settings, key bindings, and plugins \(em is
+loaded from a single
+.B init.hl
+file written in HiLisp; see
+.B CONFIGURATION
+below.
+.SH OPTIONS
+.TP
+.BI + LINE
+Move the cursor to
+.I LINE
+(1-indexed) after opening
+.IR FILE .
+.TP
+.BI + LINE : COL
+Move the cursor to
+.I LINE
+and column
+.I COL
+(both 1-indexed) after opening
+.IR FILE .
+.TP
+.BR \-R ", " \-\-readonly
+Open
+.I FILE
+in read-only mode. Save
+.RB ( Ctrl-s )
+is disabled for the session.
+.TP
+.BI \-\-tabsize\ N
+Override the configured tab size for this run. Takes precedence over
+any
+.RI "(set \(lqtabsize\(rq ...)"
+form in
+.BR init.hl .
+.TP
+.BI \-c\ PATH ", " \-\-config\ PATH
+Load configuration from
+.I PATH
+instead of using the default search order (see
+.B FILES
+below).
+.TP
+.B \-\-no\-config
+Skip loading a user
+.B init.hl
+entirely and run with built-in defaults.
+.TP
+.B \-\-help
+Print a short usage summary and exit.
+.TP
+.B \-\-version
+Print the
+.B hedit
+version and exit.
+.PP
+The
+.BI + LINE [: COL ]
+form is a bare positional token (no leading option name) and may
+appear before or after
+.IR FILE .
+Command-line flags always take precedence over an equivalent
+.B init.hl
+setting.
+.SH KEY BINDINGS
+Almost every binding below can be remapped from
+.B init.hl
+with
+.RI ( bind
+.RB \*(lq KEYSTROKE \*(rq
+.RI \*(aq ACTION \*(aq )\c
+; arrow keys, Enter, Backspace, and Esc are fixed. Press
+.B Ctrl-g
+inside
+.B hedit
+at any time for a live overlay of the currently active bindings,
+generated straight from the running configuration.
+.SS File operations
+.TP
+.B Ctrl-s
+Save the current buffer. On a pathless (scratch) buffer this opens
+the Save-As prompt instead.
+.TP
+.B Ctrl-o
+Open the "open file" prompt.
+.TP
+.B Ctrl-q
+Quit. With two or more panes open, closes the active pane and its
+buffer instead, and only exits
+.B hedit
+once a single pane remains.
+.SS Cursor & line editing (readline-style)
+.TP
+.B Ctrl-a\fR\ /\ \fBCtrl-e
+Move to the start / end of the current line.
+.TP
+.B Meta-f\fR\ /\ \fBMeta-b
+Move forward / back one word.
+.TP
+.B Ctrl-d
+Delete the character under the cursor (forward-delete).
+.TP
+.B Ctrl-k
+Kill from the cursor to the end of the line, into the clipboard.
+.TP
+.B Ctrl-w
+Kill the word before the cursor, into the clipboard.
+.TP
+.B Meta-d
+Kill the word after the cursor, into the clipboard.
+.TP
+.B Meta-l
+Kill the entire current line, into the clipboard.
+.TP
+.B Ctrl-c\fR\ /\ \fBCtrl-v
+Copy / paste. With an active selection, copy/replace just the
+selected text instead of the whole line.
+.TP
+.B Ctrl-y
+Yank \(em same clipboard slot as
+.BR Ctrl-v .
+.TP
+.B Ctrl-z\fR\ /\ \fBCtrl-r
+Undo / redo.
+.SS Selections
+.TP
+.B Ctrl-Space
+Set or clear the mark at the cursor.
+.TP
+.B Arrow keys
+With a mark set, extend the selection to the new cursor position.
+.TP
+.B Meta-a
+Select the entire buffer.
+.SS Multi-cursor editing
+.TP
+.B Meta-c
+Add a cursor at the next occurrence of the word under the cursor (or
+the active selection); selects the word on the first press, adds the
+next match on repeat.
+.TP
+.B Meta-click
+Add an extra cursor at the mouse click position.
+.TP
+.B Esc
+Collapse all cursors back to a single cursor and clear selections.
+.PP
+Typing, deleting, and pasting apply simultaneously at every active
+cursor.
+.SS Branching undo tree
+.TP
+.B Meta-t
+Toggle a full-screen Unicode undo-tree overlay with a live preview of
+each revision.
+.TP
+.B Meta-u
+Cycle sibling branches in the undo graph.
+.PP
+Inside the undo tree overlay:
+.B Up/Down
+(or
+.BR k / j )
+navigate revisions,
+.B Enter
+restores the selected revision, and
+.B Esc
+cancels.
+.SS Find
+.TP
+.B Ctrl-f
+Open the find bar. Matches highlight live as you type.
+.TP
+.B Ctrl-Right\fR\ /\ \fBCtrl-Left
+Jump to the next / previous match, wrapping at either end.
+.TP
+.B Enter
+Close the find bar and jump to the next match; the search stays
+active.
+.TP
+.B Esc
+Cancel and drop the search, clearing highlights.
+.PP
+Search is plain-substring, case-sensitive, and whole-buffer.
+.SS Buffers
+.B hedit
+keeps open buffers in a ring rather than a tab bar.
+.TP
+.B Meta-o
+Open a new scratch buffer, pushing the current one onto the ring.
+.TP
+.B Meta-n\fR\ /\ \fBMeta-p
+Switch to the next / previous buffer in the ring.
+.TP
+.B Meta-w
+Close the active buffer (refuses to close the last remaining one).
+.SS Split panes
+.TP
+.B Meta-v\fR\ /\ \fBMeta-h
+Open a vertical / horizontal split prompt. Type a path and press
+Enter to open that file in the new pane, or press Enter on an empty
+prompt to duplicate the current buffer.
+.TP
+.B Meta-Arrows
+Move focus to the nearest pane in that direction.
+.TP
+.B Meta-Tab
+Cycle focus to the next pane.
+.PP
+A divider can be dragged with the mouse to resize the adjacent panes.
+.SS Mouse
+Click to place the cursor, drag to select, click or drag a pane
+divider to resize, and scroll to move the viewport. Modifier-held
+clicks (Ctrl/Option) are not currently decoded.
+.SS Help & configuration
+.TP
+.B Ctrl-g
+Toggle the keybindings overlay.
+.TP
+.B Meta-r
+Reload
+.B init.hl
+and plugins live, without restarting.
+.SH CONFIGURATION
+.B hedit
+is configured entirely through a HiLisp file named
+.BR init.hl .
+HiLisp is a small Lisp dialect; see
+.B FILES
+below for where
+.B hedit
+looks for it.
+.PP
+Three built-ins cover the whole surface:
+.TP
+.BI "(set " key " " value )
+Set a configuration value, e.g.
+.RI "(set \*(lqtabsize\*(rq 4)" .
+.TP
+.BI "(get " key )
+Read back a previously set configuration value.
+.TP
+.BI "(bind " keystroke " " action )
+Map a keystroke (e.g.
+.RI \*(lq Ctrl-s \*(rq )
+to a named action (e.g.
+.IR 'save ).
+.RI \*(aq ignore \*(aq
+silences a default binding without replacing it.
+.PP
+A syntax or runtime error in
+.B init.hl
+does not lock the editor out: it is evaluated top to bottom, stops at
+the first error, surfaces it in the status line, and keeps whatever
+loaded successfully before that point.
+.PP
+An annotated example covering every available setting and action name
+ships at
+.IR examples/init.hl " in the hedit source tree."
+.SH PLUGINS
+Plugins are ordinary HiLisp files loaded by opt-in name from
+.B init.hl
+via
+.RI "(plugin \*(lq" name "\*(rq)" ,
+which resolves to
+.IR name /plugin.hl
+in a
+.B plugins
+directory next to whichever
+.B init.hl
+was actually loaded.
+.PP
+A plugin registers callbacks with
+.RI "(on '" event " (fn (...) ...))"
+for lifecycle events:
+.BR buffer-open ", " pre-save ", " post-save ", " pre-action ", and " quit .
+If a
+.B pre-save
+or
+.B pre-action
+hook returns false, the save or action is skipped (the
+.B quit
+action can never be trapped this way). If a hook returns a string, it
+is shown as the next status-bar message.
+.PP
+See
+.IR examples/plugins/ " in the hedit source tree for reference plugins."
+.SH FILES
+.TP
+.I $XDG_CONFIG_HOME/hedit/init.hl
+Primary configuration file (falls back to
+.IR $HOME/.config/hedit/init.hl
+if
+.B XDG_CONFIG_HOME
+is unset).
+.TP
+.I $HOME/.hedit.hl
+Used if neither of the above exists.
+.PP
+The first file found in that order wins; if none exist,
+.B hedit
+runs with built-in defaults. A
+.B \-\-config
+argument or
+.B \-\-no\-config
+flag overrides this search entirely.
+.SH EXAMPLES
+.TP
+.B hedit
+Open an empty scratch buffer.
+.TP
+.B hedit notes.txt
+Open
+.IR notes.txt .
+.TP
+.B hedit +42:8 notes.txt
+Open
+.I notes.txt
+with the cursor at line 42, column 8.
+.TP
+.B hedit \-R /etc/hosts
+Open a file read-only.
+.TP
+.B hedit \-\-config ~/dotfiles/hedit-init.hl notes.txt
+Load configuration from a non-default path.
+.SH EXIT STATUS
+.B hedit
+exits 0 on a normal quit
+.RB ( Ctrl-q ).
+A non-zero status indicates a startup failure such as an unreadable
+file argument.
+.SH BUGS
+Windows is not supported. Modifier-held mouse clicks (Ctrl/Option)
+are not decoded. Report issues at
+.BR https://github.com/cladam/hedit/issues .
+.SH SEE ALSO
+Full keybinding reference:
+.I docs/hedit-cheatsheet.md
+in the hedit source tree.
+.PP
+.BR hica (1),
+.BR koka (1)
+.SH AUTHOR
+Claes Adamsson (https://github.com/cladam)

@@ -81,7 +81,11 @@ jobs:
         run: codesign --sign - --force hedit
 
       - name: Package
-        run: tar czf ${{ matrix.artifact }}.tar.gz hedit
+        run: |
+          mkdir -p dist
+          cp hedit dist/hedit
+          cp man/hedit.1 dist/hedit.1
+          tar czf ${{ matrix.artifact }}.tar.gz -C dist hedit hedit.1
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

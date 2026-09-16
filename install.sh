@@ -2,7 +2,7 @@
 set -e
 
 REPO="cladam/hedit"
-INSTALL_DIR="${HICURL_INSTALL_DIR:-$HOME/.local/bin}"
+INSTALL_DIR="${HEDIT_INSTALL_DIR:-$HOME/.local/bin}"
 TMP_DIR=""
 
 main() {
@@ -54,8 +54,54 @@ main() {
     echo "  export PATH=\"$INSTALL_DIR:\$PATH\""
   fi
 
+  if [ -f "$TMP_DIR/hedit.1" ]; then
+    install_man_page
+  fi
+
   echo ""
   "$INSTALL_DIR/hedit" --version
+}
+
+# Picks a man page install directory: an explicit override, then the
+# first writable system man dir, falling back to a user-local one.
+resolve_man_dir() {
+  if [ -n "$HEDIT_MAN_DIR" ]; then
+    echo "$HEDIT_MAN_DIR"
+    return
+  fi
+
+  local candidate
+  for candidate in /usr/local/share/man/man1 /usr/share/man/man1; do
+    if mkdir -p "$candidate" 2>/dev/null && [ -w "$candidate" ]; then
+      echo "$candidate"
+      return
+    fi
+  done
+
+  echo "$HOME/.local/share/man/man1"
+}
+
+install_man_page() {
+  local man_dir
+  man_dir="$(resolve_man_dir)"
+
+  mkdir -p "$man_dir" 2>/dev/null || {
+    echo "note: could not create $man_dir — skipping man page install"
+    return
+  }
+
+  mv "$TMP_DIR/hedit.1" "$man_dir/hedit.1"
+  echo "man page installed to $man_dir/hedit.1"
+
+  case ":$(manpath 2>/dev/null):$MANPATH:" in
+    *":$man_dir:"*) ;;
+    *)
+      if [ "$man_dir" != "/usr/local/share/man/man1" ] && [ "$man_dir" != "/usr/share/man/man1" ]; then
+        echo "Add it to MANPATH by adding this to your shell profile:"
+        echo "  export MANPATH=\"$(dirname "$man_dir"):\$MANPATH\""
+      fi
+      ;;
+  esac
 }
 
 need_cmd() {

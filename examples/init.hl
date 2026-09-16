@@ -32,8 +32,8 @@
 ;; (set "theme.active-tab-bg"  "60,60,60")
 ;; (set "theme.cursor-line-bg" "45,45,45")
 
-;; Syntax highlighting fg colors — fg-only, no background. Keeps
-;; a distinct override namespace from the chrome colors above since
+;; Syntax highlighting fg colours — fg-only, no background. Keeps
+;; a distinct override namespace from the chrome colours above since
 ;; these paint token spans inside the buffer, not the tabline/status/
 ;; cursor line.
 ;; (set "theme.syntax-keyword-fg" "86,156,214")
@@ -49,9 +49,8 @@
 ;; ---------------------------------------------------------------------
 ;;
 ;; Ctrl-<letter> chords and a bare ESC+char (most terminals'
-;; "metaSendsEscape" for Alt) are both decoded from real terminal input
-;; — the latter shows up as Meta-<letter> below. These are hedit's
-;; built-in defaults, spelled out here so you can see every bindable
+;; "metaSendsEscape" for Alt) are both decoded from real terminal input. These are hedit's
+;; built-in defaults, spelled out here so users can see every bindable
 ;; action name and rebind any of them.
 
 (bind "Ctrl-q" 'quit)
@@ -64,9 +63,7 @@
 (bind "Ctrl-g" 'toggle-help)
 
 ;; Readline-style cursor/line editing. Ctrl-b/Ctrl-f are NOT hedit
-;; defaults (removed in M12 — use ArrowLeft/ArrowRight instead; Ctrl-f
-;; now opens Find, see below), but still valid rebind targets if you'd
-;; rather have them back:
+;; defaults use ArrowLeft/ArrowRight instead:
 ;; (bind "Ctrl-b" 'move-left)
 ;; (bind "Ctrl-f" 'move-right)
 (bind "Ctrl-a" 'move-line-start)
@@ -91,7 +88,7 @@
 (bind "Meta-d" 'kill-word-forward)
 (bind "Meta-l" 'kill-whole-line)
 
-;; Selection ranges (M17): Ctrl-Space sets the mark at the cursor (a
+;; Selection ranges: Ctrl-Space sets the mark at the cursor (a
 ;; second press clears it); any movement while a mark is active extends
 ;; the selection. Meta-a selects the whole buffer. A selection makes
 ;; Ctrl-c copy just the selected text (falls back to whole-line copy
@@ -101,8 +98,7 @@
 
 ;; Split panes: type a path + Enter to open that file in the new pane,
 ;; or a bare Enter to duplicate the current buffer's content into it.
-;; Esc cancels. Pane-focus movement (Meta-Arrows/Meta-Tab) is decoded
-;; but doesn't move focus yet, so there's nothing to bind there.
+;; Esc cancels. 
 (bind "Meta-v" 'vsplit-prompt)
 (bind "Meta-h" 'hsplit-prompt)
 
@@ -115,7 +111,7 @@
 ;; Hot reload config (this file)
 (bind "Meta-r" 'reload-config)
 
-;; Undo tree & branching (M21): hedit retains an immutable branching
+;; Undo tree & branching: hedit retains an immutable branching
 ;; revision graph — edits made after an undo diverge into sibling
 ;; branches instead of discarding the redo chain.
 ;; Meta-t opens the visual Unicode tree overlay (Up/Down to preview,
