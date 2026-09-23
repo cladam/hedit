@@ -11,6 +11,7 @@ import "model"
 import "actions"
 import "render"
 import "config_loader"
+import "session"
 import "hilisp_host"
 import "../lib/hilisp/src/lisp"
 
@@ -478,10 +479,17 @@ fun is_quit(action: Action) : bool =>
 // — avoids a visible flicker on the styled rows every ~200ms poll
 // timeout otherwise. `hl_env` is the HiLisp `Env` threaded through
 // every hook firing (`init.hl` + any loaded plugins' `(on ...)`
+fun is_save(action: Action) : bool =>
+  match action {
+    Save => true,
+    _    => false
+  }
+
 // registrations live on it).
 fun event_loop_step(state: EditorState, buf_pool: list<(int, ref<Buffer>)>, last_frame: maybe<ScreenBuffer>, hl_env: Env) {
   if state.should_quit {
     let (_, _) = fire_hook(env_with_buffer_stats(hl_env, state.buffer), "quit", [])
+    save_session_if_needed(state)
     state
   } else {
     let dims  = get_dimensions()
@@ -498,6 +506,7 @@ fun event_loop_step(state: EditorState, buf_pool: list<(int, ref<Buffer>)>, last
       if hook_cancels(pre_results) && !is_quit(action) { (blocked_state(sized, action_to_string(action), pre_results), hl_env1, buf_pool) }
       else { dispatch_action(sized, action, buf_pool, hl_env1) }
     let synced = if view_relevant_change(sized, next) { sync_scroll(next) } else { next }
+    if is_save(action) { save_session_if_needed(synced) }
     event_loop_step(synced, pool2, next_frame, hl_env2)
   }
 }
@@ -723,9 +732,18 @@ pub fun spawn_buffer_handler() {
 // Return-type annotation omitted: the full effect row (<Terminal,
 // Clipboard, Buffer, fsys, div>) is inferred by Koka — explicit
 // annotation would be rejected as too narrow.
+/// Initialize the Buffer effect pool for all currently-open buffers.
+fun init_buffer_pool(bufs: list<TextBuffer>) =>
+  match bufs {
+    [] => [],
+    [b, ..rest] => {
+      let r = spawn_buffer_handler().0
+      [(b.bid, r)] + init_buffer_pool(rest)
+    }
+  }
+
 pub fun event_loop_with_env(state: EditorState, hl_env0:Env) {
-  let initial_ref = spawn_buffer_handler().0
-  let pool0 = [(state.buffer.bid, initial_ref)]
+  let pool0 = init_buffer_pool([state.buffer] + state.background_buffers)
   // One-off initial scroll sync against the REAL terminal size (state's
   // `screen_size` is still whatever `init_editor` defaulted to) — the
   // only place a cursor can start outside the first page without a

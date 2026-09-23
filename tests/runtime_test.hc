@@ -20,6 +20,7 @@
 import "../src/keys"
 import "../src/model"
 import "../src/runtime"
+import "../src/session"
 import "../src/hilisp_host"
 
 // Small named helper (instead of an inline lambda) so the `TextBuffer`
@@ -921,4 +922,55 @@ test "M21: Meta-t opens undo tree, navigates revisions, and Enter restores snaps
   }
   assert(final.undo_tree == None)
   assert(final.buffer.lines == ["hi"])
+}
+
+// ------------------- M23: session recovery -----------------------------
+
+test "M23: session snapshot is saved on quit and can be deserialized back" {
+  let _ = remove_session_file()
+  let final: EditorState = handle Terminal {
+    poll_event() => match ev {
+      []          => KeyEvent(KShortcut(Ctrl, 'q')),
+      [e, ..rest] => { ev = rest; e }
+    },
+    render_frame(_buf)   => (),
+    get_dimensions()     => (80, 24),
+    set_cursor_style(_s) => ()
+  } with var ev = [
+    KeyEvent(KChar('f')),
+    KeyEvent(KChar('o')),
+    KeyEvent(KChar('o')),
+    KeyEvent(KShortcut(Ctrl, 'q'))
+  ] in {
+    event_loop(init_editor(None))
+  }
+  assert(final.buffer.lines == ["foo"])
+
+  let (_, session_src_opt) = find_session_file()
+  let is_found = match session_src_opt {
+    Some(_) => true,
+    None    => false
+  }
+  assert(is_found)
+
+  let src = match session_src_opt {
+    Some(s) => s,
+    None    => ""
+  }
+  let rec_res = deserialize_session(src, default_config())
+  let rec_is_some = match rec_res {
+    Some(_) => true,
+    None    => false
+  }
+  assert(rec_is_some)
+
+  let rec_state: EditorState = match rec_res {
+    Some(s) => s,
+    None    => init_editor(None)
+  }
+  let rec_buf: TextBuffer = rec_state.buffer
+  assert(rec_buf.lines == ["foo"])
+  assert(rec_buf.is_dirty == true)
+
+  remove_session_file()
 }

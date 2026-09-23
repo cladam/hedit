@@ -9,6 +9,7 @@ import "runtime"
 import "hilisp_host"
 import "config_loader"
 import "cli_spec"
+import "session"
 import "syntax"
 import "std/cli"
 import "std/term"
@@ -290,6 +291,25 @@ fun apply_tabsize_override(cfg: Config, tabsize: maybe<string>) : Config =>
 fun apply_readonly_override(cfg: Config, ro: bool) : Config =>
   if ro { Config { ...cfg, readonly: true } } else { cfg }
 
+/// Helper to deserialize and refresh a recovered session, if any.
+fun parse_session_source(src: string, cfg: Config) =>
+  match deserialize_session(src, cfg) {
+    Some(rec) => (Some(refresh_restored_state(rec)), Some("Session recovered")),
+    None      => (None, None)
+  }
+
+/// Attempt to find and restore a saved session, unless recovery is skipped.
+fun try_recover_session(cfg: Config, skip: bool) {
+  if skip { (None, None) }
+  else {
+    let (_, src_opt) = find_session_file()
+    match src_opt {
+      Some(src) => parse_session_source(src, cfg),
+      None      => (None, None)
+    }
+  }
+}
+
 /// Build the initial `EditorState` from parsed CLI args (config, theme,
 /// target file, `+LINE:COL` start position), then install the native
 /// Terminal/Clipboard handlers and run `event_loop`.
@@ -301,16 +321,36 @@ fun run_editor(r: CliResult, pos_arg: maybe<string>) {
   let cfg3             = apply_readonly_override(cfg2, has_flag(r, "readonly"))
   let cfg              = Config { ...cfg3, custom_config_path: explicit_cfg }
   let (theme, theme_status) = resolve_theme_with_status(cfg)
-  let (loaded_buf0, load_status) = load_buffer(0, get_positional(r, 0))
-  let start_pos        = match pos_arg {
-    None    => None,
-    Some(a) => parse_position_arg(a)
+  let explicit_file    = get_positional(r, 0)
+  let skip_recover     = has_flag(r, "no-recover") || match explicit_file { Some(_) => true, None => false }
+  let (recovered, session_status) = try_recover_session(cfg, skip_recover)
+  let (s0, base_status, hl_env2) = match recovered {
+    Some(rec_s) => {
+      let rec_buf = match pos_arg {
+        Some(a) => set_initial_position(rec_s.buffer, parse_position_arg(a)),
+        None    => rec_s.buffer
+      }
+      let rec_s1 = EditorState { ...rec_s, buffer: rec_buf }
+      let buf_path = match rec_s1.buffer.path { Some(p) => p, None => "" }
+      let (hook_results, env_after) = fire_hook(env_with_buffer_stats(hl_env, rec_s1.buffer), "buffer-open", [LStr(buf_path)])
+      let full_status = combine_status(session_status, hook_status(hook_results))
+      (rec_s1, full_status, env_after)
+    },
+    None => {
+      let (loaded_buf0, load_status) = load_buffer(0, explicit_file)
+      let start_pos = match pos_arg {
+        None    => None,
+        Some(a) => parse_position_arg(a)
+      }
+      let loaded_buf = set_initial_position(loaded_buf0, start_pos)
+      let buf_path = match loaded_buf.path { Some(p) => p, None => "" }
+      let (hook_results, env_after) = fire_hook(env_with_buffer_stats(hl_env, loaded_buf), "buffer-open", [LStr(buf_path)])
+      let init_s = init_editor_with_buffer(loaded_buf, cfg)
+      let full_status = combine_status(load_status, hook_status(hook_results))
+      (init_s, full_status, env_after)
+    }
   }
-  let loaded_buf = set_initial_position(loaded_buf0, start_pos)
-  let buf_path = match loaded_buf.path { Some(p) => p, None => "" }
-  let (hook_results, hl_env2) = fire_hook(env_with_buffer_stats(hl_env, loaded_buf), "buffer-open", [LStr(buf_path)])
-  let s0 = init_editor_with_buffer(loaded_buf, cfg)
-  let all_status = combine_status(combine_status(combine_status(cfg_status, load_status), theme_status), hook_status(hook_results))
+  let all_status = combine_status(combine_status(cfg_status, base_status), theme_status)
   let s1 = match all_status {
     None      => s0,
     Some(msg) => set_status_message(s0, msg)

@@ -32,7 +32,7 @@ jobs:
 
       - name: Install Koka
         run: |
-          curl -sSL https://github.com/koka-lang/koka/releases/latest/download/install.sh | sudo sh
+          curl -sSL https://github.com/koka-lang/koka/releases/download/v3.2.3/install.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Install hica compiler

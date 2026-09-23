@@ -99,6 +99,16 @@ test "--readonly is a flag" {
   assert(is_set)
 }
 
+test "--no-recover is a flag" {
+  let spec = make_spec()
+  let outcome = cli_parse_args(spec, ["--no-recover"])
+  let is_set = match outcome {
+    Parsed(r) => has_flag(r, "no-recover"),
+    _         => false
+  }
+  assert(is_set)
+}
+
 test "-R is the short form of --readonly" {
   let spec = make_spec()
   let outcome = cli_parse_args(spec, ["-R"])

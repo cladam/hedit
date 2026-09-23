@@ -7,8 +7,9 @@ This is a living document and will be extended as new features are implemented. 
 ## Starting hedit
 
 ```sh
-hedit                                   # empty scratch buffer
-hedit file.txt                          # open a file
+hedit                                   # restore previous session (or empty scratch)
+hedit --no-recover                      # skip session recovery and start fresh
+hedit file.txt                          # open a file (bypasses recovery)
 hedit +42 file.txt                      # open at line 42
 hedit +42:8 file.txt                    # open at line 42, column 8
 hedit --readonly file.txt               # -R — open read-only (Save disabled)

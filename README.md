@@ -28,6 +28,7 @@ highlighting) with `hica`'s algebraic effects and Perceus-based memory managemen
   straight from the active bindings
 - **Multi-cursor editing** — `Meta-c` adds cursors at occurrences of a word/selection, or Meta-click with the mouse; edits apply simultaneously across all cursors with offset-drift tracking
 - **Branching visual undo tree** — `Meta-t` opens an interactive Unicode tree graph to preview and restore historical revisions without losing diverged edits; `Meta-u` cycles sibling branches
+- **Session & crash recovery** — automatically preserves open buffers, split pane layouts, cursor positions, and unsaved scratch notes across launches; `--no-recover` skips recovery
 - **Scriptable** — settings, keybindings, and plugins are all just [HiLisp](https://github.com/cladam/hica-lisp) (see below)
 
 Full reference with every chord: [`docs/hedit-cheatsheet.md`](docs/hedit-cheatsheet.md)
@@ -97,8 +98,9 @@ Default keybindings (overridable from `init.hl`):
 ### Command-line flags
 
 ```sh
-hedit                                   # empty scratch buffer
-hedit file.txt                          # open a file
+hedit                                   # restore previous session (or empty scratch)
+hedit --no-recover                      # skip session recovery and start fresh
+hedit file.txt                          # open a file (bypasses recovery)
 hedit +42 file.txt                      # open at line 42
 hedit +42:8 file.txt                    # open at line 42, column 8
 hedit --readonly file.txt               # -R — open read-only (Save disabled)

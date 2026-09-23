@@ -14,6 +14,7 @@ pub fun make_spec() : CliSpec =>
     |> flag("no-config", "", "skip loading the user's init.hl entirely")
     |> option("tabsize", "", "override the tabsize config value")
     |> flag("readonly", "R", "open the file in read-only mode (Save is disabled)")
+    |> flag("no-recover", "", "skip session recovery on startup")
 
 /// Parse the `:COL` part of a `+LINE:COL` token, given the already-parsed
 /// 1-indexed line number `n`.

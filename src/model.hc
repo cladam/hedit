@@ -604,7 +604,7 @@ pub fun init_editor_with_buffer(buf: TextBuffer, cfg: Config) : EditorState =>
 
 /// Split file content into lines, dropping one trailing newline
 /// artifact so this round-trips exactly with `runtime.hc::save_buffer`.
-fun split_lines(content: string) : list<string> =>
+pub fun split_lines(content: string) : list<string> =>
   if ends_with(content, "\n") { split(content[0:length(content) - 1], "\n") }
   else { split(content, "\n") }
 
