@@ -39,19 +39,23 @@ hedit --help / --version
 | Ctrl-d   | Delete the char under the cursor (forward-delete)    |
 | Meta-c   | Add cursor at next match (selects word on first press, adds next match on repeat) |
 | Esc      | Collapse all cursors back to single, clear selections|
-| Ctrl-k   | Kill from the cursor to the end of the line, into the clipboard |
-| Ctrl-w   | Kill the word before the cursor, into the clipboard  |
-| Meta-d   | Kill the word after the cursor, into the clipboard   |
-| Meta-l   | Kill the entire current line, into the clipboard     |
-| Ctrl-c   | Copy current line or active selections               |
-| Ctrl-v   | Paste                                                |
-| Ctrl-y   | Yank — same as Ctrl-v (one shared clipboard slot)    |
+| Ctrl-k   | Kill from the cursor to the end of the line, into the system clipboard |
+| Ctrl-w   | Kill the word before the cursor, into the system clipboard  |
+| Meta-d   | Kill the word after the cursor, into the system clipboard   |
+| Meta-l   | Kill the entire current line, into the system clipboard     |
+| Ctrl-c   | Copy current line or active selections to the system clipboard |
+| Ctrl-v   | Paste from the system clipboard                      |
+| Ctrl-y   | Yank — same as Ctrl-v                                 |
 | Ctrl-z   | Undo                                                 |
 | Ctrl-r   | Redo                                                 |
 | Meta-u   | Cycle sibling branches in the undo graph             |
 | Meta-t   | Toggle visual Unicode undo tree overlay              |
 
 **Multi-cursor:** `Meta-c` to add cursors at occurrences of a word/selection, or `Meta-click` with the mouse to drop an extra cursor anywhere. `Esc` collapses back to the primary cursor. Type, delete, or paste to edit simultaneously at every cursor with automatic offset drift tracking.
+
+**Clipboard:** hedit uses `pbcopy`/`pbpaste` on macOS, `wl-copy`/`wl-paste`
+on Wayland, and `xclip` or `xsel` on X11. If no complete tool pair is
+available, clipboard commands gracefully use an in-memory fallback.
 
 **Undo Tree (`Meta-t`):** opens a full-screen Unicode branch diagram. Navigate revisions with **Up / Down** (or **k / j**) with real-time live buffer preview. **Enter** commits and restores the revision, **Esc** cancels.
 

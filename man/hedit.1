@@ -1,4 +1,4 @@
-.TH HEDIT 1 "2026-09-16" "hedit 0.21.0" "User Commands"
+.TH HEDIT 1 "2026-09-25" "hedit 0.23.0" "User Commands"
 .SH NAME
 hedit \- a lightweight terminal-based text editor written in hica
 .SH SYNOPSIS
@@ -141,12 +141,23 @@ Kill the word after the cursor, into the clipboard.
 Kill the entire current line, into the clipboard.
 .TP
 .B Ctrl-c\fR\ /\ \fBCtrl-v
-Copy / paste. With an active selection, copy/replace just the
-selected text instead of the whole line.
+Copy to / paste from the system clipboard. With an active selection,
+copy/replace just the selected text instead of the whole line.
 .TP
 .B Ctrl-y
-Yank \(em same clipboard slot as
+Yank \(em same system clipboard as
 .BR Ctrl-v .
+.PP
+Clipboard integration uses
+.BR pbcopy / pbpaste
+on macOS,
+.BR wl-copy / wl-paste
+on Wayland, and
+.B xclip
+or
+.B xsel
+on X11. If no complete tool pair is available, clipboard commands use
+an in-memory fallback.
 .TP
 .B Ctrl-z\fR\ /\ \fBCtrl-r
 Undo / redo.

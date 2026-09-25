@@ -13,7 +13,7 @@ highlighting) with `hica`'s algebraic effects and Perceus-based memory managemen
 ## Features
 
 - **Familiar keybindings** — `Ctrl-s`/`Ctrl-o`/`Ctrl-q` for save/open/quit, readline-style
-  motions (`Ctrl-a/e`, `Meta-f/b`, `Ctrl-k`, `Ctrl-w`, …), undo/redo, a shared clipboard
+  motions (`Ctrl-a/e`, `Meta-f/b`, `Ctrl-k`, `Ctrl-w`, …), undo/redo, and system clipboard integration
 - **Selections** — set a mark with `Ctrl-Space`, extend it with the arrow keys, then
   copy/cut/paste just the selected text
 - **Incremental search** — `Ctrl-f` to search live as you type, `Ctrl-Right`/`Ctrl-Left`
@@ -84,8 +84,10 @@ Default keybindings (overridable from `init.hl`):
 - Readline-style editing: `Ctrl-a`/`Ctrl-e` line start/end, `Ctrl-d` delete-forward, `Ctrl-k` kill-line, `Ctrl-w`
   kill-word-back, `Meta-f`/`Meta-b` word forward/back, `Meta-d`
   kill-word-forward, `Meta-l` kill-whole-line
-- Clipboard & history: `Ctrl-c`/`Ctrl-v` copy/paste, `Ctrl-y` yank
-  (same clipboard slot as paste), `Ctrl-z` undo, `Ctrl-r` redo
+- Clipboard & history: `Ctrl-c`/`Ctrl-v` copy/paste through the system
+  clipboard, `Ctrl-y` yank (same clipboard as paste), `Ctrl-z` undo,
+  `Ctrl-r` redo. Uses `pbcopy`/`pbpaste`, `wl-copy`/`wl-paste`,
+  `xclip`, or `xsel`; falls back to an internal clipboard when none is available
 - Selection: `Ctrl-Space` set/clear the mark, use arrows or navigation chords to select, `Meta-a` select all; with
   a selection active, `Ctrl-c`/`Ctrl-v` copy/replace just the selected
   text instead of the whole line
