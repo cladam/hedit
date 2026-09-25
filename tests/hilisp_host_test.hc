@@ -451,3 +451,30 @@ test "load_config: (bind) rewires Meta-t to toggle-undo-tree" {
   assert(err == None)
   assert(lookup_binding(cfg.bindings, KeyChord { m: Meta, c: 't' }) == ToggleUndoTree)
 }
+
+test "action_to_string and string_to_action for command palette and shell actions" {
+  assert(action_to_string(OpenCommandPalette) == "open-command-palette")
+  assert(string_to_action("open-command-palette") == Some(OpenCommandPalette))
+  assert(string_to_action("command-palette") == Some(OpenCommandPalette))
+  assert(action_to_string(OpenShellPrompt) == "shell")
+  assert(string_to_action("shell") == Some(OpenShellPrompt))
+  assert(string_to_action("run-shell-command") == Some(OpenShellPrompt))
+  assert(action_to_string(PromptNext) == "prompt-next")
+  assert(string_to_action("prompt-next") == Some(PromptNext))
+  assert(action_to_string(PromptPrev) == "prompt-prev")
+  assert(string_to_action("prompt-prev") == Some(PromptPrev))
+}
+
+test "load_config: (bind) rewires Meta-x to open-command-palette" {
+  let src = "(bind \"Meta-x\" 'open-command-palette)"
+  let (cfg, err) = load_config(src, default_config())
+  assert(err == None)
+  assert(lookup_binding(cfg.bindings, KeyChord { m: Meta, c: 'x' }) == OpenCommandPalette)
+}
+
+test "load_config: (bind) rewires Ctrl-b to shell" {
+  let src = "(bind \"Ctrl-b\" 'shell)"
+  let (cfg, err) = load_config(src, default_config())
+  assert(err == None)
+  assert(lookup_binding(cfg.bindings, KeyChord { m: Ctrl, c: 'b' }) == OpenShellPrompt)
+}

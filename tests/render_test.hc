@@ -280,3 +280,43 @@ test "render_undo_tree_buffer renders title, tree branch lines, and footer" {
   assert(l2 == "> ├─○ [2] 1L: \"branch 1\"")
   assert(l3 == "  ╰─● [3] 1L: \"branch 2\"")
 }
+
+// ------------------- Command Palette rendering (M24) ---------------------
+
+fun line_at(xs: list<string>, idx: int) : string =>
+  match xs {
+    [] => "",
+    [x, ..rest] =>
+      if idx <= 0 { x }
+      else { line_at(rest, idx - 1) }
+  }
+
+test "CommandPrompt renders Command: label in status row and suggestions above it" {
+  let s0 = with_lines_render(["some buffer content"], (40, 10))
+  let s1 = EditorState { ...s0, prompt: CommandPrompt("sav", 3, 0) }
+  let buf = render_editor_to_buffer(s1)
+  assert(buf.height == 10)
+  assert(length(buf.lines) == 10)
+
+  // Status line is the last line (index 9)
+  let status_line = line_at(buf.lines, 9)
+  assert(starts_with(status_line, "Command: sav"))
+
+  // Row right above status line should contain suggestion with selection marker
+  let sug_line = line_at(buf.lines, 8)
+  assert(starts_with(sug_line, "> save"))
+
+  // Cursor is on the status line
+  assert(buf.cursor_row == 10)
+  assert(buf.cursor_col == length("Command: ") + 3 + 1)
+}
+
+test "ShellPrompt renders Shell: label in status row" {
+  let s0 = with_lines_render(["content"], (40, 10))
+  let s1 = EditorState { ...s0, prompt: ShellPrompt("ls -la", 6) }
+  let buf = render_editor_to_buffer(s1)
+  let status_line = line_at(buf.lines, 9)
+  assert(starts_with(status_line, "Shell: ls -la"))
+  assert(buf.cursor_row == 10)
+  assert(buf.cursor_col == length("Shell: ") + 6 + 1)
+}

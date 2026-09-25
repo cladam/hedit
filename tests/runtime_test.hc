@@ -974,3 +974,62 @@ test "M23: session snapshot is saved on quit and can be deserialized back" {
 
   remove_session_file()
 }
+
+// ------------------- M24: Command Palette in event_loop ------------------
+
+test "M24: scripted Meta-x in event loop opens palette and dispatches close-buffer" {
+  let final: EditorState = handle Terminal {
+    poll_event() => match ev {
+      []          => KeyEvent(KShortcut(Ctrl, 'q')),
+      [e, ..rest] => { ev = rest; e }
+    },
+    render_frame(_buf)   => (),
+    get_dimensions()     => (80, 24),
+    set_cursor_style(_s) => ()
+  } with var ev = [
+    KeyEvent(KShortcut(Meta, 'o')), // opens second buffer
+    KeyEvent(KShortcut(Meta, 'x')), // open command palette
+    KeyEvent(KChar('c')),
+    KeyEvent(KChar('l')),
+    KeyEvent(KChar('o')),
+    KeyEvent(KChar('s')),
+    KeyEvent(KChar('e')),
+    KeyEvent(KChar('-')),
+    KeyEvent(KChar('b')),
+    KeyEvent(KChar('u')),
+    KeyEvent(KChar('f')),
+    KeyEvent(KChar('f')),
+    KeyEvent(KChar('e')),
+    KeyEvent(KChar('r')),
+    KeyEvent(KSpecial(Enter)), // executes close-buffer
+    KeyEvent(KShortcut(Ctrl, 'q'))
+  ] in {
+    event_loop(init_editor(None))
+  }
+  // Second buffer closed, background_buffers is empty again
+  assert(length(final.background_buffers) == 0)
+}
+
+test "M24: scripted shell command executes and sets status message" {
+  let final: EditorState = handle Terminal {
+    poll_event() => match ev {
+      []          => KeyEvent(KShortcut(Ctrl, 'q')),
+      [e, ..rest] => { ev = rest; e }
+    },
+    render_frame(_buf)   => (),
+    get_dimensions()     => (80, 24),
+    set_cursor_style(_s) => ()
+  } with var ev = [
+    KeyEvent(KShortcut(Meta, 'x')),
+    KeyEvent(KChar('!')),
+    KeyEvent(KChar('t')),
+    KeyEvent(KChar('r')),
+    KeyEvent(KChar('u')),
+    KeyEvent(KChar('e')),
+    KeyEvent(KSpecial(Enter)),
+    KeyEvent(KShortcut(Ctrl, 'q'))
+  ] in {
+    event_loop(init_editor(None))
+  }
+  assert(final.status_message == Some("Command executed: true"))
+}

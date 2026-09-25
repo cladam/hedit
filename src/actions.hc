@@ -1090,35 +1090,41 @@ pub fun close_pane(state: EditorState) : EditorState {
 /// Return the text typed so far in `p`.
 fun prompt_text(p: Prompt) : string =>
   match p {
-    NoPrompt           => "",
-    SaveAsPrompt(t, _) => t,
-    OpenPrompt(t, _)   => t,
-    FindPrompt(t, _)   => t,
-    VSplitPrompt(t, _) => t,
-    HSplitPrompt(t, _) => t
+    NoPrompt               => "",
+    SaveAsPrompt(t, _)     => t,
+    OpenPrompt(t, _)       => t,
+    FindPrompt(t, _)       => t,
+    VSplitPrompt(t, _)     => t,
+    HSplitPrompt(t, _)     => t,
+    CommandPrompt(t, _, _) => t,
+    ShellPrompt(t, _)      => t
   }
 
 /// Return the cursor column within `p`'s typed text.
 fun prompt_cursor(p: Prompt) : int =>
   match p {
-    NoPrompt           => 0,
-    SaveAsPrompt(_, c) => c,
-    OpenPrompt(_, c)   => c,
-    FindPrompt(_, c)   => c,
-    VSplitPrompt(_, c) => c,
-    HSplitPrompt(_, c) => c
+    NoPrompt               => 0,
+    SaveAsPrompt(_, c)     => c,
+    OpenPrompt(_, c)       => c,
+    FindPrompt(_, c)       => c,
+    VSplitPrompt(_, c)     => c,
+    HSplitPrompt(_, c)     => c,
+    CommandPrompt(_, c, _) => c,
+    ShellPrompt(_, c)      => c
   }
 
 /// Return a copy of `p` with updated text and cursor column,
 /// preserving its variant.
 fun with_prompt(p: Prompt, t: string, c: int) : Prompt =>
   match p {
-    NoPrompt           => NoPrompt,
-    SaveAsPrompt(_, _) => SaveAsPrompt(t, c),
-    OpenPrompt(_, _)   => OpenPrompt(t, c),
-    FindPrompt(_, _)   => FindPrompt(t, c),
-    VSplitPrompt(_, _) => VSplitPrompt(t, c),
-    HSplitPrompt(_, _) => HSplitPrompt(t, c)
+    NoPrompt               => NoPrompt,
+    SaveAsPrompt(_, _)     => SaveAsPrompt(t, c),
+    OpenPrompt(_, _)       => OpenPrompt(t, c),
+    FindPrompt(_, _)       => FindPrompt(t, c),
+    VSplitPrompt(_, _)     => VSplitPrompt(t, c),
+    HSplitPrompt(_, _)     => HSplitPrompt(t, c),
+    CommandPrompt(_, _, _) => CommandPrompt(t, c, 0),
+    ShellPrompt(_, _)      => ShellPrompt(t, c)
   }
 
 /// Insert `c` at the prompt's cursor column, advancing the cursor by one.
@@ -1206,6 +1212,122 @@ pub fun prompt_truncate(state: EditorState) : EditorState {
 /// Open the "open file" prompt with empty text.
 pub fun open_file_prompt(state: EditorState) : EditorState =>
   EditorState { ...state, prompt: OpenPrompt("", 0) }
+
+fun nth_action(acts: list<Action>, idx: int) : maybe<Action> =>
+  match acts {
+    [] => None,
+    [act_item, ..rest] =>
+      if idx <= 0 { Some(act_item) }
+      else { nth_action(rest, idx - 1) }
+  }
+
+fun trim_cmd(s: string) : string {
+  let len = length(s)
+  if len == 0 { "" }
+  else if s[0:1] == " " { trim_cmd(s[1:]) }
+  else if s[len - 1:len] == " " { trim_cmd(s[0:len - 1]) }
+  else { s }
+}
+
+/// Cycle to the next suggestion in the command palette.
+pub fun prompt_next_suggestion(state: EditorState) : EditorState =>
+  match state.prompt {
+    CommandPrompt(t, c, sel) => {
+      let matches = matching_actions(t)
+      let n = length(matches)
+      if n > 0 {
+        let new_sel = (sel + 1) % n
+        EditorState { ...state, prompt: CommandPrompt(t, c, new_sel) }
+      } else {
+        state
+      }
+    },
+    _ => state
+  }
+
+/// Cycle to the previous suggestion in the command palette.
+pub fun prompt_prev_suggestion(state: EditorState) : EditorState =>
+  match state.prompt {
+    CommandPrompt(t, c, sel) => {
+      let matches = matching_actions(t)
+      let n = length(matches)
+      if n > 0 {
+        let new_sel = if sel <= 0 { n - 1 } else { sel - 1 }
+        EditorState { ...state, prompt: CommandPrompt(t, c, new_sel) }
+      } else {
+        state
+      }
+    },
+    _ => state
+  }
+
+fun starts_with_str(s: string, prefix_str: string) : bool {
+  let plen = length(prefix_str)
+  if plen == 0 { true }
+  else if length(s) < plen { false }
+  else { s[0:plen] == prefix_str }
+}
+
+/// Determine the semantic Action (or error message) for command palette input.
+pub fun resolve_command_palette_action(p_text: string, sel_idx: int) : (maybe<Action>, maybe<string>) {
+  if p_text == "" {
+    let matches = matching_actions("")
+    if sel_idx > 0 && length(matches) > 0 {
+      let clamped = sel_idx % length(matches)
+      (nth_action(matches, clamped), None)
+    } else {
+      (None, None)
+    }
+  } else if p_text == "!" || p_text == "shell" {
+    (Some(OpenShellPrompt), None)
+  } else if starts_with_str(p_text, "!") {
+    let cmd = trim_cmd(p_text[1:])
+    if cmd == "" { (Some(OpenShellPrompt), None) }
+    else { (Some(RunShellCommand(cmd)), None) }
+  } else if starts_with_str(p_text, "shell ") {
+    let cmd = trim_cmd(p_text[6:])
+    if cmd == "" { (Some(OpenShellPrompt), None) }
+    else { (Some(RunShellCommand(cmd)), None) }
+  } else {
+    match string_to_action(p_text) {
+      Some(act) => (Some(act), None),
+      None => {
+        let matches = matching_actions(p_text)
+        if length(matches) > 0 {
+          let clamped = if sel_idx < 0 { 0 } else { sel_idx % length(matches) }
+          (nth_action(matches, clamped), None)
+        } else {
+          (None, Some("Unknown command: " + p_text))
+        }
+      }
+    }
+  }
+}
+
+fun apply_palette_error(closed: EditorState, err_opt: maybe<string>) : EditorState =>
+  match err_opt {
+    Some(err_msg) => set_status_message(closed, err_msg),
+    None          => closed
+  }
+
+/// Apply a command palette submission purely (setting error status if unrecognised).
+pub fun submit_command_palette(state: EditorState, p_text: string, sel_idx: int) : EditorState {
+  let closed = EditorState { ...state, prompt: NoPrompt }
+  let (act_opt, err_opt) = resolve_command_palette_action(p_text, sel_idx)
+  match act_opt {
+    Some(act) => apply_action(closed, act),
+    None      => apply_palette_error(closed, err_opt)
+  }
+}
+
+/// Pure prompt submission dispatch for `apply_action`.
+pub fun submit_prompt_pure(state: EditorState) : EditorState =>
+  match state.prompt {
+    CommandPrompt(t, _, sel) => submit_command_palette(state, t, sel),
+    FindPrompt(_, _)         => submit_find(state),
+    ShellPrompt(_, _)        => EditorState { ...state, prompt: NoPrompt },
+    _                        => state
+  }
 
 // ------------------- Split panes (M15) ------------------------------------
 // Meta-v/Meta-h open `VSplitPrompt`/`HSplitPrompt` ("VSplit: "/"HSplit: ");
@@ -1879,6 +2001,9 @@ fun resolve_prompt_action(evt: Event) : Action =>
     KeyEvent(KSpecial(Enter))     => PromptSubmit,
     KeyEvent(KSpecial(Backspace)) => PromptBackspace,
     KeyEvent(KSpecial(Esc))       => PromptCancel,
+    KeyEvent(KSpecial(Tab))       => PromptNext,
+    KeyEvent(KSpecial(ArrowDown)) => PromptNext,
+    KeyEvent(KSpecial(ArrowUp))   => PromptPrev,
     KeyEvent(KShortcut(Ctrl, 'q')) => Quit,
     KeyEvent(KShortcut(Ctrl, 'a')) => PromptMoveStart,
     KeyEvent(KShortcut(Ctrl, 'e')) => PromptMoveEnd,
@@ -2099,13 +2224,18 @@ pub fun apply_action(state: EditorState, action: Action) : EditorState =>
     PromptChar(c)   => refresh_find_matches(prompt_insert_char(state, c)),
     PromptBackspace => refresh_find_matches(prompt_backspace(state)),
     PromptCancel    => cancel_prompt(state),
-    PromptSubmit    => match state.prompt { FindPrompt(_, _) => submit_find(state), _ => state }, // event_loop: <fsys> for Save/Open
+    PromptSubmit    => submit_prompt_pure(state),
     PromptMoveStart     => prompt_move_start(state),
     PromptMoveEnd       => prompt_move_end(state),
     PromptMoveLeft      => prompt_move_left(state),
     PromptMoveRight     => prompt_move_right(state),
     PromptDeleteForward => refresh_find_matches(prompt_delete_forward(state)),
     PromptKillLine      => state, // event_loop: <Clipboard>
+    PromptNext          => prompt_next_suggestion(state),
+    PromptPrev          => prompt_prev_suggestion(state),
+    OpenCommandPalette  => EditorState { ...state, prompt: CommandPrompt("", 0, 0) },
+    OpenShellPrompt     => EditorState { ...state, prompt: ShellPrompt("", 0) },
+    RunShellCommand(_)  => state, // event_loop: shell execution
     ToggleHelp      => EditorState { ...state, show_help: !state.show_help },
     StartFind    => start_find(state),
     FindNext     => find_next(state),

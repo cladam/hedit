@@ -29,6 +29,8 @@ highlighting) with `hica`'s algebraic effects and Perceus-based memory managemen
 - **Multi-cursor editing** — `Meta-c` adds cursors at occurrences of a word/selection, or Meta-click with the mouse; edits apply simultaneously across all cursors with offset-drift tracking
 - **Branching visual undo tree** — `Meta-t` opens an interactive Unicode tree graph to preview and restore historical revisions without losing diverged edits; `Meta-u` cycles sibling branches
 - **Session & crash recovery** — automatically preserves open buffers, split pane layouts, cursor positions, and unsaved scratch notes across launches; `--no-recover` skips recovery
+- **Command palette & shell execution** — `Meta-x` opens a searchable command palette with live prefix/substring filtering, Tab/Arrow cycling, and direct shell command execution (`! <cmd>` / `shell`)
+
 - **Scriptable** — settings, keybindings, and plugins are all just [HiLisp](https://github.com/cladam/hica-lisp) (see below)
 
 Full reference with every chord: [`docs/hedit-cheatsheet.md`](docs/hedit-cheatsheet.md)

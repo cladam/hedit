@@ -46,39 +46,105 @@ fun build_tabline(state: EditorState) : string {
   join(["[" + active_name + "]"] + bg_names, "|")
 }
 
+/// Take the first `n` elements of `xs`.
+fun take_n(xs: list<string>, n: int) : list<string> =>
+  if n <= 0 { [] } else {
+    match xs {
+      []          => [],
+      [x, ..rest] => [x] + take_n(rest, n - 1)
+    }
+  }
+
 /// Status-row label for an active Save-As/Open/Find prompt (M9/M12),
 /// replacing the normal path/dirty-flag or status-message row while typing.
 fun prompt_label(p: Prompt) : string =>
   match p {
-    NoPrompt           => "",
-    SaveAsPrompt(t, _) => "Save as: " + t,
-    OpenPrompt(t, _)   => "Open: " + t,
-    FindPrompt(t, _)   => "Find: " + t,
-    VSplitPrompt(t, _) => "VSplit: " + t,
-    HSplitPrompt(t, _) => "HSplit: " + t
+    NoPrompt               => "",
+    SaveAsPrompt(t, _)     => "Save as: " + t,
+    OpenPrompt(t, _)       => "Open: " + t,
+    FindPrompt(t, _)       => "Find: " + t,
+    VSplitPrompt(t, _)     => "VSplit: " + t,
+    HSplitPrompt(t, _)     => "HSplit: " + t,
+    CommandPrompt(t, _, _) => "Command: " + t,
+    ShellPrompt(t, _)      => "Shell: " + t
   }
 
 /// Length of the fixed label prefix in front of the typed text —
 /// needed to place the real cursor at the right screen column.
 fun prompt_prefix_len(p: Prompt) : int =>
   match p {
-    NoPrompt           => 0,
-    SaveAsPrompt(_, _) => length("Save as: "),
-    OpenPrompt(_, _)   => length("Open: "),
-    FindPrompt(_, _)   => length("Find: "),
-    VSplitPrompt(_, _) => length("VSplit: "),
-    HSplitPrompt(_, _) => length("HSplit: ")
+    NoPrompt               => 0,
+    SaveAsPrompt(_, _)     => length("Save as: "),
+    OpenPrompt(_, _)       => length("Open: "),
+    FindPrompt(_, _)       => length("Find: "),
+    VSplitPrompt(_, _)     => length("VSplit: "),
+    HSplitPrompt(_, _)     => length("HSplit: "),
+    CommandPrompt(_, _, _) => length("Command: "),
+    ShellPrompt(_, _)      => length("Shell: ")
   }
 
 /// The prompt's own cursor column within its typed text.
 fun prompt_cursor_col(p: Prompt) : int =>
   match p {
-    NoPrompt           => 0,
-    SaveAsPrompt(_, c) => c,
-    OpenPrompt(_, c)   => c,
-    FindPrompt(_, c)   => c,
-    VSplitPrompt(_, c) => c,
-    HSplitPrompt(_, c) => c
+    NoPrompt               => 0,
+    SaveAsPrompt(_, c)     => c,
+    OpenPrompt(_, c)       => c,
+    FindPrompt(_, c)       => c,
+    VSplitPrompt(_, c)     => c,
+    HSplitPrompt(_, c)     => c,
+    CommandPrompt(_, c, _) => c,
+    ShellPrompt(_, c)      => c
+  }
+
+fun format_palette_row(act: Action, is_sel: bool, bindings: list<(KeyChord, Action)>, w: int) : string {
+  let pfx = if is_sel { "> " } else { "  " }
+  let name = action_to_string(act)
+  let chord_info = match find_chord_for_action(bindings, act) {
+    Some(ch) => " (" + ch + ")",
+    None     => ""
+  }
+  fit_to_width(pfx + name + chord_info, w)
+}
+
+fun slice_actions(acts: list<Action>, offset: int, n: int) : list<Action> =>
+  if n <= 0 { [] }
+  else {
+    match acts {
+      [] => [],
+      [a, ..rest] =>
+        if offset > 0 { slice_actions(rest, offset - 1, n) }
+        else { [a] + slice_actions(rest, 0, n - 1) }
+    }
+  }
+
+fun render_action_rows(acts: list<Action>, curr_idx: int, sel_idx: int, bindings: list<(KeyChord, Action)>, w: int) : list<string> =>
+  match acts {
+    [] => [],
+    [a, ..rest] =>
+      [format_palette_row(a, curr_idx == sel_idx, bindings, w)] +
+        render_action_rows(rest, curr_idx + 1, sel_idx, bindings, w)
+  }
+
+fun overlay_command_palette_rows(content_rows: list<string>, state: EditorState, w: int, n_content: int) : list<string> =>
+  match state.prompt {
+    CommandPrompt(query, _, sel) => {
+      let matches = matching_actions(query)
+      let n_matches = length(matches)
+      if n_matches == 0 {
+        let no_match_row = fit_to_width("  [No matching commands]", w)
+        let keep_n = max(0, n_content - 1)
+        take_n(content_rows, keep_n) + [no_match_row]
+      } else {
+        let max_visible = min(5, n_content)
+        let sel_idx = if sel < 0 { 0 } else { sel % n_matches }
+        let start_idx = if sel_idx < max_visible { 0 } else { sel_idx - (max_visible - 1) }
+        let visible_acts = slice_actions(matches, start_idx, max_visible)
+        let sug_rows = render_action_rows(visible_acts, start_idx, sel_idx, state.config.bindings, w)
+        let keep_n = max(0, n_content - length(sug_rows))
+        take_n(content_rows, keep_n) + sug_rows
+      }
+    },
+    _ => content_rows
   }
 
 // ------------------- Find match highlighting (M12) -------------------------
@@ -314,6 +380,7 @@ fun render_normal_buffer(state: EditorState) : ScreenBuffer {
   // Each content line truncated to screen width; empty rows filled with "~".
   let text_rows    = map(drop_n(buf.lines, offset), (l) => fit_to_width(l, w))
   let content_rows = take_or_pad(text_rows, n_content, "~")
+  let display_rows = overlay_command_palette_rows(content_rows, state, w, n_content)
 
   let tabline_row = fit_to_width(build_tabline(state), w)
 
@@ -339,7 +406,7 @@ fun render_normal_buffer(state: EditorState) : ScreenBuffer {
   ScreenBuffer {
     width: w,
     height: h,
-    lines: [tabline_row] + content_rows + [status_row],
+    lines: [tabline_row] + display_rows + [status_row],
     cursor_row: crow,
     cursor_col: ccol,
     highlights: search_highlights(state, offset, n_content, w),
@@ -454,6 +521,7 @@ fun render_split_buffer(state: EditorState) : ScreenBuffer {
   let base_canvas  = take_or_pad([], n_content, repeat_str(" ", w))
   let panes_drawn  = paint_all_panes(state, base_canvas, rects)
   let content_rows = paint_all_dividers(panes_drawn, dividers)
+  let display_rows = overlay_command_palette_rows(content_rows, state, w, n_content)
 
   let tabline_row = fit_to_width(build_tabline(state), w)
   let path_part   = match state.buffer.path { None => "[No Name]", Some(p) => p }
@@ -480,7 +548,7 @@ fun render_split_buffer(state: EditorState) : ScreenBuffer {
   ScreenBuffer {
     width: w,
     height: h,
-    lines: [tabline_row] + content_rows + [status_row],
+    lines: [tabline_row] + display_rows + [status_row],
     cursor_row: crow,
     cursor_col: ccol,
     highlights: [],

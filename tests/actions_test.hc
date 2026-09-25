@@ -1336,3 +1336,187 @@ test "undo tree commit retains previewed buffer and clears overlay" {
   assert(s2.buffer.lines == ["rev 1"])
   assert(s2.undo_tree == None)
 }
+
+// ------------------- M24: Command Palette (Meta-x) ------------------------
+
+test "resolve_action maps Meta-x to OpenCommandPalette via default_bindings" {
+  let s0 = init_editor(None)
+  assert(resolve_action(s0, KeyEvent(KShortcut(Meta, 'x'))) == OpenCommandPalette)
+}
+
+test "OpenCommandPalette opens CommandPrompt with empty text and selected 0" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, OpenCommandPalette)
+  match s1.prompt {
+    CommandPrompt(t, c, sel) => {
+      assert(t == "")
+      assert(c == 0)
+      assert(sel == 0)
+    },
+    _ => assert(false)
+  }
+}
+
+test "while CommandPrompt is active, typing inserts in prompt text" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, OpenCommandPalette)
+  let s2 = prompt_insert_char(s1, 's')
+  let s3 = prompt_insert_char(s2, 'a')
+  match s3.prompt {
+    CommandPrompt(t, c, _) => {
+      assert(t == "sa")
+      assert(c == 2)
+    },
+    _ => assert(false)
+  }
+}
+
+test "matching_actions filters actions by prefix and substring" {
+  let all_acts = matching_actions("")
+  assert(length(all_acts) > 20)
+
+  let save_matches = matching_actions("save")
+  assert(length(save_matches) >= 1)
+  match save_matches {
+    [first_act, .._] => assert(first_act == Save),
+    [] => assert(false)
+  }
+
+  let buf_matches = matching_actions("buf")
+  assert(length(buf_matches) >= 4)
+}
+
+test "while CommandPrompt is active, Tab and ArrowDown cycle selected index" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, OpenCommandPalette)
+  let s2 = prompt_insert_char(s1, 's')
+  let matches = matching_actions("s")
+  let n = length(matches)
+
+  let s3 = handle_action(s2, KeyEvent(KSpecial(Tab)))
+  match s3.prompt {
+    CommandPrompt(_, _, sel) => assert(sel == 1),
+    _ => assert(false)
+  }
+
+  let s4 = handle_action(s3, KeyEvent(KSpecial(ArrowDown)))
+  match s4.prompt {
+    CommandPrompt(_, _, sel) => assert(sel == 2 % n),
+    _ => assert(false)
+  }
+}
+
+test "while CommandPrompt is active, ArrowUp moves selected index backward with wraparound" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, OpenCommandPalette)
+  let s2 = prompt_insert_char(s1, 's')
+  let matches = matching_actions("s")
+  let n = length(matches)
+
+  // From index 0, ArrowUp wraps to n - 1
+  let s3 = handle_action(s2, KeyEvent(KSpecial(ArrowUp)))
+  match s3.prompt {
+    CommandPrompt(_, _, sel) => assert(sel == n - 1),
+    _ => assert(false)
+  }
+
+  // ArrowDown wraps back to 0
+  let s4 = handle_action(s3, KeyEvent(KSpecial(ArrowDown)))
+  match s4.prompt {
+    CommandPrompt(_, _, sel) => assert(sel == 0),
+    _ => assert(false)
+  }
+}
+
+test "editing prompt text resets selected index to 0" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, OpenCommandPalette)
+  let s2 = prompt_insert_char(s1, 's')
+  let s3 = handle_action(s2, KeyEvent(KSpecial(Tab)))
+  match s3.prompt {
+    CommandPrompt(_, _, sel) => assert(sel == 1),
+    _ => assert(false)
+  }
+  let s4 = prompt_insert_char(s3, 'a')
+  match s4.prompt {
+    CommandPrompt(t, _, sel) => {
+      assert(t == "sa")
+      assert(sel == 0)
+    },
+    _ => assert(false)
+  }
+}
+
+test "CommandPrompt with quit + Enter dispatches Quit" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, OpenCommandPalette)
+  let s2 = prompt_insert_char(s1, 'q')
+  let s3 = prompt_insert_char(s2, 'u')
+  let s4 = prompt_insert_char(s3, 'i')
+  let s5 = prompt_insert_char(s4, 't')
+  let s6 = handle_action(s5, KeyEvent(KSpecial(Enter)))
+  assert(s6.should_quit == true)
+  assert(s6.prompt == NoPrompt)
+}
+
+test "CommandPrompt with partial prefix + Enter dispatches the matched action" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, OpenCommandPalette)
+  let s2 = prompt_insert_char(s1, 'q')
+  let s3 = prompt_insert_char(s2, 'u')
+  let s4 = prompt_insert_char(s3, 'i')
+  // 'qui' uniquely prefix-matches 'quit'
+  let s5 = handle_action(s4, KeyEvent(KSpecial(Enter)))
+  assert(s5.should_quit == true)
+}
+
+test "CommandPrompt with unknown command + Enter sets status message and leaves buffer untouched" {
+  let s0 = with_lines(["intact content"])
+  let s1 = apply_action(s0, OpenCommandPalette)
+  let s2 = prompt_insert_char(s1, 'z')
+  let s3 = prompt_insert_char(s2, 'x')
+  let s4 = prompt_insert_char(s3, 'y')
+  let s5 = handle_action(s4, KeyEvent(KSpecial(Enter)))
+  assert(s5.buffer.lines == ["intact content"])
+  assert(s5.prompt == NoPrompt)
+  assert(s5.status_message == Some("Unknown command: zxy"))
+}
+
+test "CommandPrompt with empty text and no selection + Enter cancels without quitting" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, OpenCommandPalette)
+  let s2 = handle_action(s1, KeyEvent(KSpecial(Enter)))
+  assert(s2.should_quit == false)
+  assert(s2.prompt == NoPrompt)
+}
+
+test "CommandPrompt with ! or shell routes to shell prompt or command" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, OpenCommandPalette)
+  let s2 = prompt_insert_char(s1, '!')
+  let s3 = handle_action(s2, KeyEvent(KSpecial(Enter)))
+  match s3.prompt {
+    ShellPrompt(t, c) => {
+      assert(t == "")
+      assert(c == 0)
+    },
+    _ => assert(false)
+  }
+
+  // shell command with argument via !
+  let s4 = apply_action(s0, OpenCommandPalette)
+  let s5 = prompt_insert_char(s4, '!')
+  let s6 = prompt_insert_char(s5, 'l')
+  let s7 = prompt_insert_char(s6, 's')
+  let (act_opt, err_opt) = resolve_command_palette_action("!ls", 0)
+  assert(act_opt == Some(RunShellCommand("ls")))
+  assert(err_opt == None)
+}
+
+test "while CommandPrompt is active, Esc cancels back to NoPrompt" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, OpenCommandPalette)
+  let s2 = prompt_insert_char(s1, 'a')
+  let s3 = handle_action(s2, KeyEvent(KSpecial(Esc)))
+  assert(s3.prompt == NoPrompt)
+}

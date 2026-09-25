@@ -245,6 +245,20 @@ fun run_split(sized: EditorState, axis: Axis, text: string, hl_env: Env, pool: l
   (next, hl_env1, pool1)
 }
 
+fun run_shell_command(cmd_str: string) {
+  let _ = exec("printf '\\033[?1006l\\033[?1002l\\033[?1000l\\033[?1049l' 2>/dev/null")
+  let _ = exec("stty sane 2>/dev/null")
+  let _ = exec(cmd_str)
+  let _ = exec("stty raw -echo icrnl 2>/dev/null")
+  let _ = exec("printf '\\033[?1049h\\033[?1000h\\033[?1002h\\033[?1006h' 2>/dev/null")
+}
+
+fun run_palette_error(closed: EditorState, err_opt: maybe<string>, hl_env: Env, pool: list<(int, ref<Buffer>)>) =>
+  match err_opt {
+    Some(err_msg) => (set_status_message(closed, err_msg), hl_env, pool),
+    None          => (closed, hl_env, pool)
+  }
+
 /// Dispatch `PromptSubmit` (Enter while a prompt is active) to the
 /// right hook-aware effectful handler.
 // `NoPrompt` can't happen in practice (resolve_action only emits
@@ -261,7 +275,19 @@ fun run_prompt_submit(sized: EditorState, hl_env: Env, pool: list<(int, ref<Buff
     OpenPrompt(text, _)   => run_open_file(sized, text, hl_env, pool),
     FindPrompt(_, _)      => (submit_find(sized), hl_env, pool),
     VSplitPrompt(text, _) => run_split(sized, Vertical, text, hl_env, pool),
-    HSplitPrompt(text, _) => run_split(sized, Horizontal, text, hl_env, pool)
+    HSplitPrompt(text, _) => run_split(sized, Horizontal, text, hl_env, pool),
+    CommandPrompt(p_text, _, sel_idx) => {
+      let closed = EditorState { ...sized, prompt: NoPrompt }
+      let (act_opt, err_opt) = resolve_command_palette_action(p_text, sel_idx)
+      match act_opt {
+        Some(act) => dispatch_action(closed, act, pool, hl_env),
+        None      => run_palette_error(closed, err_opt, hl_env, pool)
+      }
+    },
+    ShellPrompt(cmd_str, _) => {
+      let closed = EditorState { ...sized, prompt: NoPrompt }
+      dispatch_action(closed, RunShellCommand(cmd_str), pool, hl_env)
+    }
   }
 
 // ------------------- the loop ------------------------------------------
@@ -450,7 +476,20 @@ fun dispatch_action(sized: EditorState, action: Action, buf_pool: list<(int, ref
       let pool1 = if next.buffer.bid == closed_bid { buf_pool } else { pool_drop(buf_pool, closed_bid) }
       (next, hl_env, pool1)
     },
+    RunShellCommand(cmd_str) => {
+      if cmd_str != "" {
+        run_shell_command(cmd_str)
+      }
+      let s2 = set_status_message(sized, "Command executed: " + cmd_str)
+      (s2, hl_env, buf_pool)
+    },
     _         => (apply_action(sized, action), hl_env, buf_pool)
+  }
+
+fun is_shell_command(action: Action) : bool =>
+  match action {
+    RunShellCommand(_) => true,
+    _                  => false
   }
 
 /// `true` for `Quit` only — used to keep `Quit` un-cancellable by a
@@ -507,7 +546,8 @@ fun event_loop_step(state: EditorState, buf_pool: list<(int, ref<Buffer>)>, last
       else { dispatch_action(sized, action, buf_pool, hl_env1) }
     let synced = if view_relevant_change(sized, next) { sync_scroll(next) } else { next }
     if is_save(action) { save_session_if_needed(synced) }
-    event_loop_step(synced, pool2, next_frame, hl_env2)
+    let next_frame_actual = if is_shell_command(action) { None } else { next_frame }
+    event_loop_step(synced, pool2, next_frame_actual, hl_env2)
   }
 }
 

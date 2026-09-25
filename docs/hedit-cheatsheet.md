@@ -121,6 +121,10 @@ Esc cancels the prompt. A `│`/`─` divider marks the seam between panes.
 | Meta-r | Reload `init.hl` and plugins live without restarting (`reload-config`, M19) |
 
 ## Customization — `init.hl`
+| Meta-r | Reload `init.hl` configuration and plugin hooks on the fly without restarting hedit |
+| Meta-x | Open the command palette (`Command: `). Type to filter commands, Tab/Down/Up to cycle suggestions, Enter to run |
+| ! `<cmd>` | In command palette, run an external shell command (e.g. `!ls` or `!git status`) |
+
 
 `init.hl` is a HiLisp file that is loaded from (first hit wins): `$XDG_CONFIG_HOME/hedit/init.hl`
 (or `$HOME/.config/hedit/init.hl`), then `$HOME/.hedit.hl`, or an

@@ -121,6 +121,11 @@ pub type Action {
   UndoTreePrev,
   UndoTreeCommit,
   UndoTreeCancel,
+  OpenCommandPalette,
+  OpenShellPrompt,
+  RunShellCommand(cmd: string),
+  PromptNext,
+  PromptPrev,
   Ignore
 }
 
@@ -170,6 +175,7 @@ pub fun default_bindings() : list<(KeyChord, Action)> =>
     (KeyChord { m: Meta, c: 'r' }, ReloadConfig),
     (KeyChord { m: Meta, c: 't' }, ToggleUndoTree),
     (KeyChord { m: Meta, c: 'u' }, NextBranch),
+    (KeyChord { m: Meta, c: 'x' }, OpenCommandPalette),
     (KeyChord { m: Ctrl, c: ' ' }, SetMark)
   ]
 
@@ -180,6 +186,267 @@ pub fun lookup_binding(kb: list<(KeyChord, Action)>, chord: KeyChord) : Action =
     Some(a) => a,
     None    => Ignore
   }
+
+/// Render a modifier as its display string.
+pub fun mod_to_string(m: Modifier) : string =>
+  match m {
+    Ctrl  => "Ctrl",
+    Alt   => "Alt",
+    Meta  => "Meta",
+    Shift => "Shift"
+  }
+
+/// Render a `KeyChord` as its display string (e.g. "Ctrl-s", "Meta-x").
+pub fun chord_to_str(chord: KeyChord) : string =>
+  mod_to_string(chord.m) + "-" + (if chord.c == ' ' { "Space" } else { char_to_string(chord.c) })
+
+/// Find the first chord mapped to `target` in `bindings`, if any.
+pub fun find_chord_for_action(bindings: list<(KeyChord, Action)>, target: Action) : maybe<string> =>
+  match bindings {
+    [] => None,
+    [entry, ..rest] =>
+      if entry.1 == target {
+        Some(chord_to_str(entry.0))
+      } else {
+        find_chord_for_action(rest, target)
+      }
+  }
+
+/// Render an `Action` as its symbol name.
+pub fun action_to_string(a: Action) : string =>
+  match a {
+    Quit        => "quit",
+    Save        => "save",
+    Copy        => "copy",
+    Paste       => "paste",
+    Undo        => "undo",
+    Redo        => "redo",
+    NewBuffer   => "new-buffer",
+    NextBuffer  => "next-buffer",
+    PrevBuffer  => "prev-buffer",
+    CloseBuffer => "close-buffer",
+    OpenFile    => "open-file",
+    Ignore      => "ignore",
+    Insert(_)   => "insert",
+    NewLine        => "new-line",
+    DeleteBackward => "backspace",
+    DeleteForward  => "delete-forward",
+    MoveUp         => "move-up",
+    MoveDown    => "move-down",
+    MoveLeft    => "move-left",
+    MoveRight   => "move-right",
+    MoveLineStart => "move-line-start",
+    MoveLineEnd   => "move-line-end",
+    MoveWordForward => "move-word-forward",
+    MoveWordBack    => "move-word-back",
+    KillLine       => "kill-line",
+    KillWordBack   => "kill-word-back",
+    KillWordForward => "kill-word-forward",
+    KillWholeLine   => "kill-whole-line",
+    Resize(_, _) => "resize",
+    PromptChar(_)   => "prompt-char",
+    PromptBackspace => "prompt-backspace",
+    PromptSubmit    => "prompt-submit",
+    PromptCancel    => "prompt-cancel",
+    PromptMoveStart     => "prompt-move-start",
+    PromptMoveEnd       => "prompt-move-end",
+    PromptMoveLeft      => "prompt-move-left",
+    PromptMoveRight     => "prompt-move-right",
+    PromptDeleteForward => "prompt-delete-forward",
+    PromptKillLine      => "prompt-kill-line",
+    PromptNext          => "prompt-next",
+    PromptPrev          => "prompt-prev",
+    ToggleHelp      => "toggle-help",
+    StartFind       => "start-find",
+    FindNext        => "find-next",
+    FindPrev        => "find-prev",
+    VSplit          => "vsplit-prompt",
+    HSplit          => "hsplit-prompt",
+    PaneLeft        => "pane-left",
+    PaneRight       => "pane-right",
+    PaneUp          => "pane-up",
+    PaneDown        => "pane-down",
+    NextPane        => "next-pane",
+    SetMark         => "set-mark",
+    SelectAll       => "select-all",
+    MouseClick(_, _) => "mouse-click",
+    MouseDrag(_, _)  => "mouse-drag",
+    MouseRelease     => "mouse-release",
+    ScrollViewUp(_, _)   => "scroll-view-up",
+    ScrollViewDown(_, _) => "scroll-view-down",
+    ReloadConfig    => "reload-config",
+    AddCursorNextMatch => "add-cursor-next-match",
+    CollapseCursors => "collapse-cursors",
+    MetaMouseClick(_, _) => "meta-mouse-click",
+    ToggleUndoTree      => "toggle-undo-tree",
+    NextBranch          => "next-branch",
+    UndoTreeNext        => "undo-tree-next",
+    UndoTreePrev        => "undo-tree-prev",
+    UndoTreeCommit      => "undo-tree-commit",
+    UndoTreeCancel      => "undo-tree-cancel",
+    OpenCommandPalette  => "open-command-palette",
+    OpenShellPrompt     => "shell",
+    RunShellCommand(_)  => "run-shell-command"
+  }
+
+/// Inverse of `action_to_string`; unrecognised names resolve to `None`.
+pub fun string_to_action(s: string) : maybe<Action> =>
+  match s {
+    "quit"         => Some(Quit),
+    "save"         => Some(Save),
+    "copy"         => Some(Copy),
+    "paste"        => Some(Paste),
+    "undo"         => Some(Undo),
+    "redo"         => Some(Redo),
+    "new-buffer"   => Some(NewBuffer),
+    "next-buffer"  => Some(NextBuffer),
+    "prev-buffer"  => Some(PrevBuffer),
+    "close-buffer" => Some(CloseBuffer),
+    "open-file"    => Some(OpenFile),
+    "toggle-help"  => Some(ToggleHelp),
+    "move-left"       => Some(MoveLeft),
+    "move-right"      => Some(MoveRight),
+    "move-line-start" => Some(MoveLineStart),
+    "move-line-end"   => Some(MoveLineEnd),
+    "move-word-forward" => Some(MoveWordForward),
+    "move-word-back"    => Some(MoveWordBack),
+    "move-up"         => Some(MoveUp),
+    "move-down"       => Some(MoveDown),
+    "new-line"        => Some(NewLine),
+    "backspace"       => Some(DeleteBackward),
+    "delete-forward"  => Some(DeleteForward),
+    "kill-line"       => Some(KillLine),
+    "kill-word-back"  => Some(KillWordBack),
+    "kill-word-forward" => Some(KillWordForward),
+    "kill-whole-line"   => Some(KillWholeLine),
+    "start-find"   => Some(StartFind),
+    "find-next"    => Some(FindNext),
+    "find-prev"    => Some(FindPrev),
+    "vsplit-prompt" => Some(VSplit),
+    "hsplit-prompt" => Some(HSplit),
+    "pane-left"    => Some(PaneLeft),
+    "pane-right"   => Some(PaneRight),
+    "pane-up"      => Some(PaneUp),
+    "pane-down"    => Some(PaneDown),
+    "next-pane"    => Some(NextPane),
+    "set-mark"     => Some(SetMark),
+    "select-all"   => Some(SelectAll),
+    "reload-config" => Some(ReloadConfig),
+    "add-cursor-next-match" => Some(AddCursorNextMatch),
+    "collapse-cursors" => Some(CollapseCursors),
+    "toggle-undo-tree" => Some(ToggleUndoTree),
+    "next-branch"      => Some(NextBranch),
+    "undo-tree-next"   => Some(UndoTreeNext),
+    "undo-tree-prev"   => Some(UndoTreePrev),
+    "undo-tree-commit" => Some(UndoTreeCommit),
+    "undo-tree-cancel" => Some(UndoTreeCancel),
+    "open-command-palette" => Some(OpenCommandPalette),
+    "command-palette"      => Some(OpenCommandPalette),
+    "shell"                => Some(OpenShellPrompt),
+    "run-shell-command"    => Some(OpenShellPrompt),
+    "prompt-next"          => Some(PromptNext),
+    "prompt-prev"          => Some(PromptPrev),
+    "ignore"       => Some(Ignore),
+    _              => None
+  }
+
+/// Canonical list of all user-executable actions exposed in the Command Palette.
+pub fun palette_actions() : list<Action> =>
+  [
+    Quit,
+    Save,
+    OpenFile,
+    NewBuffer,
+    NextBuffer,
+    PrevBuffer,
+    CloseBuffer,
+    Undo,
+    Redo,
+    Copy,
+    Paste,
+    SetMark,
+    SelectAll,
+    StartFind,
+    FindNext,
+    FindPrev,
+    ToggleHelp,
+    ReloadConfig,
+    ToggleUndoTree,
+    NextBranch,
+    VSplit,
+    HSplit,
+    NextPane,
+    PaneLeft,
+    PaneRight,
+    PaneUp,
+    PaneDown,
+    AddCursorNextMatch,
+    CollapseCursors,
+    OpenShellPrompt,
+    OpenCommandPalette,
+    MoveLineStart,
+    MoveLineEnd,
+    MoveWordForward,
+    MoveWordBack,
+    MoveUp,
+    MoveDown,
+    MoveLeft,
+    MoveRight,
+    NewLine,
+    DeleteBackward,
+    DeleteForward,
+    KillLine,
+    KillWordBack,
+    KillWordForward,
+    KillWholeLine
+  ]
+
+fun str_starts_with(src_str: string, prefix_str: string) : bool {
+  let plen = length(prefix_str)
+  if plen == 0 { true }
+  else if length(src_str) < plen { false }
+  else { src_str[0:plen] == prefix_str }
+}
+
+fun str_contains(src_str: string, sub_str: string) : bool =>
+  match index_of(src_str, sub_str) {
+    Some(_) => true,
+    None    => false
+  }
+
+fun filter_prefix_actions(acts: list<Action>, q_str: string) : list<Action> =>
+  match acts {
+    [] => [],
+    [act_item, ..rest] =>
+      if str_starts_with(action_to_string(act_item), q_str) {
+        [act_item] + filter_prefix_actions(rest, q_str)
+      } else {
+        filter_prefix_actions(rest, q_str)
+      }
+  }
+
+fun filter_sub_actions(acts: list<Action>, q_str: string) : list<Action> =>
+  match acts {
+    [] => [],
+    [act_item, ..rest] => {
+      let act_name = action_to_string(act_item)
+      if !str_starts_with(act_name, q_str) && str_contains(act_name, q_str) {
+        [act_item] + filter_sub_actions(rest, q_str)
+      } else {
+        filter_sub_actions(rest, q_str)
+      }
+    }
+  }
+
+/// Filter palette actions by prefix/substring match on their action_to_string names.
+pub fun matching_actions(query: string) : list<Action> {
+  let all_acts = palette_actions()
+  if query == "" {
+    all_acts
+  } else {
+    filter_prefix_actions(all_acts, query) + filter_sub_actions(all_acts, query)
+  }
+}
 
 /// Config bundle carried through the editor.
 // M4 grows this with `(set ...)` values sourced from HiLisp, kept as
@@ -471,7 +738,9 @@ pub type Prompt {
   OpenPrompt(text: string, cursor: int),
   FindPrompt(text: string, cursor: int),
   VSplitPrompt(text: string, cursor: int),
-  HSplitPrompt(text: string, cursor: int)
+  HSplitPrompt(text: string, cursor: int),
+  CommandPrompt(text: string, cursor: int, selected: int),
+  ShellPrompt(text: string, cursor: int)
 }
 
 /// The split-axis of a `Split` pane (M15).
