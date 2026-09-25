@@ -11,6 +11,7 @@ import "config_loader"
 import "cli_spec"
 import "session"
 import "syntax"
+import "clipboard"
 import "std/cli"
 import "std/term"
 import "../lib/hilisp/src/lisp"
@@ -355,10 +356,14 @@ fun run_editor(r: CliResult, pos_arg: maybe<string>) {
     None      => s0,
     Some(msg) => set_status_message(s0, msg)
   }
+  let clip_tool = detect_clipboard_tool()
   enable_raw_mode()
   let final = handle Clipboard {
-    get_selection()   => clip,
-    set_selection(t)  => clip = t
+    get_selection()  => os_clipboard_get(clip_tool, clip),
+    set_selection(t) => {
+      clip = t
+      let _ = os_clipboard_set(clip_tool, t)
+    }
   } with var clip = "" in {
     handle Terminal {
       poll_event()         => decode_key(read_key()),
