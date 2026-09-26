@@ -1010,7 +1010,8 @@ test "M24: scripted Meta-x in event loop opens palette and dispatches close-buff
   assert(length(final.background_buffers) == 0)
 }
 
-test "M24: scripted shell command executes and sets status message" {
+test "M26: scripted Meta-x shell command captures stdout" {
+  let initial = init_editor(None)
   let final: EditorState = handle Terminal {
     poll_event() => match ev {
       []          => KeyEvent(KShortcut(Ctrl, 'q')),
@@ -1022,14 +1023,51 @@ test "M24: scripted shell command executes and sets status message" {
   } with var ev = [
     KeyEvent(KShortcut(Meta, 'x')),
     KeyEvent(KChar('!')),
-    KeyEvent(KChar('t')),
+    KeyEvent(KChar('p')),
     KeyEvent(KChar('r')),
-    KeyEvent(KChar('u')),
-    KeyEvent(KChar('e')),
+    KeyEvent(KChar('i')),
+    KeyEvent(KChar('n')),
+    KeyEvent(KChar('t')),
+    KeyEvent(KChar('f')),
+    KeyEvent(KChar(' ')),
+    KeyEvent(KChar('h')),
+    KeyEvent(KChar('i')),
     KeyEvent(KSpecial(Enter)),
     KeyEvent(KShortcut(Ctrl, 'q'))
   ] in {
-    event_loop(init_editor(None))
+    event_loop(initial)
   }
-  assert(final.status_message == Some("Command executed: true"))
+  let captured = match final.shell_output {
+    Some(output) => output.lines == ["hi"] && output.succeeded,
+    None         => false
+  }
+  assert(captured)
+  assert(final.buffer == initial.buffer)
+  assert(final.panes == initial.panes)
+}
+
+test "M26: shell command captures stderr and detects nonzero exit" {
+  let cmd = "sh -c 'echo nope >&2; exit 7'"
+  let initial = EditorState { ...init_editor(None), prompt: ShellPrompt(cmd, length(cmd)) }
+  let final: EditorState = handle Terminal {
+    poll_event() => match ev {
+      []          => KeyEvent(KShortcut(Ctrl, 'q')),
+      [e, ..rest] => { ev = rest; e }
+    },
+    render_frame(_buf)   => (),
+    get_dimensions()     => (80, 24),
+    set_cursor_style(_s) => ()
+  } with var ev = [
+    KeyEvent(KSpecial(Enter)),
+    KeyEvent(KShortcut(Ctrl, 'q'))
+  ] in {
+    event_loop(initial)
+  }
+  let captured = match final.shell_output {
+    Some(output) => output.lines == ["nope", ""] && !output.succeeded,
+    None         => false
+  }
+  assert(captured)
+  assert(final.buffer == initial.buffer)
+  assert(final.panes == initial.panes)
 }

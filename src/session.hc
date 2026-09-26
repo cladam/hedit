@@ -300,7 +300,8 @@ fun assemble_editor_state(active_bid: int, next_bid: int, panes_node: PaneNode, 
       search: NoSearch,
       panes: validated_panes,
       resizing_divider: None,
-      undo_tree: None
+      undo_tree: None,
+      shell_output: None
     })
   }
 }

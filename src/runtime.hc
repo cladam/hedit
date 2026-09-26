@@ -245,12 +245,25 @@ fun run_split(sized: EditorState, axis: Axis, text: string, hl_env: Env, pool: l
   (next, hl_env1, pool1)
 }
 
+fun shell_success_marker() : string =>
+  "__HEDIT_SHELL_COMMAND_OK__"
+
 fun run_shell_command(cmd_str: string) {
-  let _ = exec("printf '\\033[?1006l\\033[?1002l\\033[?1000l\\033[?1049l' 2>/dev/null")
-  let _ = exec("stty sane 2>/dev/null")
-  let _ = exec(cmd_str)
-  let _ = exec("stty raw -echo icrnl 2>/dev/null")
-  let _ = exec("printf '\\033[?1049h\\033[?1000h\\033[?1002h\\033[?1006h' 2>/dev/null")
+  let marker = shell_success_marker()
+  match exec(cmd_str + " 2>&1 && printf '" + marker + "'") {
+    Err(msg) => (
+      ShellOutputState { command: cmd_str, lines: [msg], scroll_line: 0, succeeded: false },
+      Some("Could not execute command: " + msg)
+    ),
+    Ok(out) => {
+      let succeeded = ends_with(out, marker)
+      let captured = if succeeded { out[0:length(out) - length(marker)] } else { out }
+      (
+        ShellOutputState { command: cmd_str, lines: split(captured, "\n"), scroll_line: 0, succeeded: succeeded },
+        None
+      )
+    }
+  }
 }
 
 fun run_palette_error(closed: EditorState, err_opt: maybe<string>, hl_env: Env, pool: list<(int, ref<Buffer>)>) =>
@@ -477,11 +490,17 @@ fun dispatch_action(sized: EditorState, action: Action, buf_pool: list<(int, ref
       (next, hl_env, pool1)
     },
     RunShellCommand(cmd_str) => {
-      if cmd_str != "" {
-        run_shell_command(cmd_str)
+      if cmd_str == "" {
+        (sized, hl_env, buf_pool)
+      } else {
+        let captured: (ShellOutputState, maybe<string>) = run_shell_command(cmd_str)
+        let shown = EditorState { ...sized, shell_output: Some(captured.0) }
+        let next = match captured.1 {
+          Some(msg) => set_status_message(shown, msg),
+          None      => shown
+        }
+        (next, hl_env, buf_pool)
       }
-      let s2 = set_status_message(sized, "Command executed: " + cmd_str)
-      (s2, hl_env, buf_pool)
     },
     _         => (apply_action(sized, action), hl_env, buf_pool)
   }

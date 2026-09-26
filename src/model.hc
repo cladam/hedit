@@ -676,6 +676,14 @@ pub struct UndoTreeRow {
   line: string
 }
 
+/// Captured output from a completed command launched through Meta-x.
+pub struct ShellOutputState {
+  command: string,
+  lines: list<string>,
+  scroll_line: int,
+  succeeded: bool
+}
+
 /// Full editor state. `buffer` is always the active buffer;
 /// `background_buffers` holds the rest of the open buffers as a
 /// rotation ring with no separate active index to keep in sync.
@@ -701,7 +709,10 @@ pub struct EditorState {
   resizing_divider: maybe<int>,
   // Active visual undo tree overlay (M21, Meta-t), or `None` during
   // normal editing.
-  undo_tree: maybe<UndoTreeState>
+  undo_tree: maybe<UndoTreeState>,
+  // Transient read-only shell output, never part of the buffer ring or
+  // persisted session state.
+  shell_output: maybe<ShellOutputState>
 }
 
 /// The pixel-free "screen buffer" the Terminal handler flushes.
@@ -877,7 +888,8 @@ pub fun init_editor_with_buffer(buf: TextBuffer, cfg: Config) : EditorState =>
     search: NoSearch,
     panes: Leaf(buf.bid),
     resizing_divider: None,
-    undo_tree: None
+    undo_tree: None,
+    shell_output: None
   }
 
 /// Split file content into lines, dropping one trailing newline
