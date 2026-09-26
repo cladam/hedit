@@ -14,7 +14,7 @@ test "load_user_config_opts with skip=true returns cfg0 unchanged and no status"
   let cfg0 = default_config()
   let result: (Config, Env, maybe<string>) = load_user_config_opts(cfg0, None, true)
   assert(result.2 == None)
-  assert(result.0.values == [])
+  assert(result.0.values == cfg0.values)
 }
 
 test "load_user_config_opts with an explicit path loads that file" {
@@ -31,7 +31,7 @@ test "load_user_config_opts with a missing explicit path surfaces an error statu
   let path = "/tmp/hedit_test_m8_missing_config_does_not_exist.hl"
   let cfg0 = default_config()
   let result: (Config, Env, maybe<string>) = load_user_config_opts(cfg0, Some(path), false)
-  assert(result.0.values == [])
+  assert(result.0.values == cfg0.values)
   let has_status = match result.2 {
     Some(_) => true,
     None    => false
@@ -45,7 +45,7 @@ test "skip=true wins even when an explicit path is also given" {
   let cfg0 = default_config()
   let result: (Config, Env, maybe<string>) = load_user_config_opts(cfg0, Some(tmp_path), true)
   assert(result.2 == None)
-  assert(result.0.values == [])
+  assert(result.0.values == cfg0.values)
 }
 
 // ------------------- plugin resolution & loading (M11) -----------------
