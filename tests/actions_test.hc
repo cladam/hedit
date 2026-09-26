@@ -1376,6 +1376,13 @@ test "shell output line and page scrolling stops at the top" {
   assert_eq(shell_output_offset(s3), 0)
 }
 
+test "shell output scrolling counts wrapped visual rows" {
+  let view = ShellOutputState { command: "printf", lines: ["abcdefghij"], scroll_line: 0, succeeded: true }
+  let s0 = EditorState { ...init_editor(None), screen_size: (4, 4), shell_output: Some(view) }
+  let s1 = handle_action(s0, KeyEvent(KSpecial(PageDown)))
+  assert_eq(shell_output_offset(s1), 1)
+}
+
 test "Esc q and Enter close shell output without changing the buffer" {
   let s0 = with_shell_output(3)
   let by_escape = handle_action(s0, KeyEvent(KSpecial(Esc)))

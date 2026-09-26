@@ -2157,11 +2157,17 @@ pub fun resolve_action(state: EditorState, evt: Event) : Action {
 fun shell_output_page_size(state: EditorState) : int =>
   max(state.screen_size.1 - 2, 1)
 
+fun shell_output_visual_rows(rows: list<string>, width: int) : int =>
+  match rows {
+    []          => 0,
+    [x, ..rest] => wrapped_row_count(x, width) + shell_output_visual_rows(rest, width)
+  }
+
 fun scroll_shell_output(state: EditorState, delta: int) : EditorState =>
   match state.shell_output {
     None => state,
     Some(view) => {
-      let max_offset = max(0, length(view.lines) - shell_output_page_size(state))
+      let max_offset = max(0, shell_output_visual_rows(view.lines, state.screen_size.0) - shell_output_page_size(state))
       let next_offset = max(0, min(view.scroll_line + delta, max_offset))
       EditorState { ...state, shell_output: Some(ShellOutputState { ...view, scroll_line: next_offset }) }
     }

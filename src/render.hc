@@ -696,17 +696,53 @@ pub fun render_undo_tree_buffer(state: EditorState, uts: UndoTreeState) : Screen
   }
 }
 
+fun shell_output_rows(view: ShellOutputState) : list<string> =>
+  match view.lines {
+    []   => if view.succeeded { ["(no output)"] } else { [] },
+    [""] => if view.succeeded { ["(no output)"] } else { [""] },
+    _    => view.lines
+  }
+
+/// Build the full-screen read-only shell output overlay (M26).
+pub fun render_shell_output_buffer(state: EditorState, view: ShellOutputState) : ScreenBuffer {
+  let (w, h)       = state.screen_size
+  let n_content    = h - 2
+  let result_label = if view.succeeded { "success" } else { "failed" }
+  let title_row    = fit_to_width("$ " + view.command + " — " + result_label, w)
+  let visual_rows  = wrap_lines(shell_output_rows(view), w)
+  let content_rows = slice_tree_rows(visual_rows, view.scroll_line, n_content)
+  let total_rows   = length(visual_rows)
+  let first_row    = if total_rows == 0 { 0 } else { min(view.scroll_line + 1, total_rows) }
+  let last_row     = min(view.scroll_line + n_content, total_rows)
+  let footer_text  = show(first_row) + "-" + show(last_row) + "/" + show(total_rows) + " | Up/Down/PgUp/PgDn scroll | Esc/q/Enter close"
+  ScreenBuffer {
+    width: w,
+    height: h,
+    lines: [title_row] + content_rows + [fit_to_width(footer_text, w)],
+    cursor_row: 0,
+    cursor_col: 1,
+    highlights: [],
+    syntax_spans: [],
+    selection_spans: []
+  }
+}
+
 /// Build the ScreenBuffer for the current frame, dispatching on
-/// `state.show_help` ahead of the normal render pass, on whether
-/// `state.undo_tree` is open (M21), and on whether
+/// `state.shell_output`, `state.show_help`, or `state.undo_tree` ahead of
+/// the normal render pass, and on whether
 /// `state.panes` (M15) is still a single `Leaf` or has grown a `Split`.
 pub fun render_editor_to_buffer(state: EditorState) : ScreenBuffer =>
-  if state.show_help { render_help_buffer(state) }
-  else {
-    match state.undo_tree {
-      Some(uts) => render_undo_tree_buffer(state, uts),
-      None      =>
-        if is_leaf(state.panes) { render_normal_buffer(state) }
-        else { render_split_buffer(state) }
+  match state.shell_output {
+    Some(view) => render_shell_output_buffer(state, view),
+    None => {
+      if state.show_help { render_help_buffer(state) }
+      else {
+        match state.undo_tree {
+          Some(uts) => render_undo_tree_buffer(state, uts),
+          None      =>
+            if is_leaf(state.panes) { render_normal_buffer(state) }
+            else { render_split_buffer(state) }
+        }
+      }
     }
   }

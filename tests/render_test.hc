@@ -351,3 +351,43 @@ test "ShellPrompt renders Shell: label in status row" {
   assert(buf.cursor_row == 10)
   assert(buf.cursor_col == length("Shell: ") + 6 + 1)
 }
+
+// ------------------- Shell output rendering (M26) -----------------------
+
+fun with_shell_output_render(output_rows: list<string>, succeeded: bool, size: (int, int)) : EditorState {
+  let view = ShellOutputState { command: "ls", lines: output_rows, scroll_line: 0, succeeded: succeeded }
+  EditorState { ...init_editor(None), screen_size: size, shell_output: Some(view) }
+}
+
+test "shell output overlay renders command result output and controls" {
+  let buf = render_editor_to_buffer(with_shell_output_render(["one", "two"], true, (40, 6)))
+  assert(starts_with(line_at(buf.lines, 0), "$ ls — success"))
+  assert(line_at(buf.lines, 1) == "one")
+  assert(line_at(buf.lines, 2) == "two")
+  assert(starts_with(line_at(buf.lines, 5), "1-2/2 | Up/Down"))
+  assert(buf.cursor_row == 0)
+}
+
+test "successful shell command with empty output renders an explicit marker" {
+  let buf = render_editor_to_buffer(with_shell_output_render([""], true, (40, 5)))
+  assert(line_at(buf.lines, 1) == "(no output)")
+}
+
+test "shell output overlay wraps long lines and slices by visual row" {
+  let s0 = with_shell_output_render(["abcdefghijk"], false, (5, 4))
+  let view = ShellOutputState { command: "ls", lines: ["abcdefghijk"], scroll_line: 1, succeeded: false }
+  let s1 = EditorState { ...s0, shell_output: Some(view) }
+  let buf = render_editor_to_buffer(s1)
+  assert(starts_with(line_at(buf.lines, 0), "$ ls"))
+  assert(line_at(buf.lines, 1) == "fghij")
+  assert(line_at(buf.lines, 2) == "k")
+  assert(starts_with(line_at(buf.lines, 3), "2-3/"))
+}
+
+test "shell output overlay takes precedence over other editor overlays" {
+  let s0 = with_shell_output_render(["visible"], true, (40, 5))
+  let s1 = EditorState { ...s0, show_help: true }
+  let buf = render_editor_to_buffer(s1)
+  assert(starts_with(line_at(buf.lines, 0), "$ ls — success"))
+  assert(line_at(buf.lines, 1) == "visible")
+}
