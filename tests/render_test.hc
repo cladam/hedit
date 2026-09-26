@@ -59,6 +59,17 @@ test "long content wraps at the screen width and moves the cursor to its continu
   assert(buf.cursor_col == 8)
 }
 
+test "tabs use configured visual width for rendering and cursor placement" {
+  let s0 = with_lines_render(["\thello"], (12, 5))
+  let cfg = set_config_value(s0.config, "tabsize", "4")
+  let tabbed = TextBuffer { ...s0.buffer, cursors: [Cursor { cid: 0, pos: Position { line: 0, col: 4 }, anchor: None, anchor_sticky: false }] }
+  let s1 = EditorState { ...s0, buffer: tabbed, config: cfg }
+  let buf = render_editor_to_buffer(s1)
+  assert(nth_or(buf.lines, 1, "MISSING") == "1     hello")
+  assert(buf.cursor_row == 2)
+  assert(buf.cursor_col == 10)
+}
+
 // ------------------- tabline row --------------------------------
 
 test "tabline shows a single bracketed scratch tab with one buffer open" {
