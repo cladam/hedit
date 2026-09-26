@@ -1462,6 +1462,32 @@ fun locate_pane(state: EditorState, x: int, y: int) : maybe<(int, (int, int, int
   else { rect_at(split_rect((0, 0, w, n_content), state.panes), cx, cy) }
 }
 
+fun wrapped_row_count(text: string, width: int) : int =>
+  max(1, (length(text) + max(width, 1) - 1) / max(width, 1))
+
+fun drop_text_lines(lines: list<string>, count: int) : list<string> =>
+  if count <= 0 { lines }
+  else {
+    match lines {
+      []          => [],
+      [_, ..rest] => drop_text_lines(rest, count - 1)
+    }
+  }
+
+fun wrapped_screen_position(lines: list<string>, logical_idx: int, visual_idx: int, width: int, local_col: int) : Position =>
+  match lines {
+    [] => Position { line: max(logical_idx - 1, 0), col: 0 },
+    [text, ..rest] => {
+      let row_count = wrapped_row_count(text, width)
+      if visual_idx < row_count {
+        clamp_position(lines, Position { line: 0, col: visual_idx * max(width, 1) + local_col })
+      } else {
+        let next_pos = wrapped_screen_position(rest, logical_idx + 1, visual_idx - row_count, width, local_col)
+        Position { line: next_pos.line + 1, col: next_pos.col }
+      }
+    }
+  }
+
 /// Map a 1-indexed screen coordinate (`x` = column, `y` = row) to the pane
 /// `bid` and the buffer-local `Position` it falls on. `None` for a click on
 /// the tabline/status row, a divider gap, or outside every pane.
@@ -1473,8 +1499,10 @@ pub fun screen_to_buffer_pos(state: EditorState, x: int, y: int) : maybe<(int, P
     Some((pane_bid, rect)) => {
       let buf        = buffer_for(state, pane_bid)
       let local_col  = cx - rect.0
-      let local_line = (cy - rect.1) + buf.scroll_line
-      Some((pane_bid, clamp_position(buf.lines, Position { line: local_line, col: local_col })))
+      let visual_idx = cy - rect.1
+      let visible    = drop_text_lines(buf.lines, buf.scroll_line)
+      let local_pos  = wrapped_screen_position(visible, 0, visual_idx, rect.2, local_col)
+      Some((pane_bid, Position { line: local_pos.line + buf.scroll_line, col: local_pos.col }))
     }
   }
 }

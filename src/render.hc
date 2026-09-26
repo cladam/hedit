@@ -33,6 +33,28 @@ fun drop_n(xs: list<string>, n: int) : list<string> =>
     }
   }
 
+/// Split one logical buffer line into screen-width visual rows.
+fun wrap_line(s: string, w: int) : list<string> =>
+  if w <= 0 || length(s) <= w { [s] }
+  else { [s[0:w]] + wrap_line(s[w: ], w) }
+
+/// Soft-wrap every logical line without changing the underlying buffer.
+fun wrap_lines(lines: list<string>, w: int) : list<string> =>
+  match lines {
+    []          => [],
+    [l, ..rest] => wrap_line(l, w) + wrap_lines(rest, w)
+  }
+
+/// Number of wrapped rows occupied by logical lines in `[offset, target)`.
+fun wrapped_rows_before(lines: list<string>, offset: int, target: int, w: int, line_idx: int) : int =>
+  match lines {
+    []          => 0,
+    [l, ..rest] =>
+      if line_idx >= target { 0 }
+      else if line_idx < offset { wrapped_rows_before(rest, offset, target, w, line_idx + 1) }
+      else { length(wrap_line(l, w)) + wrapped_rows_before(rest, offset, target, w, line_idx + 1) }
+  }
+
 /// Display name for a buffer's tab: its path, or "scratch" for an
 /// unnamed in-memory buffer.
 fun buffer_tab_name(buf: TextBuffer) : string =>
@@ -377,8 +399,8 @@ fun render_normal_buffer(state: EditorState) : ScreenBuffer {
   let cur    = match buf.cursors { [] => Position { line: 0, col: 0 }, [x, .._] => x.pos }
   let offset = buf.scroll_line
 
-  // Each content line truncated to screen width; empty rows filled with "~".
-  let text_rows    = map(drop_n(buf.lines, offset), (l) => fit_to_width(l, w))
+  // Logical lines soft-wrap at screen width; empty rows are filled with "~".
+  let text_rows    = wrap_lines(drop_n(buf.lines, offset), w)
   let content_rows = take_or_pad(text_rows, n_content, "~")
   let display_rows = overlay_command_palette_rows(content_rows, state, w, n_content)
 
@@ -395,11 +417,12 @@ fun render_normal_buffer(state: EditorState) : ScreenBuffer {
     _        => fit_to_width(prompt_label(state.prompt), w)
   }
 
-  let visible_col  = max(min(cur.col, max(w - 1, 0)), 0)
-  let in_view      = cur.line >= offset && cur.line <= offset + n_content - 1
+  let cursor_visual_row = wrapped_rows_before(buf.lines, offset, cur.line, w, 0) + cur.col / max(w, 1)
+  let visible_col       = max(min(cur.col % max(w, 1), max(w - 1, 0)), 0)
+  let in_view           = cur.line >= offset && cursor_visual_row < n_content
 
   let (crow, ccol) = match state.prompt {
-    NoPrompt => if in_view { (cur.line - offset + 2, visible_col + 1) } else { (0, 1) }
+    NoPrompt => if in_view { (cursor_visual_row + 2, visible_col + 1) } else { (0, 1) }
     _        => (h, min(prompt_prefix_len(state.prompt) + prompt_cursor_col(state.prompt) + 1, w))
   }
 
@@ -442,13 +465,13 @@ fun repeat_str(s: string, n: int) : string =>
 /// One leaf's content rows: its buffer's lines, scrolled to keep its own
 /// head cursor visible (each pane reads its own persisted
 /// `TextBuffer.scroll_line`, kept independent per-pane the same way
-/// `sync_scroll` only ever touches the active buffer), truncated/padded
+/// `sync_scroll` only ever touches the active buffer), soft-wrapped/padded
 /// to exactly `rw` columns (every row, including "~" fill rows, must be
 /// exactly `rw` wide so splicing a later pane onto the same canvas row
 /// doesn't shift on a short line).
 fun leaf_content_rows(buf: TextBuffer, rw: int, rh: int) : list<string> {
   let offset    = buf.scroll_line
-  let text_rows = map(drop_n(buf.lines, offset), (l) => fit_to_width(l, rw))
+  let text_rows = wrap_lines(drop_n(buf.lines, offset), rw)
   let rows      = take_or_pad(text_rows, rh, "~")
   map(rows, (r) => pad_right(r, rw, " "))
 }
@@ -536,12 +559,13 @@ fun render_split_buffer(state: EditorState) : ScreenBuffer {
   let (ax, ay, aw, ah) = find_rect(rects, state.buffer.bid, full_rect)
   let cur          = match state.buffer.cursors { [] => Position { line: 0, col: 0 }, [x, .._] => x.pos }
   let offset       = state.buffer.scroll_line
-  let visible_col  = max(min(cur.col, max(aw - 1, 0)), 0)
-  let in_view      = cur.line >= offset && cur.line <= offset + ah - 1
+  let cursor_visual_row = wrapped_rows_before(state.buffer.lines, offset, cur.line, aw, 0) + cur.col / max(aw, 1)
+  let visible_col       = max(min(cur.col % max(aw, 1), max(aw - 1, 0)), 0)
+  let in_view           = cur.line >= offset && cursor_visual_row < ah
   let active_syntax = shift_syntax_spans(syntax_highlights(state.buffer, offset, ah, aw), ay, ax)
 
   let (crow, ccol) = match state.prompt {
-    NoPrompt => if in_view { (ay + cur.line - offset + 2, ax + visible_col + 1) } else { (0, 1) }
+    NoPrompt => if in_view { (ay + cursor_visual_row + 2, ax + visible_col + 1) } else { (0, 1) }
     _        => (h, min(prompt_prefix_len(state.prompt) + prompt_cursor_col(state.prompt) + 1, w))
   }
 

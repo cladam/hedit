@@ -912,6 +912,12 @@ test "screen_to_buffer_pos maps a content-row click to the right buffer position
   assert(screen_to_buffer_pos(s0, 1, 3) == Some((s0.buffer.bid, Position { line: 1, col: 0 })))
 }
 
+test "screen_to_buffer_pos maps a wrapped continuation row to its logical line" {
+  let base = with_lines(["Clipboard and history"])
+  let s0 = EditorState { ...base, screen_size: (10, 5) }
+  assert(screen_to_buffer_pos(s0, 3, 3) == Some((s0.buffer.bid, Position { line: 0, col: 12 })))
+}
+
 test "screen_to_buffer_pos is None on the tabline/status row" {
   let s0 = with_lines(["hello"])
   assert(screen_to_buffer_pos(s0, 3, 1) == None)  // tabline

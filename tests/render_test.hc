@@ -37,6 +37,18 @@ test "typed content appears in the first content row after the tabline" {
   assert(first_content == "hi")
 }
 
+test "long content wraps at the screen width and moves the cursor to its continuation row" {
+  let s0 = with_lines_render(["Clipboard and history"], (10, 5))
+  let wrapped = TextBuffer { ...s0.buffer, cursors: [Cursor { cid: 0, pos: Position { line: 0, col: 13 }, anchor: None, anchor_sticky: false }] }
+  let s1 = EditorState { ...s0, buffer: wrapped }
+  let buf = render_editor_to_buffer(s1)
+  assert(nth_or(buf.lines, 1, "MISSING") == "Clipboard ")
+  assert(nth_or(buf.lines, 2, "MISSING") == "and histor")
+  assert(nth_or(buf.lines, 3, "MISSING") == "y")
+  assert(buf.cursor_row == 3)
+  assert(buf.cursor_col == 4)
+}
+
 // ------------------- tabline row --------------------------------
 
 test "tabline shows a single bracketed scratch tab with one buffer open" {
@@ -191,6 +203,14 @@ test "a vertical split renders both panes side by side with a divider between th
   let buf  = render_editor_to_buffer(s0)
   // width 10 → 5-wide left pane, 1-col divider, 4-wide right pane
   assert(nth_or(buf.lines, 1, "MISSING") == "left │righ")
+}
+
+test "a long line wraps at its pane width in a vertical split" {
+  let node = Split(Vertical, 0.5, Leaf(1), Leaf(2))
+  let s0   = with_split_state(["left-hand"], ["right"], node, (10, 5))
+  let buf  = render_editor_to_buffer(s0)
+  assert(nth_or(buf.lines, 1, "MISSING") == "left-│righ")
+  assert(nth_or(buf.lines, 2, "MISSING") == "hand │t   ")
 }
 
 test "a horizontal split stacks the left buffer's pane above a divider row above the right one" {
