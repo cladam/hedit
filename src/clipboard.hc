@@ -26,10 +26,26 @@ pub fun choose_clipboard_tool(tools: list<string>) : maybe<(string, string)> {
 }
 
 /// Whether an executable is available on PATH.
+fun success_marker() : string =>
+  "__HEDIT_CLIPBOARD_COMMAND_OK__"
+
+/// Run a shell command and return its exact output only on exit status zero.
+fun successful_output(cmd: string) =>
+  match exec(cmd + " && printf '" + success_marker() + "'") {
+    Err(_) => None,
+    Ok(out) =>
+      if ends_with(out, success_marker()) {
+        Some(out[0:length(out) - length(success_marker())])
+      } else {
+        None
+      }
+  }
+
+/// Whether an executable is available on PATH.
 fun command_exists(name: string) =>
-  match exec("command -v " + name + " >/dev/null 2>&1") {
-    Ok(_)  => true,
-    Err(_) => false
+  match successful_output("command -v " + name + " >/dev/null 2>&1") {
+    Some(_) => true,
+    None    => false
   }
 
 /// Keep the executable names that are currently available on PATH.
@@ -54,11 +70,11 @@ fun remove_temp(path: string) {
 
 /// Feed a temporary file to the selected clipboard setter, then remove it.
 fun set_from_temp(set_cmd: string, path: string) {
-  let result = exec(set_cmd + " < '" + path + "'")
+  let result = successful_output(set_cmd + " < '" + path + "'")
   remove_temp(path)
   match result {
-    Ok(_)  => true,
-    Err(_) => false
+    Some(_) => true,
+    None    => false
   }
 }
 
@@ -71,9 +87,9 @@ fun write_temp(set_cmd: string, path: string, text: string) =>
 
 /// Create and populate the temporary file used by a clipboard setter.
 fun set_with_command(set_cmd: string, text: string) =>
-  match exec("mktemp") {
-    Err(_)       => false,
-    Ok(raw_path) => write_temp(set_cmd, trim(raw_path), text)
+  match successful_output("mktemp") {
+    None           => false,
+    Some(raw_path) => write_temp(set_cmd, trim(raw_path), text)
   }
 
 /// Write text to the OS clipboard. Returns false when unavailable or failed.
@@ -85,9 +101,9 @@ pub fun os_clipboard_set(tool: maybe<(string, string)>, text: string) =>
 
 /// Read clipboard text with one concrete getter command.
 fun get_with_command(get_cmd: string, fallback: string) =>
-  match exec(get_cmd) {
-    Ok(out) => out,
-    Err(_)  => fallback
+  match successful_output(get_cmd) {
+    Some(out) => out,
+    None      => fallback
   }
 
 /// Read exact text from the OS clipboard, falling back on any failure.
