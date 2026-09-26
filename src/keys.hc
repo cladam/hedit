@@ -20,7 +20,9 @@ pub type SpecialKey {
   ArrowUp,
   ArrowDown,
   ArrowLeft,
-  ArrowRight
+  ArrowRight,
+  PageUp,
+  PageDown
 }
 
 /// A single keypress the terminal handler delivers to us.
@@ -96,6 +98,8 @@ pub fun decode_key(code: int) : Event {
   else if code == 1002 { KeyEvent(KSpecial(ArrowDown)) }
   else if code == 1003 { KeyEvent(KSpecial(ArrowRight)) }
   else if code == 1004 { KeyEvent(KSpecial(ArrowLeft)) }
+  else if code == 1005 { KeyEvent(KSpecial(PageUp)) }
+  else if code == 1006 { KeyEvent(KSpecial(PageDown)) }
   else if code == 1010 { KeyEvent(KCtrlSpecial(ArrowRight)) }
   else if code == 1011 { KeyEvent(KCtrlSpecial(ArrowLeft)) }
   else if code == 1020 { KeyEvent(KMetaSpecial(ArrowUp)) }

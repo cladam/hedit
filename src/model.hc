@@ -124,6 +124,11 @@ pub type Action {
   OpenCommandPalette,
   OpenShellPrompt,
   RunShellCommand(cmd: string),
+  ShellOutputUp,
+  ShellOutputDown,
+  ShellOutputPageUp,
+  ShellOutputPageDown,
+  CloseShellOutput,
   PromptNext,
   PromptPrev,
   Ignore
@@ -286,7 +291,12 @@ pub fun action_to_string(a: Action) : string =>
     UndoTreeCancel      => "undo-tree-cancel",
     OpenCommandPalette  => "open-command-palette",
     OpenShellPrompt     => "shell",
-    RunShellCommand(_)  => "run-shell-command"
+    RunShellCommand(_)  => "run-shell-command",
+    ShellOutputUp       => "shell-output-up",
+    ShellOutputDown     => "shell-output-down",
+    ShellOutputPageUp   => "shell-output-page-up",
+    ShellOutputPageDown => "shell-output-page-down",
+    CloseShellOutput    => "close-shell-output"
   }
 
 /// Inverse of `action_to_string`; unrecognised names resolve to `None`.

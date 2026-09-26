@@ -23,6 +23,8 @@ test "synthetic arrow codes decode to arrow keys" {
   assert(decode_key(1002) == KeyEvent(KSpecial(ArrowDown)))
   assert(decode_key(1003) == KeyEvent(KSpecial(ArrowRight)))
   assert(decode_key(1004) == KeyEvent(KSpecial(ArrowLeft)))
+  assert(decode_key(1005) == KeyEvent(KSpecial(PageUp)))
+  assert(decode_key(1006) == KeyEvent(KSpecial(PageDown)))
 }
 
 test "synthetic Ctrl-arrow codes decode to KCtrlSpecial (M12 find navigation)" {

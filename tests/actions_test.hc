@@ -1326,6 +1326,68 @@ test "undo tree navigation live-previews buffer and cancel restores original" {
   assert(s4.undo_tree == None)
 }
 
+// ------------------- M26: Shell output view actions ---------------------
+
+fun with_shell_output(line_count: int) : EditorState {
+  let output_lines = many_lines(line_count)
+  let view = ShellOutputState { command: "seq " + show(line_count), lines: output_lines, scroll_line: 0, succeeded: true }
+  EditorState { ...init_editor(None), screen_size: (80, 6), shell_output: Some(view) }
+}
+
+fun shell_output_offset(state: EditorState) : int =>
+  match state.shell_output { Some(view) => view.scroll_line, None => -1 }
+
+test "shell output mode owns navigation and preserves global quit and resize" {
+  let s0 = with_shell_output(10)
+  assert(resolve_action(s0, KeyEvent(KSpecial(ArrowUp))) == ShellOutputUp)
+  assert(resolve_action(s0, KeyEvent(KSpecial(ArrowDown))) == ShellOutputDown)
+  assert(resolve_action(s0, KeyEvent(KChar('k'))) == ShellOutputUp)
+  assert(resolve_action(s0, KeyEvent(KChar('j'))) == ShellOutputDown)
+  assert(resolve_action(s0, KeyEvent(KSpecial(PageUp))) == ShellOutputPageUp)
+  assert(resolve_action(s0, KeyEvent(KSpecial(PageDown))) == ShellOutputPageDown)
+  assert(resolve_action(s0, MouseEvent(ScrollUp, 2, 3)) == ShellOutputUp)
+  assert(resolve_action(s0, MouseEvent(ScrollDown, 2, 3)) == ShellOutputDown)
+  assert(resolve_action(s0, KeyEvent(KShortcut(Ctrl, 'q'))) == Quit)
+  assert(resolve_action(s0, ResizeEvent(100, 30)) == Resize(100, 30))
+  assert(resolve_action(s0, KeyEvent(KChar('x'))) == Ignore)
+}
+
+test "shell output line page and wheel scrolling stops at the bottom" {
+  let s0 = with_shell_output(10)
+  let s1 = handle_action(s0, KeyEvent(KSpecial(PageDown)))
+  let s2 = handle_action(s1, KeyEvent(KSpecial(PageDown)))
+  let s3 = handle_action(s2, MouseEvent(ScrollDown, 1, 1))
+  assert_eq(shell_output_offset(s3), 6)
+}
+
+test "shell output resize clamps its scroll offset to the new viewport" {
+  let s0 = with_shell_output(10)
+  let s1 = handle_action(s0, KeyEvent(KSpecial(PageDown)))
+  let s2 = handle_action(s1, KeyEvent(KSpecial(PageDown)))
+  let s3 = handle_action(s2, ResizeEvent(80, 10))
+  assert_eq(shell_output_offset(s3), 2)
+}
+
+test "shell output line and page scrolling stops at the top" {
+  let s0 = with_shell_output(10)
+  let s1 = handle_action(s0, KeyEvent(KSpecial(PageDown)))
+  let s2 = handle_action(s1, KeyEvent(KSpecial(PageUp)))
+  let s3 = handle_action(s2, KeyEvent(KSpecial(ArrowUp)))
+  assert_eq(shell_output_offset(s3), 0)
+}
+
+test "Esc q and Enter close shell output without changing the buffer" {
+  let s0 = with_shell_output(3)
+  let by_escape = handle_action(s0, KeyEvent(KSpecial(Esc)))
+  let by_q = handle_action(s0, KeyEvent(KChar('q')))
+  let by_enter = handle_action(s0, KeyEvent(KSpecial(Enter)))
+  assert(by_escape.shell_output == None)
+  assert(by_q.shell_output == None)
+  assert(by_enter.shell_output == None)
+  assert(by_escape.buffer == s0.buffer)
+  assert(by_escape.panes == s0.panes)
+}
+
 test "undo tree commit retains previewed buffer and clears overlay" {
   let b_orig = with_lines(["original"]).buffer
   let b1 = with_lines(["rev 1"]).buffer

@@ -16,6 +16,7 @@
 //   printable chars: ASCII value (32-126)
 //   Enter: 10, Backspace: 127, Tab: 9, Esc: 27
 //   Arrow Up: 1001, Down: 1002, Right: 1003, Left: 1004
+//   PageUp: 1005, PageDown: 1006 (ESC[5~ / ESC[6~)
 //   Ctrl-Right: 1010, Ctrl-Left: 1011 (ESC[1;5C / ESC[1;5D — the only
 //     modifier-parameterised arrow sequences decoded so far, M12 find
 //     navigation) — see decode_key in src/keys.hc, which maps these to
@@ -80,6 +81,14 @@ kk_integer_t hedit_read_key(void) {
                         else if (c3 == 66) key = 1002;  // Down
                         else if (c3 == 67) key = 1003;  // Right
                         else if (c3 == 68) key = 1004;  // Left
+                        else if (c3 == 53 || c3 == 54) {  // '5'/'6' -> PageUp/PageDown
+                            unsigned char c4;
+                            if (read(0, &c4, 1) == 1 && c4 == 126) {
+                                key = (c3 == 53) ? 1005 : 1006;
+                            } else {
+                                key = -1;
+                            }
+                        }
                         else if (c3 == 49) {  // '1' -> maybe "1;5C"/"1;5D" (Ctrl) or "1;3A".."1;3D" (Meta)
                             unsigned char c4, c5, c6;
                             if (read(0, &c4, 1) == 1 && c4 == 59 &&        // ';'

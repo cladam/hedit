@@ -2076,6 +2076,27 @@ fun resolve_undo_tree_action(evt: Event) : Action =>
     _                              => Ignore
   }
 
+/// Resolve input while captured shell output is visible. The overlay owns
+/// all ordinary keys and mouse-wheel events; Ctrl-q and resize retain their
+/// editor-wide meaning.
+fun resolve_shell_output_action(evt: Event) : Action =>
+  match evt {
+    KeyEvent(KShortcut(Ctrl, 'q')) => Quit,
+    ResizeEvent(w, h)              => Resize(w, h),
+    KeyEvent(KSpecial(ArrowUp))    => ShellOutputUp,
+    KeyEvent(KSpecial(ArrowDown))  => ShellOutputDown,
+    KeyEvent(KChar('k'))           => ShellOutputUp,
+    KeyEvent(KChar('j'))           => ShellOutputDown,
+    KeyEvent(KSpecial(PageUp))     => ShellOutputPageUp,
+    KeyEvent(KSpecial(PageDown))   => ShellOutputPageDown,
+    MouseEvent(ScrollUp, _, _)     => ShellOutputUp,
+    MouseEvent(ScrollDown, _, _)   => ShellOutputDown,
+    KeyEvent(KSpecial(Esc))        => CloseShellOutput,
+    KeyEvent(KChar('q'))           => CloseShellOutput,
+    KeyEvent(KSpecial(Enter))      => CloseShellOutput,
+    _                              => Ignore
+  }
+
 /// Resolve a raw event to an Action during normal editing, via
 /// `state.config.bindings` for user-remappable shortcuts.
 // Enter/Backspace/arrows are fixed (no `char` payload to key a binding
@@ -2113,20 +2134,38 @@ fun resolve_normal_action(state: EditorState, evt: Event) : Action =>
 /// Resolve a raw event to a semantic Action, dispatching by editor mode
 /// (help overlay, visual undo tree, active prompt, or normal editing).
 pub fun resolve_action(state: EditorState, evt: Event) : Action {
-  if state.show_help {
-    resolve_help_action(evt)
-  } else {
-    match state.undo_tree {
-      Some(_) => resolve_undo_tree_action(evt),
-      None    => match state.prompt {
-        NoPrompt => resolve_normal_action(state, evt),
-        _        => resolve_prompt_action(evt)
+  match state.shell_output {
+    Some(_) => resolve_shell_output_action(evt),
+    None    => {
+      if state.show_help {
+        resolve_help_action(evt)
+      } else {
+        match state.undo_tree {
+          Some(_) => resolve_undo_tree_action(evt),
+          None    => match state.prompt {
+            NoPrompt => resolve_normal_action(state, evt),
+            _        => resolve_prompt_action(evt)
+          }
+        }
       }
     }
   }
 }
 
 // ------------------- Action -> EditorState apply -------------------------
+
+fun shell_output_page_size(state: EditorState) : int =>
+  max(state.screen_size.1 - 2, 1)
+
+fun scroll_shell_output(state: EditorState, delta: int) : EditorState =>
+  match state.shell_output {
+    None => state,
+    Some(view) => {
+      let max_offset = max(0, length(view.lines) - shell_output_page_size(state))
+      let next_offset = max(0, min(view.scroll_line + delta, max_offset))
+      EditorState { ...state, shell_output: Some(ShellOutputState { ...view, scroll_line: next_offset }) }
+    }
+  }
 
 fun has_nonsticky_anchor(cs: list<Cursor>) : bool =>
   match cs {
@@ -2216,7 +2255,7 @@ pub fun apply_action(state: EditorState, action: Action) : EditorState =>
     MoveLineEnd   => collapse_unless_sticky(move_line_end(state)),
     MoveWordForward => collapse_unless_sticky(move_word_forward(state)),
     MoveWordBack    => collapse_unless_sticky(move_word_back(state)),
-    Resize(w, h) => EditorState { ...state, screen_size: (w, h) },
+    Resize(w, h) => scroll_shell_output(EditorState { ...state, screen_size: (w, h) }, 0),
     Save         => state, // event_loop: <fsys>
     ReloadConfig => state, // event_loop: <fsys>
     Copy         => state, // event_loop: <Clipboard>
@@ -2264,6 +2303,11 @@ pub fun apply_action(state: EditorState, action: Action) : EditorState =>
     OpenCommandPalette  => EditorState { ...state, prompt: CommandPrompt("", 0, 0) },
     OpenShellPrompt     => EditorState { ...state, prompt: ShellPrompt("", 0) },
     RunShellCommand(_)  => state, // event_loop: shell execution
+    ShellOutputUp       => scroll_shell_output(state, -1),
+    ShellOutputDown     => scroll_shell_output(state, 1),
+    ShellOutputPageUp   => scroll_shell_output(state, 0 - shell_output_page_size(state)),
+    ShellOutputPageDown => scroll_shell_output(state, shell_output_page_size(state)),
+    CloseShellOutput    => EditorState { ...state, shell_output: None },
     ToggleHelp      => EditorState { ...state, show_help: !state.show_help },
     StartFind    => start_find(state),
     FindNext     => find_next(state),
