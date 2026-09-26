@@ -16,6 +16,9 @@
 ;; Soft-tab width. `--tabsize <n>` on the CLI always overrides this.
 (set "tabsize" 4)
 
+;; Show line numbers in the editor gutter. Set to false to hide them.
+(set "line-numbers" true)
+
 ;; Built-in theme presets: "default" or "ilseon".
 (set "theme" "default")
 ;; (set "theme" "ilseon")

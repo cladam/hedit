@@ -69,6 +69,13 @@ test "set_config_value adds a value when none was present" {
   assert(get_config_int(cfg1, "tabsize", 8) == 2)
 }
 
+test "line numbers are enabled by default and accept boolean overrides" {
+  let cfg0 = default_config()
+  let cfg1 = set_config_value(cfg0, "line-numbers", "false")
+  assert(get_config_bool(cfg0, "line-numbers", false))
+  assert_false(get_config_bool(cfg1, "line-numbers", true))
+}
+
 // ------------------- +LINE:COL clamping -------------------------------
 
 test "clamp_position keeps an in-range position unchanged" {

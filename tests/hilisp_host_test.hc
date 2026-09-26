@@ -117,6 +117,12 @@ test "load_config: (set) with a string value" {
   assert(get_config(cfg, "theme", "?") == "gruvbox")
 }
 
+test "load_config: line numbers can be disabled with a boolean" {
+  let (cfg, err) = load_config("(set \"line-numbers\" false)", default_config())
+  assert(err == None)
+  assert_false(get_config_bool(cfg, "line-numbers", true))
+}
+
 test "load_config: (bind) rewires Ctrl-x to quit" {
   let (cfg, err) = load_config("(bind \"Ctrl-x\" 'quit)", default_config())
   assert(err == None)

@@ -464,9 +464,9 @@ pub struct Config {
   custom_config_path: maybe<string>
 }
 
-/// The default `Config`: default bindings, no HiLisp values, not readonly.
+/// The default `Config`: default bindings, line numbers enabled, not readonly.
 pub fun default_config() : Config =>
-  Config { bindings: default_bindings(), values: [], readonly: false, custom_config_path: None }
+  Config { bindings: default_bindings(), values: [("line-numbers", "true")], readonly: false, custom_config_path: None }
 
 /// Look up a `(set key value)` value from the config, or `default` if
 /// absent.
@@ -492,6 +492,15 @@ pub fun get_config_int(cfg: Config, key: string, default: int) : int =>
   match map_get(cfg.values, key) {
     Some(v) => parse_or(v, default),
     None    => default
+  }
+
+/// Boolean convenience over `get_config`: only the serialized HiLisp
+/// literals `true` and `false` override the supplied default.
+pub fun get_config_bool(cfg: Config, key: string, default: bool) : bool =>
+  match map_get(cfg.values, key) {
+    Some("true")  => true,
+    Some("false") => false,
+    _             => default
   }
 
 /// Set (or override) a single `(key, value)` config entry.

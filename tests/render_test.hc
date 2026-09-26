@@ -34,7 +34,17 @@ test "typed content appears in the first content row after the tabline" {
   let s2 = handle_action(s1, KeyEvent(KChar('i')))
   let buf = render_editor_to_buffer(s2)
   let first_content = match buf.lines { [_tabline, x, .._] => x, _ => "MISSING" }
-  assert(first_content == "hi")
+  assert(first_content == "1 hi")
+}
+
+test "line numbers can be disabled through config" {
+  let s0 = EditorState { ...init_editor(None), screen_size: (40, 10) }
+  let cfg = set_config_value(s0.config, "line-numbers", "false")
+  let s1 = EditorState { ...s0, config: cfg }
+  let s2 = handle_action(s1, KeyEvent(KChar('h')))
+  let buf = render_editor_to_buffer(s2)
+  assert(nth_or(buf.lines, 1, "MISSING") == "h")
+  assert(buf.cursor_col == 2)
 }
 
 test "long content wraps at the screen width and moves the cursor to its continuation row" {
@@ -42,11 +52,11 @@ test "long content wraps at the screen width and moves the cursor to its continu
   let wrapped = TextBuffer { ...s0.buffer, cursors: [Cursor { cid: 0, pos: Position { line: 0, col: 13 }, anchor: None, anchor_sticky: false }] }
   let s1 = EditorState { ...s0, buffer: wrapped }
   let buf = render_editor_to_buffer(s1)
-  assert(nth_or(buf.lines, 1, "MISSING") == "Clipboard ")
-  assert(nth_or(buf.lines, 2, "MISSING") == "and histor")
-  assert(nth_or(buf.lines, 3, "MISSING") == "y")
+  assert(nth_or(buf.lines, 1, "MISSING") == "1 Clipboar")
+  assert(nth_or(buf.lines, 2, "MISSING") == "  d and hi")
+  assert(nth_or(buf.lines, 3, "MISSING") == "  story")
   assert(buf.cursor_row == 3)
-  assert(buf.cursor_col == 4)
+  assert(buf.cursor_col == 8)
 }
 
 // ------------------- tabline row --------------------------------
@@ -108,7 +118,7 @@ test "an active search highlights every visible match" {
   let s3 = apply_action(s2, PromptChar('a'))
   let s4 = apply_action(s3, PromptChar('t'))
   let buf = render_editor_to_buffer(s4)
-  assert(buf.highlights == [(2, 0, 3), (2, 8, 11)])
+  assert(buf.highlights == [(2, 2, 5), (2, 10, 13)])
 }
 
 test "the find prompt label shows the typed query in the status row" {
@@ -135,7 +145,7 @@ test "an active single-line selection highlights just its span" {
   let s3 = handle_action(s2, KeyEvent(KSpecial(ArrowRight)))
   let s4 = handle_action(s3, KeyEvent(KSpecial(ArrowRight)))
   let buf = render_editor_to_buffer(s4)
-  assert(buf.selection_spans == [(2, 0, 3)])
+  assert(buf.selection_spans == [(2, 2, 5)])
 }
 
 test "a multi-line selection covers the middle line's full width" {
@@ -145,7 +155,7 @@ test "a multi-line selection covers the middle line's full width" {
   let s3 = handle_action(s2, KeyEvent(KSpecial(ArrowDown)))
   let s4 = handle_action(s3, KeyEvent(KSpecial(ArrowRight)))
   let buf = render_editor_to_buffer(s4)
-  assert(buf.selection_spans == [(2, 0, 3), (3, 0, 4), (4, 0, 1)])
+  assert(buf.selection_spans == [(2, 2, 5), (3, 2, 6), (4, 2, 3)])
 }
 
 // ------------------- Split panes (M15) ----------------------------
@@ -202,15 +212,16 @@ test "a vertical split renders both panes side by side with a divider between th
   let s0   = with_split_state(["left"], ["right"], node, (10, 5))
   let buf  = render_editor_to_buffer(s0)
   // width 10 → 5-wide left pane, 1-col divider, 4-wide right pane
-  assert(nth_or(buf.lines, 1, "MISSING") == "left │righ")
+  assert(nth_or(buf.lines, 1, "MISSING") == "1 lef│1 ri")
 }
 
 test "a long line wraps at its pane width in a vertical split" {
   let node = Split(Vertical, 0.5, Leaf(1), Leaf(2))
   let s0   = with_split_state(["left-hand"], ["right"], node, (10, 5))
   let buf  = render_editor_to_buffer(s0)
-  assert(nth_or(buf.lines, 1, "MISSING") == "left-│righ")
-  assert(nth_or(buf.lines, 2, "MISSING") == "hand │t   ")
+  assert(nth_or(buf.lines, 1, "MISSING") == "1 lef│1 ri")
+  assert(nth_or(buf.lines, 2, "MISSING") == "  t-h│  gh")
+  assert(nth_or(buf.lines, 3, "MISSING") == "  and│  t ")
 }
 
 test "a horizontal split stacks the left buffer's pane above a divider row above the right one" {
@@ -218,9 +229,9 @@ test "a horizontal split stacks the left buffer's pane above a divider row above
   let s0   = with_split_state(["top"], ["bottom"], node, (10, 6))
   let buf  = render_editor_to_buffer(s0)
   // height 6 → n_content 4 → 2 rows top, 1 divider row, 1 row bottom
-  assert(nth_or(buf.lines, 1, "MISSING") == "top       ")
+  assert(nth_or(buf.lines, 1, "MISSING") == "1 top     ")
   assert(nth_or(buf.lines, 3, "MISSING") == "──────────")
-  assert(nth_or(buf.lines, 4, "MISSING") == "bottom    ")
+  assert(nth_or(buf.lines, 4, "MISSING") == "1 bottom  ")
 }
 
 // ------------------- Cursor visibility while scrolled (M18 wheel fix) -----
@@ -258,7 +269,7 @@ test "secondary cursor without anchor renders a 1-character selection marker" {
   let buf = render_editor_to_buffer(s1)
   // c1 is head cursor (gets hardware cursor_row/col, no fake span)
   // c2 is secondary cursor on line 1 (screen row 3), col 3 -> span (3, 3, 4)
-  assert(buf.selection_spans == [(3, 3, 4)])
+  assert(buf.selection_spans == [(3, 5, 6)])
 }
 
 test "multiple cursors with selections render all their spans" {
@@ -267,7 +278,7 @@ test "multiple cursors with selections render all their spans" {
   let s0 = with_lines_render(["hello", "world"], (40, 10))
   let s1 = EditorState { ...s0, buffer: TextBuffer { ...s0.buffer, cursors: [c1, c2] } }
   let buf = render_editor_to_buffer(s1)
-  assert(buf.selection_spans == [(2, 1, 4), (3, 2, 5)])
+  assert(buf.selection_spans == [(2, 3, 6), (3, 4, 7)])
 }
 
 // ------------------- Undo Tree rendering (M21) --------------------------

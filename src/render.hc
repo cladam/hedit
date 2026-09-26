@@ -45,6 +45,42 @@ fun wrap_lines(lines: list<string>, w: int) : list<string> =>
     [l, ..rest] => wrap_line(l, w) + wrap_lines(rest, w)
   }
 
+fun line_number_width(lines: list<string>) : int =>
+  length(show(max(length(lines), 1))) + 1
+
+fun numbered_wrap_line(s: string, w: int, n: int, gutter_w: int) : list<string> {
+  let text_w = max(w - gutter_w, 1)
+  let rows = wrap_line(s, text_w)
+  match rows {
+    [] => [],
+    [first, ..rest] =>
+      [pad_left(show(n), gutter_w - 1, " ") + " " + first] +
+        map(rest, (row) => repeat_str(" ", gutter_w) + row)
+  }
+}
+
+fun numbered_wrap_lines(lines: list<string>, w: int, n: int, gutter_w: int) : list<string> =>
+  match lines {
+    []          => [],
+    [l, ..rest] => numbered_wrap_line(l, w, n, gutter_w) + numbered_wrap_lines(rest, w, n + 1, gutter_w)
+  }
+
+fun render_content_lines(lines: list<string>, offset: int, w: int, show_numbers: bool) : list<string> =>
+  if show_numbers {
+    numbered_wrap_lines(drop_n(lines, offset), w, offset + 1, line_number_width(lines))
+  } else {
+    wrap_lines(drop_n(lines, offset), w)
+  }
+
+fun content_width(lines: list<string>, w: int, show_numbers: bool) : int =>
+  if show_numbers { max(w - line_number_width(lines), 1) } else { w }
+
+fun shift_plain_spans(spans: list<(int, int, int)>, dcol: int) : list<(int, int, int)> =>
+  match spans {
+    []                => [],
+    [(r, s, e), ..xs] => [(r, s + dcol, e + dcol)] + shift_plain_spans(xs, dcol)
+  }
+
 /// Number of wrapped rows occupied by logical lines in `[offset, target)`.
 fun wrapped_rows_before(lines: list<string>, offset: int, target: int, w: int, line_idx: int) : int =>
   match lines {
@@ -395,13 +431,16 @@ fun render_normal_buffer(state: EditorState) : ScreenBuffer {
   let (w, h)    = state.screen_size
   let buf       = state.buffer
   let n_content = h - 2
+  let show_numbers = get_config_bool(state.config, "line-numbers", true)
+  let gutter_w     = if show_numbers { line_number_width(buf.lines) } else { 0 }
+  let text_w       = content_width(buf.lines, w, show_numbers)
 
   let cur    = match buf.cursors { [] => Position { line: 0, col: 0 }, [x, .._] => x.pos }
   let offset = buf.scroll_line
 
-  // Logical lines soft-wrap at screen width; empty rows are filled with "~".
-  let text_rows    = wrap_lines(drop_n(buf.lines, offset), w)
-  let content_rows = take_or_pad(text_rows, n_content, "~")
+  // Logical lines soft-wrap inside the text area; continuation rows keep a blank gutter.
+  let text_rows    = render_content_lines(buf.lines, offset, w, show_numbers)
+  let content_rows = take_or_pad(text_rows, n_content, repeat_str(" ", gutter_w) + "~")
   let display_rows = overlay_command_palette_rows(content_rows, state, w, n_content)
 
   let tabline_row = fit_to_width(build_tabline(state), w)
@@ -417,12 +456,12 @@ fun render_normal_buffer(state: EditorState) : ScreenBuffer {
     _        => fit_to_width(prompt_label(state.prompt), w)
   }
 
-  let cursor_visual_row = wrapped_rows_before(buf.lines, offset, cur.line, w, 0) + cur.col / max(w, 1)
-  let visible_col       = max(min(cur.col % max(w, 1), max(w - 1, 0)), 0)
+  let cursor_visual_row = wrapped_rows_before(buf.lines, offset, cur.line, text_w, 0) + cur.col / max(text_w, 1)
+  let visible_col       = max(min(cur.col % max(text_w, 1), max(text_w - 1, 0)), 0)
   let in_view           = cur.line >= offset && cursor_visual_row < n_content
 
   let (crow, ccol) = match state.prompt {
-    NoPrompt => if in_view { (cursor_visual_row + 2, visible_col + 1) } else { (0, 1) }
+    NoPrompt => if in_view { (cursor_visual_row + 2, gutter_w + visible_col + 1) } else { (0, 1) }
     _        => (h, min(prompt_prefix_len(state.prompt) + prompt_cursor_col(state.prompt) + 1, w))
   }
 
@@ -432,9 +471,9 @@ fun render_normal_buffer(state: EditorState) : ScreenBuffer {
     lines: [tabline_row] + display_rows + [status_row],
     cursor_row: crow,
     cursor_col: ccol,
-    highlights: search_highlights(state, offset, n_content, w),
-    syntax_spans: syntax_highlights(buf, offset, n_content, w),
-    selection_spans: selection_highlights(state, offset, n_content, w)
+    highlights: shift_plain_spans(search_highlights(state, offset, n_content, text_w), gutter_w),
+    syntax_spans: shift_syntax_spans(syntax_highlights(buf, offset, n_content, text_w), 0, gutter_w),
+    selection_spans: shift_plain_spans(selection_highlights(state, offset, n_content, text_w), gutter_w)
   }
 }
 
@@ -469,10 +508,11 @@ fun repeat_str(s: string, n: int) : string =>
 /// to exactly `rw` columns (every row, including "~" fill rows, must be
 /// exactly `rw` wide so splicing a later pane onto the same canvas row
 /// doesn't shift on a short line).
-fun leaf_content_rows(buf: TextBuffer, rw: int, rh: int) : list<string> {
+fun leaf_content_rows(buf: TextBuffer, rw: int, rh: int, show_numbers: bool) : list<string> {
   let offset    = buf.scroll_line
-  let text_rows = wrap_lines(drop_n(buf.lines, offset), rw)
-  let rows      = take_or_pad(text_rows, rh, "~")
+  let gutter_w  = if show_numbers { line_number_width(buf.lines) } else { 0 }
+  let text_rows = render_content_lines(buf.lines, offset, rw, show_numbers)
+  let rows      = take_or_pad(text_rows, rh, repeat_str(" ", gutter_w) + "~")
   map(rows, (r) => pad_right(r, rw, " "))
 }
 
@@ -503,7 +543,7 @@ fun paint_all_panes(state: EditorState, canvas: list<string>, rects: list<(int, 
     []                    => canvas,
     [(bid, rect), ..rest] => {
       let (_, _, w, h) = rect
-      let lines = leaf_content_rows(buffer_for(state, bid), w, h)
+      let lines = leaf_content_rows(buffer_for(state, bid), w, h, get_config_bool(state.config, "line-numbers", true))
       paint_all_panes(state, paint_pane(canvas, rect, lines), rest)
     }
   }
@@ -557,15 +597,18 @@ fun render_split_buffer(state: EditorState) : ScreenBuffer {
   }
 
   let (ax, ay, aw, ah) = find_rect(rects, state.buffer.bid, full_rect)
+  let show_numbers = get_config_bool(state.config, "line-numbers", true)
+  let gutter_w     = if show_numbers { line_number_width(state.buffer.lines) } else { 0 }
+  let text_w       = content_width(state.buffer.lines, aw, show_numbers)
   let cur          = match state.buffer.cursors { [] => Position { line: 0, col: 0 }, [x, .._] => x.pos }
   let offset       = state.buffer.scroll_line
-  let cursor_visual_row = wrapped_rows_before(state.buffer.lines, offset, cur.line, aw, 0) + cur.col / max(aw, 1)
-  let visible_col       = max(min(cur.col % max(aw, 1), max(aw - 1, 0)), 0)
+  let cursor_visual_row = wrapped_rows_before(state.buffer.lines, offset, cur.line, text_w, 0) + cur.col / max(text_w, 1)
+  let visible_col       = max(min(cur.col % max(text_w, 1), max(text_w - 1, 0)), 0)
   let in_view           = cur.line >= offset && cursor_visual_row < ah
-  let active_syntax = shift_syntax_spans(syntax_highlights(state.buffer, offset, ah, aw), ay, ax)
+  let active_syntax = shift_syntax_spans(syntax_highlights(state.buffer, offset, ah, text_w), ay, ax + gutter_w)
 
   let (crow, ccol) = match state.prompt {
-    NoPrompt => if in_view { (ay + cursor_visual_row + 2, ax + visible_col + 1) } else { (0, 1) }
+    NoPrompt => if in_view { (ay + cursor_visual_row + 2, ax + gutter_w + visible_col + 1) } else { (0, 1) }
     _        => (h, min(prompt_prefix_len(state.prompt) + prompt_cursor_col(state.prompt) + 1, w))
   }
 
