@@ -908,14 +908,39 @@ test "mouse events are ignored while a prompt or the help overlay is active" {
 
 test "screen_to_buffer_pos maps a content-row click to the right buffer position" {
   let s0 = with_lines(["hello", "world"])
-  assert(screen_to_buffer_pos(s0, 3, 2) == Some((s0.buffer.bid, Position { line: 0, col: 2 })))
-  assert(screen_to_buffer_pos(s0, 1, 3) == Some((s0.buffer.bid, Position { line: 1, col: 0 })))
+  assert(screen_to_buffer_pos(s0, 3, 2) == Some((s0.buffer.bid, Position { line: 0, col: 0 })))
+  assert(screen_to_buffer_pos(s0, 3, 3) == Some((s0.buffer.bid, Position { line: 1, col: 0 })))
+}
+
+test "screen_to_buffer_pos ignores clicks in the line-number gutter" {
+  let s0 = with_lines(["hello"])
+  assert(screen_to_buffer_pos(s0, 1, 2) == None)
+  assert(screen_to_buffer_pos(s0, 2, 2) == None)
+}
+
+test "MouseClick in the line-number gutter is a no-op" {
+  let s0 = with_lines(["hello"])
+  let s1 = apply_action(s0, MoveRight)
+  let s2 = apply_action(s1, MouseClick(1, 2))
+  assert(head_cursor_pos(s2) == Position { line: 0, col: 1 })
+}
+
+test "screen_to_buffer_pos uses the full width when line numbers are disabled" {
+  let base = with_lines(["hello"])
+  let cfg = set_config_value(base.config, "line-numbers", "false")
+  let s0 = EditorState { ...base, config: cfg }
+  assert(screen_to_buffer_pos(s0, 1, 2) == Some((s0.buffer.bid, Position { line: 0, col: 0 })))
 }
 
 test "screen_to_buffer_pos maps a wrapped continuation row to its logical line" {
   let base = with_lines(["Clipboard and history"])
   let s0 = EditorState { ...base, screen_size: (10, 5) }
-  assert(screen_to_buffer_pos(s0, 3, 3) == Some((s0.buffer.bid, Position { line: 0, col: 12 })))
+  assert(screen_to_buffer_pos(s0, 3, 3) == Some((s0.buffer.bid, Position { line: 0, col: 8 })))
+}
+
+test "screen_to_buffer_pos maps visual columns after a tab to buffer columns" {
+  let s0 = with_lines(["\thello"])
+  assert(screen_to_buffer_pos(s0, 7, 2) == Some((s0.buffer.bid, Position { line: 0, col: 1 })))
 }
 
 test "screen_to_buffer_pos is None on the tabline/status row" {
@@ -926,7 +951,7 @@ test "screen_to_buffer_pos is None on the tabline/status row" {
 
 test "MouseClick places the cursor at the clicked position" {
   let s0 = with_lines(["hello world"])
-  let s1 = apply_action(s0, MouseClick(6, 2))
+  let s1 = apply_action(s0, MouseClick(8, 2))
   assert(head_cursor_pos(s1) == Position { line: 0, col: 5 })
 }
 
@@ -935,7 +960,7 @@ test "MouseClick clears any active selection" {
   let s1 = apply_action(s0, SetMark)
   let s2 = handle_action(s1, KeyEvent(KSpecial(ArrowRight)))
   assert(selection_span(s2) != None)
-  let s3 = apply_action(s2, MouseClick(6, 2))
+  let s3 = apply_action(s2, MouseClick(8, 2))
   assert(selection_span(s3) == None)
   assert(head_cursor_pos(s3) == Position { line: 0, col: 5 })
 }
@@ -949,10 +974,10 @@ test "MouseClick on the tabline/status row is a no-op" {
 
 test "MouseDrag after MouseClick extends a selection from the click" {
   let s0 = with_lines(["hello world"])
-  let s1 = apply_action(s0, MouseClick(1, 2))  // col 0
-  let s2 = apply_action(s1, MouseDrag(6, 2))   // col 5 — first drag sets the anchor
+  let s1 = apply_action(s0, MouseClick(3, 2))  // col 0
+  let s2 = apply_action(s1, MouseDrag(8, 2))   // col 5 — first drag sets the anchor
   assert(selection_span(s2) == Some((0, 0, 0, 5)))
-  let s3 = apply_action(s2, MouseDrag(9, 2))   // col 8 — anchor stays put
+  let s3 = apply_action(s2, MouseDrag(11, 2))  // col 8 — anchor stays put
   assert(selection_span(s3) == Some((0, 0, 0, 8)))
 }
 
@@ -963,8 +988,8 @@ test "MouseDrag after MouseClick extends a selection from the click" {
 // follow-up: real-terminal testing found this exact surprise).
 test "a plain arrow move after MouseDrag collapses the selection instead of extending it" {
   let s0 = with_lines(["hello world", "second line"])
-  let s1 = apply_action(s0, MouseClick(1, 2))
-  let s2 = apply_action(s1, MouseDrag(6, 2))
+  let s1 = apply_action(s0, MouseClick(3, 2))
+  let s2 = apply_action(s1, MouseDrag(8, 2))
   assert(selection_span(s2) != None)
   let s3 = handle_action(s2, KeyEvent(KSpecial(ArrowDown)))
   assert(selection_span(s3) == None)
@@ -988,10 +1013,10 @@ test "a plain arrow move after SetMark still extends the selection (sticky)" {
 test "MouseClick focuses whichever split pane the click landed in" {
   let node = Split(Vertical, 0.5, Leaf(0), Leaf(1))
   let s0 = with_two_panes(node)
-  let s1 = apply_action(s0, MouseClick(42, 2)) // right pane (bid 1)
+  let s1 = apply_action(s0, MouseClick(44, 2)) // right pane (bid 1)
   assert(s1.buffer.bid == 1)
   assert(head_cursor_pos(s1) == Position { line: 0, col: 0 })
-  let s2 = apply_action(s1, MouseClick(1, 2))  // left pane (bid 0)
+  let s2 = apply_action(s1, MouseClick(3, 2))  // left pane (bid 0)
   assert(s2.buffer.bid == 0)
 }
 
@@ -1030,8 +1055,8 @@ test "MouseRelease ends a divider resize gesture" {
 test "a drag after MouseRelease is a normal selection, not a leftover resize" {
   let s0 = with_lines(["hello world"])
   let s1 = apply_action(s0, MouseRelease) // no-op: resizing_divider was already None
-  let s2 = apply_action(s1, MouseClick(1, 2))
-  let s3 = apply_action(s2, MouseDrag(6, 2))
+  let s2 = apply_action(s1, MouseClick(3, 2))
+  let s3 = apply_action(s2, MouseDrag(8, 2))
   assert(selection_span(s3) == Some((0, 0, 0, 5)))
 }
 
@@ -1084,7 +1109,7 @@ test "MouseClick on an already-visible row doesn't move the viewport (bug fix)" 
   let s0 = with_lines(many_lines(60))
   let scrolled = TextBuffer { ...s0.buffer, scroll_line: 20, cursors: [Cursor { cid: 0, pos: Position { line: 25, col: 0 }, anchor: None, anchor_sticky: false }] }
   let s1 = EditorState { ...s0, buffer: scrolled }
-  let s2 = handle_action(s1, MouseEvent(Press, 1, 5)) // content row 3 -> buffer line 23, already visible
+  let s2 = handle_action(s1, MouseEvent(Press, 4, 5)) // content row 3 -> buffer line 23, already visible
   assert(s2.buffer.scroll_line == 20)
   assert(head_cursor_pos(s2) == Position { line: 23, col: 0 })
 }
@@ -1238,7 +1263,7 @@ test "Arrow movement moves all cursors independently and deduplicates on collisi
 
 test "MetaMouseClick adds an extra cursor at the clicked position" {
   let s0 = with_lines(["hello world"])
-  let s1 = apply_action(s0, MetaMouseClick(6, 2))
+  let s1 = apply_action(s0, MetaMouseClick(8, 2))
   assert(length(s1.buffer.cursors) == 2)
 }
 

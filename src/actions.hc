@@ -1462,6 +1462,33 @@ fun locate_pane(state: EditorState, x: int, y: int) : maybe<(int, (int, int, int
   else { rect_at(split_rect((0, 0, w, n_content), state.panes), cx, cy) }
 }
 
+fun mouse_line_number_width(lines: list<string>) : int =>
+  length(show(max(length(lines), 1))) + 1
+
+fun tab_width_at(visual_col: int, tabsize: int) : int =>
+  max(tabsize, 1) - visual_col % max(tabsize, 1)
+
+fun expanded_text_length(text: string, tabsize: int, visual_col: int) : int =>
+  if text == "" { visual_col }
+  else if text[0:1] == "\t" {
+    let next_col = visual_col + tab_width_at(visual_col, tabsize)
+    expanded_text_length(text[1:], tabsize, next_col)
+  } else {
+    expanded_text_length(text[1:], tabsize, visual_col + 1)
+  }
+
+fun buffer_col_at_visual(text: string, target: int, tabsize: int, buffer_col: int, visual_col: int) : int {
+  if text == "" || target <= visual_col { buffer_col }
+  else {
+    let next_visual = if text[0:1] == "\t" { visual_col + tab_width_at(visual_col, tabsize) } else { visual_col + 1 }
+    if target < next_visual { buffer_col }
+    else { buffer_col_at_visual(text[1:], target, tabsize, buffer_col + 1, next_visual) }
+  }
+}
+
+fun mouse_wrapped_row_count(text: string, width: int, tabsize: int) : int =>
+  max(1, (expanded_text_length(text, tabsize, 0) + max(width, 1) - 1) / max(width, 1))
+
 fun wrapped_row_count(text: string, width: int) : int =>
   max(1, (length(text) + max(width, 1) - 1) / max(width, 1))
 
@@ -1474,15 +1501,16 @@ fun drop_text_lines(lines: list<string>, count: int) : list<string> =>
     }
   }
 
-fun wrapped_screen_position(lines: list<string>, logical_idx: int, visual_idx: int, width: int, local_col: int) : Position =>
+fun wrapped_screen_position(lines: list<string>, logical_idx: int, visual_idx: int, width: int, local_col: int, tabsize: int) : Position =>
   match lines {
     [] => Position { line: max(logical_idx - 1, 0), col: 0 },
     [text, ..rest] => {
-      let row_count = wrapped_row_count(text, width)
+      let row_count = mouse_wrapped_row_count(text, width, tabsize)
       if visual_idx < row_count {
-        clamp_position(lines, Position { line: 0, col: visual_idx * max(width, 1) + local_col })
+        let visual_col = visual_idx * max(width, 1) + local_col
+        Position { line: 0, col: buffer_col_at_visual(text, visual_col, tabsize, 0, 0) }
       } else {
-        let next_pos = wrapped_screen_position(rest, logical_idx + 1, visual_idx - row_count, width, local_col)
+        let next_pos = wrapped_screen_position(rest, logical_idx + 1, visual_idx - row_count, width, local_col, tabsize)
         Position { line: next_pos.line + 1, col: next_pos.col }
       }
     }
@@ -1498,11 +1526,19 @@ pub fun screen_to_buffer_pos(state: EditorState, x: int, y: int) : maybe<(int, P
     None => None,
     Some((pane_bid, rect)) => {
       let buf        = buffer_for(state, pane_bid)
-      let local_col  = cx - rect.0
+      let show_numbers = get_config_bool(state.config, "line-numbers", true)
+      let gutter_w   = if show_numbers { mouse_line_number_width(buf.lines) } else { 0 }
+      let pane_col   = cx - rect.0
       let visual_idx = cy - rect.1
-      let visible    = drop_text_lines(buf.lines, buf.scroll_line)
-      let local_pos  = wrapped_screen_position(visible, 0, visual_idx, rect.2, local_col)
-      Some((pane_bid, Position { line: local_pos.line + buf.scroll_line, col: local_pos.col }))
+      if pane_col < gutter_w { None }
+      else {
+        let text_w    = max(rect.2 - gutter_w, 1)
+        let local_col = pane_col - gutter_w
+        let tabsize   = get_config_int(state.config, "tabsize", 4)
+        let visible   = drop_text_lines(buf.lines, buf.scroll_line)
+        let local_pos = wrapped_screen_position(visible, 0, visual_idx, text_w, local_col, tabsize)
+        Some((pane_bid, Position { line: local_pos.line + buf.scroll_line, col: local_pos.col }))
+      }
     }
   }
 }
