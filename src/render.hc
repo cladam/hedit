@@ -391,6 +391,22 @@ fun take_span_rows(xs: list<list<(int, int, TokenKind)>>, n: int) : list<list<(i
     }
   }
 
+fun visual_syntax_spans(line: string, spans: list<(int, int, TokenKind)>, tabsize: int) : list<(int, int, TokenKind)> =>
+  match spans {
+    []                => [],
+    [(s, e, k), ..xs] =>
+      [(visual_col_at(line, s, tabsize), visual_col_at(line, e, tabsize), k)] + visual_syntax_spans(line, xs, tabsize)
+  }
+
+fun visual_syntax_rows(lines: list<string>, rows: list<list<(int, int, TokenKind)>>, tabsize: int) : list<list<(int, int, TokenKind)>> =>
+  match lines {
+    []          => [],
+    [l, ..rest] => match rows {
+      []          => [],
+      [r, ..tail] => [visual_syntax_spans(l, r, tabsize)] + visual_syntax_rows(rest, tail, tabsize)
+    }
+  }
+
 /// Attach a screen `row` to every span in one line, clipping `end_col`
 /// to the truncated display width `w` (dropping spans pushed fully off).
 fun clip_spans_row(spans: list<(int, int, TokenKind)>, row: int, w: int) : list<(int, int, int, TokenKind)> =>
@@ -417,9 +433,10 @@ fun spans_to_screen_spans(rows: list<list<(int, int, TokenKind)>>, row_idx: int,
 /// `in_comment` threading is always correct across scroll, rather than
 /// trying to resume mid-buffer (the simple-but-correct v1 approach;
 /// fine at editor-buffer sizes).
-fun syntax_highlights(buf: TextBuffer, offset: int, n_content: int, w: int) : list<(int, int, int, TokenKind)> {
+fun syntax_highlights(buf: TextBuffer, offset: int, n_content: int, w: int, tabsize: int) : list<(int, int, int, TokenKind)> {
   let all_rows     = lex_buffer_lines(buf.lines, false, false)
-  let visible_rows = take_span_rows(drop_span_rows(all_rows, offset), n_content)
+  let visual_rows  = visual_syntax_rows(buf.lines, all_rows, tabsize)
+  let visible_rows = take_span_rows(drop_span_rows(visual_rows, offset), n_content)
   spans_to_screen_spans(visible_rows, 0, w)
 }
 
@@ -494,7 +511,7 @@ fun render_normal_buffer(state: EditorState) : ScreenBuffer {
     cursor_row: crow,
     cursor_col: ccol,
     highlights: shift_plain_spans(search_highlights(state, offset, n_content, text_w), gutter_w),
-    syntax_spans: shift_syntax_spans(syntax_highlights(buf, offset, n_content, text_w), 0, gutter_w),
+    syntax_spans: shift_syntax_spans(syntax_highlights(buf, offset, n_content, text_w, tabsize), 0, gutter_w),
     selection_spans: shift_plain_spans(selection_highlights(state, offset, n_content, text_w), gutter_w)
   }
 }
@@ -630,7 +647,7 @@ fun render_split_buffer(state: EditorState) : ScreenBuffer {
   let cursor_visual_row = wrapped_rows_before(state.buffer.lines, offset, cur.line, text_w, tabsize, 0) + visual_col / max(text_w, 1)
   let visible_col       = max(min(visual_col % max(text_w, 1), max(text_w - 1, 0)), 0)
   let in_view           = cur.line >= offset && cursor_visual_row < ah
-  let active_syntax = shift_syntax_spans(syntax_highlights(state.buffer, offset, ah, text_w), ay, ax + gutter_w)
+  let active_syntax = shift_syntax_spans(syntax_highlights(state.buffer, offset, ah, text_w, tabsize), ay, ax + gutter_w)
 
   let (crow, ccol) = match state.prompt {
     NoPrompt => if in_view { (ay + cursor_visual_row + 2, ax + gutter_w + visible_col + 1) } else { (0, 1) }

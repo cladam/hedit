@@ -7,6 +7,7 @@ import "../src/keys"
 import "../src/model"
 import "../src/actions"
 import "../src/render"
+import "../src/syntax"
 
 // Helper: get the last element of a list, or `default` if empty.
 fun last_or(xs: list<string>, default: string) : string =>
@@ -68,6 +69,14 @@ test "tabs use configured visual width for rendering and cursor placement" {
   assert(nth_or(buf.lines, 1, "MISSING") == "1     hello")
   assert(buf.cursor_row == 2)
   assert(buf.cursor_col == 10)
+}
+
+test "syntax spans use visual columns after expanded tabs" {
+  let s0 = with_lines_render(["\tlet x = 4"], (20, 5))
+  let cfg = set_config_value(s0.config, "tabsize", "4")
+  let s1 = EditorState { ...s0, config: cfg }
+  let buf = render_editor_to_buffer(s1)
+  assert(buf.syntax_spans == [(2, 6, 9, Keyword), (2, 14, 15, NumberLit)])
 }
 
 // ------------------- tabline row --------------------------------
