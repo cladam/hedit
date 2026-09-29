@@ -1,6 +1,6 @@
 @project {
     name: "hedit"
-    version: "0.25.3"
+    version: "0.25.4"
     license: "MIT"
     entry: "src/main.hc"
 }
@@ -8,8 +8,8 @@
 @koka { include: "./lib/hilisp/src" }
 
 @description {
-    summary: "A hica project"
-    author: ""
-    homepage: ""
-    repository: ""
+    summary: "hedit is a lightweight, terminal-based text editor written in hica"
+    author: "cladam"
+    homepage: "https://www.hica.dev"
+    repository: "https://github.com/cladam/hedit"
 }

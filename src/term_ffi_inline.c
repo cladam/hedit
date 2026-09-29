@@ -10,6 +10,11 @@
 #include <sys/select.h>
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+static char* hedit_paste_bytes = NULL;
+static size_t hedit_paste_length = 0;
 
 // Read a single key from stdin.
 // Returns:
@@ -43,6 +48,67 @@ static int hedit_read_byte_blocking(unsigned char* out) {
     int n;
     do { n = (int)read(0, out, 1); } while (n < 0 && errno == EINTR);
     return n;
+}
+
+static int hedit_append_paste_byte(char** bytes, size_t* length, size_t* capacity, unsigned char byte) {
+    if (*length == *capacity) {
+        size_t next_capacity = (*capacity == 0) ? 256 : (*capacity * 2);
+        char* grown = (char*)realloc(*bytes, next_capacity);
+        if (grown == NULL) return 0;
+        *bytes = grown;
+        *capacity = next_capacity;
+    }
+    (*bytes)[(*length)++] = (char)byte;
+    return 1;
+}
+
+static int hedit_read_bracketed_paste(void) {
+    static const unsigned char end_marker[] = {27, '[', '2', '0', '1', '~'};
+    char* bytes = NULL;
+    size_t length = 0;
+    size_t capacity = 0;
+    size_t matched = 0;
+    unsigned char byte;
+
+    while (hedit_read_byte_blocking(&byte) == 1) {
+        if (byte == end_marker[matched]) {
+            matched++;
+            if (matched == sizeof(end_marker)) break;
+            continue;
+        }
+        for (size_t index = 0; index < matched; index++) {
+            if (!hedit_append_paste_byte(&bytes, &length, &capacity, end_marker[index])) {
+                free(bytes);
+                return 0;
+            }
+        }
+        matched = 0;
+        if (byte == end_marker[0]) {
+            matched = 1;
+        } else if (!hedit_append_paste_byte(&bytes, &length, &capacity, byte)) {
+            free(bytes);
+            return 0;
+        }
+    }
+
+    free(hedit_paste_bytes);
+    hedit_paste_bytes = bytes;
+    hedit_paste_length = length;
+    return 1;
+}
+
+kk_string_t hedit_read_paste(void) {
+    kk_context_t* ctx = kk_get_context();
+    char* owned = (char*)kk_malloc(hedit_paste_length + 1, ctx);
+    if (hedit_paste_length > 0 && hedit_paste_bytes != NULL) {
+        memcpy(owned, hedit_paste_bytes, hedit_paste_length);
+    }
+    owned[hedit_paste_length] = '\0';
+    kk_string_t result = kk_string_alloc_raw_len((kk_ssize_t)hedit_paste_length, owned, true, ctx);
+    free(hedit_paste_bytes);
+    hedit_paste_bytes = NULL;
+    hedit_paste_length = 0;
+    return result;
 }
 
 kk_integer_t hedit_read_key(void) {
@@ -107,6 +173,17 @@ kk_integer_t hedit_read_key(void) {
                                 } else {
                                     key = -1;
                                 }
+                            } else {
+                                key = -1;
+                            }
+                        }
+                        else if (c3 == 50) {  // '2' -> bracketed paste start: ESC[200~
+                            unsigned char c4, c5, c6;
+                            if (read(0, &c4, 1) == 1 && c4 == '0' &&
+                                read(0, &c5, 1) == 1 && c5 == '0' &&
+                                read(0, &c6, 1) == 1 && c6 == '~' &&
+                                hedit_read_bracketed_paste()) {
+                                key = 1100;
                             } else {
                                 key = -1;
                             }

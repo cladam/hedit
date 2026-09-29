@@ -21,10 +21,15 @@ extern import
 //   decoded multi-byte UTF-8 input (åäö, etc.): the Unicode codepoint (>=128)
 //   SGR mouse report (M18): a packed sentinel >= 2000000 (see decode_mouse
 //     in src/keys.hc)
+//   bracketed paste: 1100; call read_paste() for the complete payload
 //   read timeout (~200ms, no key pressed): -2
 //   error/EOF: -1
 pub extern read_key() : io int
   c "hedit_read_key"
+
+// Return the payload buffered by the most recent bracketed-paste read.
+pub extern read_paste() : io string
+  c "hedit_read_paste"
 
 // Terminal column count (falls back to 80).
 pub extern term_cols() : io int

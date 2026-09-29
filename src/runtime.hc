@@ -366,6 +366,12 @@ fun dispatch_action(sized: EditorState, action: Action, buf_pool: list<(int, ref
       let base = match selection_span(sized) { Some(_) => delete_selection(sized), None => sized }
       (paste_text(base, get_selection()), hl_env, buf_pool)
     },
+    PasteText(text) => {
+      let buf_ref = pool_get(buf_pool, sized.buffer.bid)
+      buf_ref.snapshot(sized.buffer)
+      let base = match selection_span(sized) { Some(_) => delete_selection(sized), None => sized }
+      (paste_text(base, text), hl_env, buf_pool)
+    },
     Insert(_) => {
       let buf_ref = pool_get(buf_pool, sized.buffer.bid)
       buf_ref.snapshot(sized.buffer)

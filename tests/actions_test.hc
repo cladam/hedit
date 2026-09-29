@@ -430,6 +430,16 @@ test "while a prompt is active, typing resolves to PromptChar not Insert" {
   assert(resolve_action(s1, KeyEvent(KChar('a'))) == PromptChar('a'))
 }
 
+test "terminal paste inserts the complete payload into an active prompt" {
+  let s0 = init_editor(None)
+  let s1 = apply_action(s0, OpenFile)
+  let action = resolve_action(s1, PasteEvent("https://example.com"))
+  assert(action == PromptPasteText("https://example.com"))
+  let s2 = apply_action(s1, action)
+  assert(s2.prompt == OpenPrompt("https://example.com", 19))
+  assert(s2.buffer.lines == [""])
+}
+
 test "while a prompt is active, Enter/Backspace/Esc resolve to prompt actions" {
   let s0 = init_editor(None)
   let s1 = apply_action(s0, OpenFile)

@@ -47,6 +47,7 @@ pub type MouseAction {
 /// Anything the outside world can deliver into the editor's event loop.
 pub type Event {
   KeyEvent(k: Key),
+  PasteEvent(text: string),
   MouseEvent(a: MouseAction, x: int, y: int),
   ResizeEvent(w: int, h: int),
   Tick

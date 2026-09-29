@@ -1136,6 +1136,15 @@ pub fun prompt_insert_char(state: EditorState, c: char) : EditorState {
   EditorState { ...state, prompt: with_prompt(p, new_t, col + 1) }
 }
 
+/// Insert a terminal paste payload at the prompt cursor in one update.
+pub fun prompt_insert_text(state: EditorState, text: string) : EditorState {
+  let p   = state.prompt
+  let t   = prompt_text(p)
+  let col = prompt_cursor(p)
+  let new_t = t[0:col] + text + t[col: ]
+  EditorState { ...state, prompt: with_prompt(p, new_t, col + length(text)) }
+}
+
 /// Delete the char before the prompt's cursor. A no-op at column 0.
 pub fun prompt_backspace(state: EditorState) : EditorState {
   let p   = state.prompt
@@ -2062,6 +2071,7 @@ pub fun collapse_cursors(state: EditorState) : EditorState {
 fun resolve_prompt_action(evt: Event) : Action =>
   match evt {
     KeyEvent(KChar(c))            => PromptChar(c),
+    PasteEvent(text)              => PromptPasteText(text),
     KeyEvent(KSpecial(Enter))     => PromptSubmit,
     KeyEvent(KSpecial(Backspace)) => PromptBackspace,
     KeyEvent(KSpecial(Esc))       => PromptCancel,
@@ -2141,6 +2151,7 @@ fun resolve_shell_output_action(evt: Event) : Action =>
 fun resolve_normal_action(state: EditorState, evt: Event) : Action =>
   match evt {
     KeyEvent(KChar(c))              => Insert(c),
+    PasteEvent(text)                => PasteText(text),
     KeyEvent(KSpecial(Enter))       => NewLine,
     KeyEvent(KSpecial(Backspace))   => DeleteBackward,
     KeyEvent(KSpecial(ArrowUp))     => MoveUp,
@@ -2302,6 +2313,7 @@ pub fun apply_action(state: EditorState, action: Action) : EditorState =>
     ReloadConfig => state, // event_loop: <fsys>
     Copy         => state, // event_loop: <Clipboard>
     Paste        => state, // event_loop: <Clipboard>
+    PasteText(_) => state, // event_loop: <Buffer>
     Undo         => state, // event_loop: <Buffer>
     Redo         => state, // event_loop: <Buffer>
     KillLine       => state, // event_loop: <Clipboard>
@@ -2331,6 +2343,7 @@ pub fun apply_action(state: EditorState, action: Action) : EditorState =>
     ScrollViewUp(x, y)   => scroll_view(state, x, y, -1),
     ScrollViewDown(x, y) => scroll_view(state, x, y, 1),
     PromptChar(c)   => refresh_find_matches(prompt_insert_char(state, c)),
+    PromptPasteText(text) => refresh_find_matches(prompt_insert_text(state, text)),
     PromptBackspace => refresh_find_matches(prompt_backspace(state)),
     PromptCancel    => cancel_prompt(state),
     PromptSubmit    => submit_prompt_pure(state),

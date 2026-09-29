@@ -45,7 +45,8 @@ fun combine_status(a: maybe<string>, b: maybe<string>) : maybe<string> =>
 /// + `ESC[?1002h` (button-event tracking: ALSO reports motion while a
 /// button is held, i.e. drag) + `ESC[?1006h` (SGR coordinate encoding,
 /// no 223-column ceiling) — so `hedit_read_key` starts receiving mouse
-/// reports.
+/// reports. Bracketed paste (`ESC[?2004h`) lets it collect pasted text
+/// into one event instead of reporting every byte as a separate key.
 // `?1002h` matters specifically for drag-to-select: mode 1000 alone
 // only reports press/release, never motion, per the xterm mouse
 // protocol spec — real-terminal testing (M18) found iTerm2 forwarded
@@ -69,7 +70,7 @@ fun combine_status(a: maybe<string>, b: maybe<string>) : maybe<string> =>
 // list).
 fun enable_raw_mode() {
   let _ = exec("stty raw -echo icrnl 2>/dev/null")
-  print(term_esc() + "[?1049h" + term_esc() + "[?1000h" + term_esc() + "[?1002h" + term_esc() + "[?1006h")
+  print(term_esc() + "[?1049h" + term_esc() + "[?1000h" + term_esc() + "[?1002h" + term_esc() + "[?1006h" + term_esc() + "[?2004h")
   flush_stdout()
 }
 
@@ -77,9 +78,14 @@ fun enable_raw_mode() {
 /// off, and switch back to the terminal's normal screen buffer — in the
 /// reverse order everything was enabled.
 fun disable_raw_mode() {
-  print(term_esc() + "[?1006l" + term_esc() + "[?1002l" + term_esc() + "[?1000l" + term_esc() + "[?1049l")
+  print(term_esc() + "[?2004l" + term_esc() + "[?1006l" + term_esc() + "[?1002l" + term_esc() + "[?1000l" + term_esc() + "[?1049l")
   flush_stdout()
   let _ = exec("stty sane 2>/dev/null")
+}
+
+fun read_terminal_event() {
+  let code = read_key()
+  if code == 1100 { PasteEvent(read_paste()) } else { decode_key(code) }
 }
 
 // -------------------------- Theming ----------------------------------------
@@ -366,7 +372,7 @@ fun run_editor(r: CliResult, pos_arg: maybe<string>) {
     }
   } with var clip = "" in {
     handle Terminal {
-      poll_event()         => decode_key(read_key()),
+      poll_event()         => read_terminal_event(),
       render_frame(buf)    => render_native(theme, buf),
       get_dimensions()     => (term_cols(), term_rows()),
       set_cursor_style(_s) => ()

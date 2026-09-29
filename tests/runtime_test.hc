@@ -270,6 +270,30 @@ test "ctrl-v appends Clipboard contents to head cursor line" {
   assert(final.buffer.is_dirty == true)
 }
 
+test "terminal paste is inserted and undone as one edit" {
+  let final: EditorState = handle Clipboard {
+    get_selection()  => "",
+    set_selection(_t) => ()
+  } in {
+    handle Terminal {
+      poll_event() => match events {
+        []          => KeyEvent(KShortcut(Ctrl, 'q')),
+        [e, ..rest] => { events = rest; e }
+      },
+      render_frame(_buf)   => (),
+      get_dimensions()     => (80, 24),
+      set_cursor_style(_s) => ()
+    } with var events = [
+      PasteEvent("outside text"),
+      KeyEvent(KShortcut(Ctrl, 'z')),
+      KeyEvent(KShortcut(Ctrl, 'q'))
+    ] in {
+      event_loop(init_editor(None))
+    }
+  }
+  assert(final.buffer.lines == [""])
+}
+
 // ------------------- full Copy → Paste round-trip --------------
 
 test "copy then paste duplicates the line content" {
