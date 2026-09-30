@@ -549,6 +549,22 @@ pub fun move_down(state: EditorState) : EditorState {
   EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
 }
 
+/// Move each cursor by one active-pane height, clamped to the buffer.
+pub fun move_page(state: EditorState, direction: int) : EditorState {
+  let (w, h) = state.screen_size
+  let full = (0, 0, w, h - 2)
+  let rects = split_rect(full, state.panes)
+  let page_size = max(active_rect(state, rects, full).3, 1)
+  let buf = state.buffer
+  let last_line = max(length(buf.lines) - 1, 0)
+  let moved_cs = map(buf.cursors, (cc) => {
+    let new_line = max(0, min(cc.pos.line + direction * page_size, last_line))
+    Cursor { ...cc, pos: Position { line: new_line, col: clamp_col(buf.lines, new_line, cc.pos.col) } }
+  })
+  let new_cursors = finalize_cursors(moved_cs)
+  EditorState { ...state, buffer: TextBuffer { ...buf, cursors: new_cursors } }
+}
+
 /// Return the text of the cursor's current line, or "" if the buffer
 /// has no cursors or no lines.
 pub fun current_line(state: EditorState) : string {
@@ -2156,6 +2172,8 @@ fun resolve_normal_action(state: EditorState, evt: Event) : Action =>
     KeyEvent(KSpecial(Backspace))   => DeleteBackward,
     KeyEvent(KSpecial(ArrowUp))     => MoveUp,
     KeyEvent(KSpecial(ArrowDown))   => MoveDown,
+    KeyEvent(KSpecial(PageUp))      => MovePageUp,
+    KeyEvent(KSpecial(PageDown))    => MovePageDown,
     KeyEvent(KSpecial(ArrowLeft))   => MoveLeft,
     KeyEvent(KSpecial(ArrowRight))  => MoveRight,
     KeyEvent(KCtrlSpecial(ArrowRight)) => FindNext,
@@ -2302,6 +2320,8 @@ pub fun apply_action(state: EditorState, action: Action) : EditorState =>
     DeleteForward  => delete_forward(state),
     MoveUp         => collapse_unless_sticky(move_up(state)),
     MoveDown     => collapse_unless_sticky(move_down(state)),
+    MovePageUp   => collapse_unless_sticky(move_page(state, -1)),
+    MovePageDown => collapse_unless_sticky(move_page(state, 1)),
     MoveLeft     => collapse_unless_sticky(move_left(state)),
     MoveRight    => collapse_unless_sticky(move_right(state)),
     MoveLineStart => collapse_unless_sticky(move_line_start(state)),

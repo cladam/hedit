@@ -1152,6 +1152,31 @@ test "an unrelated no-op action after a wheel scroll doesn't snap the viewport b
   assert(s3.buffer.scroll_line == 3)
 }
 
+test "PageUp/PageDown resolve to normal-buffer page movement" {
+  let s0 = with_lines(many_lines(60))
+  assert(resolve_action(s0, KeyEvent(KSpecial(PageUp))) == MovePageUp)
+  assert(resolve_action(s0, KeyEvent(KSpecial(PageDown))) == MovePageDown)
+}
+
+test "PageDown/PageUp move the cursor by one visible pane" {
+  let s0 = EditorState { ...with_lines(many_lines(60)), screen_size: (80, 10) }
+  let s1 = handle_action(s0, KeyEvent(KSpecial(PageDown)))
+  assert(head_cursor_pos(s1) == Position { line: 8, col: 0 })
+  assert(s1.buffer.scroll_line == 1)
+  let s2 = handle_action(s1, KeyEvent(KSpecial(PageUp)))
+  assert(head_cursor_pos(s2) == Position { line: 0, col: 0 })
+  assert(s2.buffer.scroll_line == 0)
+}
+
+test "PageUp/PageDown clamp at file boundaries" {
+  let s0 = EditorState { ...with_lines(many_lines(10)), screen_size: (80, 8) }
+  let s1 = handle_action(s0, KeyEvent(KSpecial(PageUp)))
+  assert(head_cursor_pos(s1) == Position { line: 0, col: 0 })
+  let s2 = handle_action(s1, KeyEvent(KSpecial(PageDown)))
+  let s3 = handle_action(s2, KeyEvent(KSpecial(PageDown)))
+  assert(head_cursor_pos(s3) == Position { line: 9, col: 0 })
+}
+
 // ------------------- Multi-cursor editing (M20) ---------------------------
 
 test "resolve_action maps Meta-c to AddCursorNextMatch via default_bindings" {
