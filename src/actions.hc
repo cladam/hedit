@@ -1063,11 +1063,16 @@ pub fun cycle_prev_buffer(state: EditorState) : EditorState =>
 
 /// Close the active buffer and activate the next background buffer.
 // hedit always keeps at least one open buffer, so closing the last one
-// is a status-message no-op instead.
+// is a status-message no-op instead. In a split layout the active buffer
+// owns a pane, so close the pane too rather than replacing its leaf with
+// an already-visible buffer and creating duplicate pane ids.
 pub fun close_buffer_action(state: EditorState) : EditorState =>
-  match state.background_buffers {
-    []          => set_status_message(state, "Can't close the last buffer"),
-    [x, ..rest] => EditorState { ...state, buffer: x, background_buffers: rest, panes: replace_leaf(state.panes, state.buffer.bid, Leaf(x.bid)) }
+  if !is_leaf(state.panes) { close_pane(state) }
+  else {
+    match state.background_buffers {
+      []          => set_status_message(state, "Can't close the last buffer"),
+      [x, ..rest] => EditorState { ...state, buffer: x, background_buffers: rest, panes: Leaf(x.bid) }
+    }
   }
 
 // ------------------- Close pane (M15 follow-up, Ctrl-q) -------------------

@@ -24,9 +24,7 @@
 ;; (set "theme" "ilseon")
 
 ;; Per-slot true-color overrides ("R,G,B"), layered on top of whichever
-;; preset "theme" resolved to above. Uncomment any you want to tweak —
-;; these are hedit's own chrome colors (tabline/status line/cursor
-;; line), not syntax highlighting.
+;; preset "theme" resolved to above. Uncomment any you want to tweak.
 ;; (set "theme.tabline-fg"     "255,255,255")
 ;; (set "theme.tabline-bg"     "33,33,33")
 ;; (set "theme.status-fg"      "0,0,0")
@@ -34,6 +32,8 @@
 ;; (set "theme.active-tab-fg"  "255,215,0")
 ;; (set "theme.active-tab-bg"  "60,60,60")
 ;; (set "theme.cursor-line-bg" "45,45,45")
+;; (set "theme.search-match-bg" "90,90,0")
+;; (set "theme.selection-bg"    "38,79,120")
 
 ;; Syntax highlighting fg colours — fg-only, no background. Keeps
 ;; a distinct override namespace from the chrome colours above since
@@ -52,9 +52,9 @@
 ;; ---------------------------------------------------------------------
 ;;
 ;; Ctrl-<letter> chords and a bare ESC+char (most terminals'
-;; "metaSendsEscape" for Alt) are both decoded from real terminal input. These are hedit's
-;; built-in defaults, spelled out here so users can see every bindable
-;; action name and rebind any of them.
+;; "metaSendsEscape" for Alt) are both decoded from real terminal input.
+;; These are all of hedit's built-in configurable defaults, spelled out
+;; so users can see each action name and rebind any of them.
 
 (bind "Ctrl-q" 'quit)
 (bind "Ctrl-s" 'save)
@@ -114,6 +114,9 @@
 ;; Hot reload config (this file)
 (bind "Meta-r" 'reload-config)
 
+;; Search and execute editor actions by name.
+(bind "Meta-x" 'open-command-palette)
+
 ;; Undo tree & branching: hedit retains an immutable branching
 ;; revision graph — edits made after an undo diverge into sibling
 ;; branches instead of discarding the redo chain.
@@ -122,6 +125,11 @@
 ;; directly without opening the overlay.
 (bind "Meta-t" 'toggle-undo-tree)
 (bind "Meta-u" 'next-branch)
+
+;; Fixed controls don't pass through the binding table: arrows,
+;; PageUp/PageDown, Enter, Backspace, Esc, Ctrl-Left/Ctrl-Right,
+;; Meta-Arrows, Meta-Tab, and mouse gestures. Ctrl-g includes these in
+;; its summary after the live configurable bindings.
 
 ;; 'ignore is also a valid target — binds a chord to a no-op, e.g. to
 ;; silence a default without giving it a new job:

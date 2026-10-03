@@ -801,6 +801,22 @@ test "Quit actually quits once panes has collapsed back to a single Leaf" {
   assert(s1.should_quit == true)
 }
 
+test "CloseBuffer in a nested split removes its pane and Ctrl-q can still quit" {
+  let base = init_editor(None)
+  let buf0 = TextBuffer { ...base.buffer, bid: 0, lines: ["a"] }
+  let buf1 = TextBuffer { ...new_buffer(1, None), lines: ["b"] }
+  let buf2 = TextBuffer { ...new_buffer(2, None), lines: ["c"] }
+  let pane_tree = Split(Vertical, 0.5, Leaf(0), Split(Vertical, 0.5, Leaf(1), Leaf(2)))
+  let s0 = EditorState { ...base, buffer: buf2, background_buffers: [buf0, buf1], panes: pane_tree }
+  let s1 = apply_action(s0, CloseBuffer)
+  assert(s1.panes == Split(Vertical, 0.5, Leaf(0), Leaf(1)))
+  assert(s1.buffer.bid == 0)
+  let s2 = apply_action(s1, Quit)
+  assert(s2.panes == Leaf(1))
+  let s3 = apply_action(s2, Quit)
+  assert(s3.should_quit == true)
+}
+
 // ------------------- Selection ranges (M17) -----------------------------
 
 test "resolve_action maps Ctrl-Space to SetMark via default_bindings" {

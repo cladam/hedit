@@ -9,7 +9,7 @@ hedit is also a production workload for hica, exercising algebraic effects,
 persistent data structures, native compilation, and C interoperability.
 
 <p align="center">
-  <img src="assets/hedit3.png" alt="hedit editing source code" width="360">
+  <img src="assets/hedit3-1.png" alt="hedit editing source code" width="360">
 </p>
 
 ## Installation
@@ -129,7 +129,6 @@ Use `--config` to load another file or `--no-config` to skip configuration.
 ;; ~/.config/hedit/init.hl
 
 (set "tabsize" 4)
-(set "auto-indent" true)
 (set "theme" "ilseon")
 
 (bind "Ctrl-s" 'save)

@@ -679,14 +679,52 @@ fun render_split_buffer(state: EditorState) : ScreenBuffer {
 fun format_binding(b: (KeyChord, Action)) : string =>
   chord_to_str(b.0) + "  ->  " + action_to_string(b.1)
 
+fun fixed_help_rows() : list<string> =>
+  [
+    "Arrows  ->  move cursor",
+    "PageUp/PageDown  ->  move page",
+    "Enter/Backspace  ->  newline/delete",
+    "Ctrl-Left/Right  ->  previous/next match",
+    "Meta-Arrows/Tab  ->  focus/cycle panes",
+    "Esc  ->  clear cursors and selections",
+    "Mouse  ->  focus/select/scroll/resize",
+    "Palette  ->  Tab/Up/Down/Enter/Esc",
+    "Undo tree  ->  Up/Down/j/k/Enter/Esc",
+    "Shell output  ->  arrows/pages/j/k/q/Esc"
+  ]
+
+fun pad_help_column(s: string, w: int) : string {
+  let clipped = fit_to_width(s, w)
+  clipped + repeat_str(" ", w - length(clipped))
+}
+
+fun combine_help_columns(left: list<string>, right: list<string>, col_w: int) : list<string> =>
+  match left {
+    [] => [],
+    [l, ..ls] => match right {
+      []        => [l] + combine_help_columns(ls, [], col_w),
+      [r, ..rs] => [pad_help_column(l, col_w) + "  " + r] + combine_help_columns(ls, rs, col_w)
+    }
+  }
+
+fun layout_help_rows(rows: list<string>, w: int) : list<string> {
+  if w >= 72 {
+    let left_count = (length(rows) + 1) / 2
+    combine_help_columns(take_n(rows, left_count), drop_n(rows, left_count), (w - 2) / 2)
+  } else {
+    rows
+  }
+}
+
 /// Build the full-screen help overlay ScreenBuffer listing every
-/// currently-bound chord.
+/// currently-bound chord plus fixed and context-specific controls.
 pub fun render_help_buffer(state: EditorState) : ScreenBuffer {
   let (w, h)       = state.screen_size
   let n_content    = h - 2
   let title_row    = fit_to_width("Keybindings — press any key to close", w)
-  let binding_rows = map(state.config.bindings, (b) => fit_to_width(format_binding(b), w))
-  let content_rows = take_or_pad(binding_rows, n_content, "")
+  let live_rows    = map(state.config.bindings, format_binding)
+  let help_rows    = layout_help_rows(live_rows + fixed_help_rows(), w)
+  let content_rows = take_or_pad(map(help_rows, (row) => fit_to_width(row, w)), n_content, "")
   let footer_row   = fit_to_width("hedit", w)
   ScreenBuffer {
     width: w,

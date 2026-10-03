@@ -10,6 +10,16 @@ import "../src/config_loader"
 import "../src/hilisp_host"
 import "../lib/hilisp/src/lisp"
 
+test "reference examples/init.hl loads cleanly with current defaults" {
+  let cfg0 = default_config()
+  let result: (Config, Env, maybe<string>) = load_user_config_opts(cfg0, Some("examples/init.hl"), false)
+  assert(result.2 == None)
+  assert(result.0.bindings == default_bindings())
+  assert(get_config_int(result.0, "tabsize", 0) == 4)
+  assert(get_config_bool(result.0, "line-numbers", false))
+  assert(get_config(result.0, "theme", "missing") == "default")
+}
+
 test "load_user_config_opts with skip=true returns cfg0 unchanged and no status" {
   let cfg0 = default_config()
   let result: (Config, Env, maybe<string>) = load_user_config_opts(cfg0, None, true)

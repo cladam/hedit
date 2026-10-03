@@ -342,6 +342,15 @@ fun line_at(xs: list<string>, idx: int) : string =>
       else { line_at(rest, idx - 1) }
   }
 
+fun rows_contain(xs: list<string>, needle: string) : bool =>
+  match xs {
+    [] => false,
+    [row, ..rest] => match index_of(row, needle) {
+      Some(_) => true,
+      None    => rows_contain(rest, needle)
+    }
+  }
+
 test "CommandPrompt renders Command: label in status row and suggestions above it" {
   let s0 = with_lines_render(["some buffer content"], (40, 10))
   let s1 = EditorState { ...s0, prompt: CommandPrompt("sav", 3, 0) }
@@ -410,4 +419,23 @@ test "shell output overlay takes precedence over other editor overlays" {
   let buf = render_editor_to_buffer(s1)
   assert(starts_with(line_at(buf.lines, 0), "$ ls — success"))
   assert(line_at(buf.lines, 1) == "visible")
+}
+
+test "help overlay fits every default binding and current fixed controls at 80x24" {
+  let state = EditorState { ...init_editor(None), screen_size: (80, 24), show_help: true }
+  let buf = render_editor_to_buffer(state)
+  assert(rows_contain(buf.lines, "Meta-x  ->  open-command-palette"))
+  assert(rows_contain(buf.lines, "Ctrl-Space  ->  set-mark"))
+  assert(rows_contain(buf.lines, "PageUp/PageDown  ->  move page"))
+  assert(rows_contain(buf.lines, "Mouse  ->  focus/select/scroll/resize"))
+}
+
+test "help overlay reads remapped chords from the live config" {
+  let s0 = init_editor(None)
+  let remapped = [(KeyChord { m: Ctrl, c: 'x' }, Save)]
+  let cfg = Config { ...s0.config, bindings: remapped }
+  let state = EditorState { ...s0, screen_size: (80, 24), config: cfg, show_help: true }
+  let buf = render_editor_to_buffer(state)
+  assert(rows_contain(buf.lines, "Ctrl-x  ->  save"))
+  assert(!rows_contain(buf.lines, "Ctrl-s  ->  save"))
 }
