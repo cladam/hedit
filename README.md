@@ -1,230 +1,232 @@
 # hedit
 
-`hedit` is a lightweight, terminal-based text editor written in [`hica`](https://www.hica.dev/).
-It pairs modern editor UX (standard keybindings, mouse support, split panes, syntax
-highlighting) with `hica`'s algebraic effects and Perceus-based memory management (FBIP).
+`hedit` is a terminal text editor written in [hica](https://www.hica.dev). It
+supports multiple buffers, split panes, mouse input, multi-cursor editing,
+branching undo, syntax highlighting, session recovery, and HiLisp-based
+configuration and plugins.
+
+hedit is also a production workload for hica, exercising algebraic effects,
+persistent data structures, native compilation, and C interoperability.
 
 <p align="center">
-    <img src="assets/hedit3.png" alt="hedit edit mode" width="150">
-    <img src="assets/hedit1.png" alt="hedit key mappings" width="130">
-    <img src="assets/hedit2.png" alt="hedit key mappings" width="130">
+  <img src="assets/hedit3.png" alt="hedit editing source code" width="360">
 </p>
 
-## Features
+## Installation
 
-- **Familiar keybindings** — `Ctrl-s`/`Ctrl-o`/`Ctrl-q` for save/open/quit, readline-style
-  motions (`Ctrl-a/e`, `Meta-f/b`, `Ctrl-k`, `Ctrl-w`, …), undo/redo, and system clipboard integration
-- **Selections** — set a mark with `Ctrl-Space`, extend it with the arrow keys, then
-  copy/cut/paste just the selected text
-- **Incremental search** — `Ctrl-f` to search live as you type, `Ctrl-Right`/`Ctrl-Left`
-  to jump between wrapping matches
-- **Multiple buffers** — a buffer ring (`Meta-o/n/p/w`) with a tabline showing every open file
-- **Split panes** — vertical and horizontal splits (`Meta-v`/`Meta-h`), focus movement
-  between panes, mouse-driven divider resizing
-- **Mouse support** — click to place the cursor, drag to select, click/drag to move
-  focus or resize a split, scroll to move the viewport
-- **Syntax highlighting** — a fast, built-in line-by-line lexer highlights `hica`/`koka` source
-- **Live keybindings overlay** — `Ctrl-g` shows every currently bound chord, generated
-  straight from the active bindings
-- **Multi-cursor editing** — `Meta-c` adds cursors at occurrences of a word/selection, or Meta-click with the mouse; edits apply simultaneously across all cursors with offset-drift tracking
-- **Branching visual undo tree** — `Meta-t` opens an interactive Unicode tree graph to preview and restore historical revisions without losing diverged edits; `Meta-u` cycles sibling branches
-- **Session & crash recovery** — automatically preserves open buffers, split pane layouts, cursor positions, and unsaved scratch notes across launches; `--no-recover` skips recovery
-- **Command palette & shell execution** — `Meta-x` opens a searchable command palette with live prefix/substring filtering, Tab/Arrow cycling, and direct shell command execution (`! <cmd>` / `shell`)
+Using `curl`:
 
-- **Scriptable** — settings, keybindings, and plugins are all just [HiLisp](https://github.com/cladam/hica-lisp) (see below)
-
-Full reference with every chord: [`docs/hedit-cheatsheet.md`](docs/hedit-cheatsheet.md)
-(or press `Ctrl-g` inside hedit for a live overlay).
-
-## Quick Install
-
-Using standard `curl`:
 ```sh
 curl -fsSL https://github.com/cladam/hedit/releases/latest/download/install.sh | sh
 ```
 
-Or install hedit using [`hicurl`](https://github.com/cladam/hicurl):
+Or using [hicurl](https://github.com/cladam/hicurl):
 
 ```sh
 hicurl https://github.com/cladam/hedit/releases/latest/download/install.sh | sh
 ```
 
-Installs binary (`macos-arm64`, `linux-arm64`, `linux-x86_64`) to `~/.local/bin`. Override target location with `HEDIT_INSTALL_DIR=/usr/local/bin`.
+Pre-built binaries are available for macOS ARM64, Linux ARM64, and Linux
+x86_64. The installer places `hedit` in `~/.local/bin` by default. Override the
+location with `HEDIT_INSTALL_DIR`:
 
 ```sh
-HEDIT_INSTALL_DIR=/usr/local/bin curl -fsSL https://github.com/cladam/hedit/releases/latest/download/install.sh | sh
-# Or with hicurl
-HEDIT_INSTALL_DIR=/usr/local/bin hicurl https://github.com/cladam/hedit/releases/latest/download/install.sh | sh
+HEDIT_INSTALL_DIR=/usr/local/bin \
+  curl -fsSL https://github.com/cladam/hedit/releases/latest/download/install.sh | sh
 ```
 
-`install.sh` also installs the `hedit(1)` man page — to the first writable
-system man directory it finds (e.g. `/usr/local/share/man/man1`), falling
-back to `~/.local/share/man/man1` otherwise. Override with
-`HEDIT_MAN_DIR=/path/to/man1`. View it with:
+The installer also installs the `hedit(1)` man page. Set `HEDIT_MAN_DIR` to
+override its location.
 
 ```sh
 man hedit
 ```
 
-**Note:** _No Windows support!_
+Windows is not currently supported.
 
-## Usage
+## Features
 
-```sh
-hica build -o hedit           # compile to ./hedit
-./hedit                       # open an empty scratch buffer
-./hedit somefile.txt          # open a real file
-```
+### Editing
 
-Default keybindings (overridable from `init.hl`):
+- **Familiar keybindings** — standard save, open, quit, clipboard, undo, and
+  readline-style editing bindings
+- **Selections** — keyboard and mouse selection with copy, cut, paste, and
+  replacement
+- **Multi-cursor editing** — add cursors at matching words or place them with
+  the mouse
+- **Incremental search** — search as you type and move between wrapping matches
+- **Multiple buffers** — a buffer ring with a tabline showing open files
+- **Split panes** — horizontal and vertical splits with keyboard and mouse
+  focus movement and divider resizing
+- **Mouse support** — cursor placement, selection, scrolling, pane focus, and
+  split resizing
+- **Syntax highlighting** — a built-in line-by-line lexer for hica and Koka
 
-- File: `Ctrl-s` save, `Ctrl-o` open-file prompt, `Ctrl-q` quit (with
-  2+ panes open, closes the active pane/buffer first)
-- Multi-cursor: `Meta-c` add cursor at next match (word-select on first press, adds next match on repeat), `Escape` collapse cursors to single, `Meta-click` add extra cursor at mouse click
-- Readline-style editing: `Ctrl-a`/`Ctrl-e` line start/end, `Ctrl-d` delete-forward, `Ctrl-k` kill-line, `Ctrl-w`
-  kill-word-back, `Meta-f`/`Meta-b` word forward/back, `Meta-d`
-  kill-word-forward, `Meta-l` kill-whole-line
-- Clipboard & history: `Ctrl-c`/`Ctrl-v` copy/paste through the system
-  clipboard, `Ctrl-y` yank (same clipboard as paste), `Ctrl-z` undo,
-  `Ctrl-r` redo. Uses `pbcopy`/`pbpaste`, `wl-copy`/`wl-paste`,
-  `xclip`, or `xsel`; falls back to an internal clipboard when none is available
-- Selection: `Ctrl-Space` set/clear the mark, use arrows or navigation chords to select, `Meta-a` select all; with
-  a selection active, `Ctrl-c`/`Ctrl-v` copy/replace just the selected
-  text instead of the whole line
-- Search: `Ctrl-f` open search prompt, `Ctrl-Right` next occurance, `Ctrl-Left` previous occurance.
-- Buffers: `Meta-o`/`Meta-n`/`Meta-p`/`Meta-w` new/next/prev/close buffer
-- Split panes: `Meta-v`/`Meta-h` open a vertical/horizontal split prompt
-  (type a path + Enter to open that file in the new pane, or a bare
-  Enter to duplicate the current buffer), `Meta-Arrows` move focus to
-  the nearest pane, `Meta-Tab` cycles through panes
-- Help & Config: `Ctrl-g` toggle the keybindings overlay, `Meta-r` reload config and plugins live
+### History and recovery
 
-### Command-line flags
+- **Branching undo tree** — preview and restore historical revisions without
+  discarding edits made on other branches
+- **Session recovery** — restore open buffers, pane layouts, cursor positions,
+  and unsaved scratch buffers
+- **Crash recovery** — recover working state after an unexpected exit
 
-```sh
-hedit                                   # restore previous session (or empty scratch)
-hedit --no-recover                      # skip session recovery and start fresh
-hedit file.txt                          # open a file (bypasses recovery)
-hedit +42 file.txt                      # open at line 42
-hedit +42:8 file.txt                    # open at line 42, column 8
-hedit --readonly file.txt               # -R — open read-only (Save disabled)
-hedit --tabsize 2 file.txt              # override tabsize for this run
-hedit --config init.hl file.txt         # load config from elsewhere
-hedit --no-config file.txt              # skip init.hl entirely
-hedit --help / --version
-```
+### Commands and configuration
 
-CLI flags always win over `init.hl`, e.g. `--tabsize` overrides a `(set "tabsize" ...)` in the loaded config.
+- **Command palette** — search and execute editor commands with `Meta-x`
+- **Shell commands** — execute commands directly from the command palette
+- **Live keybinding overlay** — press `Ctrl-g` to show the active bindings
+- **Live configuration reload** — reload settings, bindings, and plugins
+  without restarting
+- **HiLisp configuration** — configure the editor and write plugins in
+  [HiLisp](https://github.com/cladam/hica-lisp)
 
-## Cloning
-
-Because HiLisp is a submodule:
+## Getting started
 
 ```sh
-git clone --recurse-submodules https://github.com/cladam/hedit.git
-# or, if already cloned:
-git submodule update --init --recursive
+hedit                         # restore the previous session, or open a scratch buffer
+hedit file.txt                # open a file
+hedit +42 file.txt            # open at line 42
+hedit +42:8 file.txt          # open at line 42, column 8
+hedit --readonly file.txt     # open read-only
+hedit --no-recover            # skip session recovery
+hedit --help                  # show all command-line options
 ```
 
-To bump the pinned HiLisp version:
+CLI flags override settings loaded from `init.hl`. Other useful flags include
+`--tabsize`, `--config`, and `--no-config`.
 
-```sh
-git submodule update --remote lib/hilisp
-```
+### Common bindings
 
-## Configuration & plugins: HiLisp
+| Key | Action |
+| --- | --- |
+| `Ctrl-s` | Save |
+| `Ctrl-o` | Open a file |
+| `Ctrl-q` | Quit or close the active pane |
+| `Ctrl-f` | Search |
+| `Ctrl-z` / `Ctrl-r` | Undo / redo |
+| `Ctrl-Space` | Set or clear the selection mark |
+| `Meta-c` | Add a cursor at the next match |
+| `Meta-v` / `Meta-h` | Open a vertical / horizontal split |
+| `Meta-t` | Open the visual undo tree |
+| `Meta-x` | Open the command palette |
+| `Ctrl-g` | Show the keybinding overlay |
+| `Meta-r` | Reload configuration and plugins |
 
-`hedit` uses **[HiLisp](https://github.com/cladam/hica-lisp)** (a small Lisp
-interpreter written in `hica`) as its **configuration and plugin language**.
-Settings, keybindings, and plugins are all written as `.hl` files evaluated by the embedded
-HiLisp interpreter.
+See the [hedit cheatsheet](docs/hedit-cheatsheet.md) for the complete reference,
+or press `Ctrl-g` inside hedit.
 
-HiLisp lives as a git submodule under `lib/hilisp/` and is compiled together
-with `hedit` (see `hica.hml`).
+## Configuration
 
-### Example `init.hl`
+hedit loads the first configuration file it finds:
+
+1. `$XDG_CONFIG_HOME/hedit/init.hl`
+2. `$HOME/.config/hedit/init.hl`
+3. `$HOME/.hedit.hl`
+
+Use `--config` to load another file or `--no-config` to skip configuration.
 
 ```lisp
 ;; ~/.config/hedit/init.hl
 
-(set "tabsize"     4)
+(set "tabsize" 4)
 (set "auto-indent" true)
-(set "theme"       "ilseon")
+(set "theme" "ilseon")
 
 (bind "Ctrl-s" 'save)
 (bind "Ctrl-q" 'quit)
 (bind "Meta-w" 'close-buffer)
 ```
 
-Config discovery order (first hit wins):
+Press `Meta-r` to reload the configuration without restarting. See
+[`examples/init.hl`](examples/init.hl) for the available settings and bindings.
 
-1. `$XDG_CONFIG_HOME/hedit/init.hl` (or `$HOME/.config/hedit/init.hl`)
-2. `$HOME/.hedit.hl`
+## Plugins
 
-If neither exists, `hedit` runs with hard-coded defaults.
+Plugins are regular `.hl` files enabled explicitly from `init.hl`. Plugin paths
+are resolved relative to the directory containing that file.
 
-See [`examples/init.hl`](examples/init.hl) for all available options
-
-### API surface
-
-| Built-in | Purpose |
-|---|---|
-| `(set key value)` | Set a configuration value |
-| `(get key)` | Read a configuration value |
-| `(bind keystroke action)` | Map a keystroke to a named built-in action |
-| `(plugin "name")` | Opt into loading `plugins/<name>/plugin.hl` (see Plugins below) |
-| `(on 'event (fn (...) ...))` | Register a hook for a lifecycle event (see Plugins below) |
-
-### Plugins
-
-A plugin is a regular `.hl` file, `hedit` doesn't auto-discovers plugins, 
-you opt in by name from `init.hl`, and hedit resolves that name to a file next to `init.hl` itself.
-
-**1. Write the plugin file** at `plugins/<name>/plugin.hl`, in the *same
-directory* as the `init.hl` that will load it (i.e. next to whichever
-one of `$XDG_CONFIG_HOME/hedit/init.hl`, `$HOME/.config/hedit/init.hl`,
-or `$HOME/.hedit.hl` you're using):
-
-```lisp
-;; ~/.config/hedit/plugins/greeter/plugin.hl
-(on 'buffer-open (fn (path) "Welcome to hedit!"))
+```text
+~/.config/hedit/
+├── init.hl
+└── plugins/
+    └── greeter/
+        └── plugin.hl
 ```
 
-**2. Wire it up** with `(plugin "name")` in `init.hl`: 
+Enable the plugin in `init.hl`:
 
 ```lisp
-;; ~/.config/hedit/init.hl
 (plugin "greeter")
 ```
 
-**Available hooks**, registered with `(on 'event (fn (...) ...))`
-(more than one plugin/hook can register for the same event; they run
-in registration order):
+Then register hooks in `plugins/greeter/plugin.hl`:
 
-| Event | Args | Fires |
-|---|---|---|
-| `'buffer-open` | `(path)` | A buffer finished loading (`""` for a scratch buffer); on startup and on new-buffer/open |
-| `'pre-save` | `(path)` | Before writing a named buffer to disk |
-| `'post-save` | `(path)` | After a successful save |
-| `'pre-action` | `(action-name)` | Before every resolved action (the same name `(bind ...)` targets) |
-| `'quit` | `()` | Once, best-effort, right before hedit exits |
+```lisp
+(on 'buffer-open
+    (fn (path)
+        "Welcome to hedit!"))
+```
 
-Two conventions apply across all hooks instead of new builtins:
+Available hooks are `buffer-open`, `pre-save`, `post-save`, `pre-action`, and
+`quit`. Hooks run in registration order. A hook may return a string to update
+the status bar. Returning `false` from `pre-save` or `pre-action` cancels the
+operation; quit cannot be cancelled.
 
-- **Cancel:** if any `pre-save`/`pre-action` hook returns `false`, the
-  save/action is skipped. `Quit` is the one exception — it always
-  proceeds no matter what a `pre-action` hook returns, so a plugin can
-  never trap the editor open.
-- **Status:** if a hook returns a string, it becomes the next
-  status-bar message.
+A missing or broken plugin is reported in the status bar without preventing the
+rest of the configuration from loading. See
+[`examples/plugins/`](examples/plugins) for examples.
 
-A broken or missing `plugin.hl` surfaces a one-line status message
-naming the plugin and never blocks `init.hl` or any other plugin from
-loading.
+## Implementation
 
-See [`examples/plugins/`](examples/plugins) for six reference plugins and [`examples/init.hl`](examples/init.hl)
-for the `(plugin ...)` opt-in syntax.
+The editor loop resolves terminal events through the active keybindings and
+applies the resulting action to `EditorState`:
+
+```text
+Event -> Action -> EditorState
+```
+
+Terminal input and rendering are defined as a hica effect:
+
+```hica
+effect Terminal {
+  fun poll_event() : Event
+  fun render_frame(buf: ScreenBuffer)
+  fun get_dimensions() : (int, int)
+  fun set_cursor_style(style: CursorStyle)
+}
+```
+
+The production handler communicates with the terminal. Tests install a handler
+with scripted input and captured frames, allowing the same event loop to be
+tested without a TTY.
+
+Undo history is stored as a tree. Editing after an undo creates a new branch
+instead of deleting the previous redo path. `Meta-t` opens the tree for
+previewing and restoring revisions.
+
+HiLisp is embedded as hedit's configuration and plugin language. Settings,
+bindings, and lifecycle hooks all use the same interpreter.
+
+For architecture and development history, see the
+[hedit project page](https://cladam.github.io/projects/hedit/) and
+[`docs/hedit-design.md`](docs/hedit-design.md).
+
+## Building from source
+
+HiLisp is included as a git submodule:
+
+```sh
+git clone --recurse-submodules https://github.com/cladam/hedit.git
+cd hedit
+hica build -o hedit
+```
+
+For an existing clone:
+
+```sh
+git submodule update --init --recursive
+```
 
 ## License
 
-MIT – see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).

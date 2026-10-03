@@ -1,171 +1,190 @@
 # hedit Cheatsheet
 
-What hedit offers today.
+This reference covers hedit's default bindings and context-specific controls.
+Bindings changed in `init.hl` appear in the live `Ctrl-g` overlay.
 
-This is a living document and will be extended as new features are implemented. Anything marked **not yet** is a known gap.
+`Meta` is usually the Alt or Option key, depending on the terminal.
 
 ## Starting hedit
 
 ```sh
-hedit                                   # restore previous session (or empty scratch)
-hedit --no-recover                      # skip session recovery and start fresh
-hedit file.txt                          # open a file (bypasses recovery)
-hedit +42 file.txt                      # open at line 42
-hedit +42:8 file.txt                    # open at line 42, column 8
-hedit --readonly file.txt               # -R — open read-only (Save disabled)
-hedit --tabsize 2 file.txt              # override tabsize for this run
-hedit --config init.hl file.txt         # load config from elsewhere
-hedit --no-config file.txt              # skip init.hl entirely
-hedit --help / --version
+hedit                         # restore the previous session, or open a scratch buffer
+hedit --no-recover            # skip session recovery
+hedit file.txt                # open a file without restoring the previous session
+hedit +42 file.txt            # open at line 42
+hedit +42:8 file.txt          # open at line 42, column 8
+hedit --readonly file.txt     # open read-only
+hedit --tabsize 2 file.txt    # override the configured tab size
+hedit --config init.hl        # load a specific configuration file
+hedit --no-config             # skip configuration
+hedit --help                  # show all command-line options
+hedit --version
 ```
 
-## Basic navigation
+Command-line options override settings loaded from `init.hl`.
 
-| Key         | Does                              |
-|------------ |----------------------------------- |
-| Arrow keys  | Move up/down/left/right (wraps at line ends) |
-| Ctrl-a / Ctrl-e | Move to start/end of the current line |
-| Meta-f / Meta-b | Move forward/back one word |
+## Navigation
 
-**Not yet:** Page Up/Down, Home/End, jump-to-line.
+| Key | Action |
+| --- | --- |
+| Arrow keys | Move up, down, left, or right; horizontal movement wraps at line ends |
+| PageUp / PageDown | Move one visible page up or down |
+| `Ctrl-a` / `Ctrl-e` | Move to the start / end of the current line |
+| `Meta-f` / `Meta-b` | Move forward / backward by one word |
 
-## Basic editing
+## Editing
 
-| Key      | Does                                                |
-|--------- |----------------------------------------------------- |
-| Any char | Insert at the cursor                                 |
-| Enter    | Split the line at the cursor                         |
-| Backspace| Delete before the cursor (merges into previous line at column 0) |
-| Ctrl-d   | Delete the char under the cursor (forward-delete)    |
-| Meta-c   | Add cursor at next match (selects word on first press, adds next match on repeat) |
-| Esc      | Collapse all cursors back to single, clear selections|
-| Ctrl-k   | Kill from the cursor to the end of the line, into the system clipboard |
-| Ctrl-w   | Kill the word before the cursor, into the system clipboard  |
-| Meta-d   | Kill the word after the cursor, into the system clipboard   |
-| Meta-l   | Kill the entire current line, into the system clipboard     |
-| Ctrl-c   | Copy current line or active selections to the system clipboard |
-| Ctrl-v   | Paste from the system clipboard                      |
-| Ctrl-y   | Yank — same as Ctrl-v                                 |
-| Ctrl-z   | Undo                                                 |
-| Ctrl-r   | Redo                                                 |
-| Meta-u   | Cycle sibling branches in the undo graph             |
-| Meta-t   | Toggle visual Unicode undo tree overlay              |
+| Key | Action |
+| --- | --- |
+| Any printable character | Insert at every active cursor |
+| Enter | Split the line at every active cursor |
+| Backspace | Delete backward, joining lines when necessary |
+| `Ctrl-d` | Delete forward, joining the next line at end of line |
+| `Ctrl-k` | Cut from the cursor to the end of the line |
+| `Ctrl-w` | Cut the word before the cursor |
+| `Meta-d` | Cut the word after the cursor |
+| `Meta-l` | Cut the entire current line |
+| `Ctrl-c` | Copy active selections, or the current line when nothing is selected |
+| `Ctrl-v` / `Ctrl-y` | Paste from the system clipboard |
 
-**Multi-cursor:** `Meta-c` to add cursors at occurrences of a word/selection, or `Meta-click` with the mouse to drop an extra cursor anywhere. `Esc` collapses back to the primary cursor. Type, delete, or paste to edit simultaneously at every cursor with automatic offset drift tracking.
+Kill, copy, and paste commands share the system clipboard. hedit uses
+`pbcopy`/`pbpaste` on macOS, `wl-copy`/`wl-paste` on Wayland, and `xclip` or
+`xsel` on X11, with an in-memory fallback when no complete tool pair is
+available.
 
-**Clipboard:** hedit uses `pbcopy`/`pbpaste` on macOS, `wl-copy`/`wl-paste`
-on Wayland, and `xclip` or `xsel` on X11. If no complete tool pair is
-available, clipboard commands gracefully use an in-memory fallback.
+## Selections and multiple cursors
 
-**Undo Tree (`Meta-t`):** opens a full-screen Unicode branch diagram. Navigate revisions with **Up / Down** (or **k / j**) with real-time live buffer preview. **Enter** commits and restores the revision, **Esc** cancels.
+| Key or gesture | Action |
+| --- | --- |
+| `Ctrl-Space` | Set the selection mark; press again to clear it |
+| Movement with a mark set | Extend the selection |
+| `Meta-a` | Select the entire buffer |
+| Mouse drag | Select text |
+| `Meta-c` | Select the word under the cursor, then add a cursor at each subsequent match |
+| Meta-click | Add a cursor at the clicked position |
+| Esc | Return to one cursor and clear selections |
+
+Typing, deleting, and pasting apply at every active cursor. hedit adjusts later
+cursor positions as earlier edits change the buffer.
+
+## Undo and revision history
+
+| Key | Action |
+| --- | --- |
+| `Ctrl-z` | Undo to the parent revision |
+| `Ctrl-r` | Redo along the active branch |
+| `Meta-u` | Cycle sibling branches |
+| `Meta-t` | Open the visual undo tree |
+
+Inside the undo tree, use Up/Down or `k`/`j` to preview revisions. Enter
+restores the selected revision. Esc or `Meta-t` closes the tree without
+restoring it.
 
 ## Find
 
-| Key        | Does                                                                |
-|----------- |----------------------------------------------------------------------|
-| Ctrl-f     | Open the find bar. Type to search — matches highlight live.         |
-| Ctrl-Right | Jump to the next match (wraps past the last one).                    |
-| Ctrl-Left  | Jump to the previous match (wraps before the first one).              |
-| Enter      | Close the find bar and jump to the next match (search stays active). |
-| Esc        | Cancel and drop the search (clears highlights).                      |
+| Key | Action |
+| --- | --- |
+| `Ctrl-f` | Open the find prompt; matches update as you type |
+| `Ctrl-Right` | Move to the next match, wrapping at the end |
+| `Ctrl-Left` | Move to the previous match, wrapping at the beginning |
+| Enter | Closes the prompt and moves to the next match; highlighting remains active |
+| Esc | Cancel the search and clear its highlights |
 
-Search is plain-substring, case-sensitive, whole-buffer. Ctrl-Right/
-Ctrl-Left keep working after Enter closes the bar, until Esc drops the
-search.
+Search is case-sensitive, uses plain substrings, and covers the whole buffer.
+`Ctrl-Right` and `Ctrl-Left` continue to work after the prompt closes.
 
-## File operations
+## Files and buffers
 
-| Key    | Does                                                                 |
-|------- |----------------------------------------------------------------------|
-| Ctrl-s | Save. On a pathless (scratch) buffer, opens the Save-As prompt instead |
-| Ctrl-o | Open the "open file" prompt                                          |
-| Ctrl-q | Quit — with 2+ panes open, closes the active pane/buffer first (see Split panes below) |
+| Key | Action |
+| --- | --- |
+| `Ctrl-s` | Save; opens Save As when the buffer has no path |
+| `Ctrl-o` | Open the file prompt |
+| `Ctrl-q` | Quit, or close the active pane when more than one pane is open |
+| `Meta-o` | Open a new scratch buffer |
+| `Meta-n` / `Meta-p` | Move to the next / previous buffer in the ring |
+| `Meta-w` | Close the active buffer; the last buffer cannot be closed |
 
-Prompt controls (Save-As / Open): type to edit the path (inserts at
-the cursor, not just append), **Enter** submits, **Esc** cancels. The
-same readline chords as the main buffer also work here: **Ctrl-a/e**
-(start/end), **Ctrl-b/f** (left/right), **Ctrl-d** (delete forward),
-**Ctrl-k** (kill to end), **Backspace**.
+The tabline lists open buffers and brackets the active one, for example
+`[scratch] | notes.txt`.
 
-## Buffers
+## Split panes
 
-hedit keeps open buffers in a ring:
+| Key or gesture | Action |
+| --- | --- |
+| `Meta-v` | Open a vertical split prompt |
+| `Meta-h` | Open a horizontal split prompt |
+| `Meta-Arrows` | Focus the nearest pane in that direction |
+| `Meta-Tab` | Cycle focus through the panes |
+| Click in a pane | Focus the pane and place the cursor |
+| Drag a divider | Resize the adjacent panes |
+| Mouse wheel | Scroll the pane under the pointer without changing focus |
 
-| Key    | Does                                                        |
-|------- |--------------------------------------------------------------|
-| Meta-o | New scratch buffer (pushes the current one onto the ring)    |
-| Meta-n | Next buffer in the ring                                      |
-| Meta-p | Previous buffer in the ring                                  |
-| Meta-w | Close the active buffer (refuses on the last one)            |
+In a split prompt, enter a path to open that file in the new pane. Submit an
+empty prompt to duplicate the current buffer into the new pane. Esc cancels.
 
-The tabline (row 0) lists every open buffer, active one bracketed —
-e.g. `[scratch] | notes.txt`.
+## Command palette and shell
 
-## Split panes (M15)
+| Key | Action |
+| --- | --- |
+| `Meta-x` | Open the command palette |
+| Tab / Down | Select the next matching command |
+| Up | Select the previous matching command |
+| Enter | Run the selected or typed command |
+| Esc | Close the palette |
 
-| Key           | Does                                                              |
-|-------------- |--------------------------------------------------------------------|
-| Meta-v        | Open a vertical-split prompt ("VSplit: ")                          |
-| Meta-h        | Open a horizontal-split prompt ("HSplit: ")                        |
-| Meta-Arrows   | Move focus to the nearest pane in that direction                  |
-| Meta-Tab      | Cycle focus to the next pane                                       |
-| Ctrl-q        | Close the active pane and its buffer (only quits hedit once down to one pane) |
+Type `!` followed by a command, such as `!git status`, or select `shell` to
+open a shell-command prompt. hedit displays captured output in an overlay.
 
-Type a path + Enter to open that file in the new pane; a bare Enter
-duplicates the current buffer's content into the new pane instead.
-Esc cancels the prompt. A `│`/`─` divider marks the seam between panes.
+| Shell output key | Action |
+| --- | --- |
+| Up/Down or `k`/`j` | Scroll one line |
+| PageUp / PageDown | Scroll one page |
+| Mouse wheel | Scroll one line |
+| Esc, Enter, or `q` | Close the output |
 
-**Not yet:** interactive resizing, cross-pane search highlighting.
+## Prompt editing
 
-## Help & Config
+Save As, Open, Find, split, command, and shell prompts share these controls:
 
-| Key    | Does                                                              |
-|------- |--------------------------------------------------------------------|
-| Ctrl-g | Toggle a full-screen keybindings overlay, generated live from the current bindings (any key closes it) |
-| Meta-r | Reload `init.hl` and plugins live without restarting (`reload-config`, M19) |
+| Key | Action |
+| --- | --- |
+| Any printable character | Insert at the prompt cursor |
+| Backspace / `Ctrl-d` | Delete backward / forward |
+| `Ctrl-a` / `Ctrl-e` | Move to the start / end |
+| `Ctrl-b` / `Ctrl-f` | Move left / right |
+| `Ctrl-k` | Cut from the cursor to the end |
+| Enter | Submit |
+| Esc | Cancel |
 
-## Customization — `init.hl`
-| Meta-r | Reload `init.hl` configuration and plugin hooks on the fly without restarting hedit |
-| Meta-x | Open the command palette (`Command: `). Type to filter commands, Tab/Down/Up to cycle suggestions, Enter to run |
-| ! `<cmd>` | In command palette, run an external shell command (e.g. `!ls` or `!git status`) |
+Tab, Down, and Up cycle suggestions in the command palette. `Ctrl-q` retains
+its normal quit or close-pane behavior while a prompt is open.
 
+## Help and configuration
 
-`init.hl` is a HiLisp file that is loaded from (first hit wins): `$XDG_CONFIG_HOME/hedit/init.hl`
-(or `$HOME/.config/hedit/init.hl`), then `$HOME/.hedit.hl`, or an
-explicit `--config path`. 
-A copy-pasteable reference with every current option lives at [../examples/init.hl](../examples/init.hl).
+| Key | Action |
+| --- | --- |
+| `Ctrl-g` | Show the active keybindings; any key closes the overlay |
+| `Meta-r` | Reload `init.hl` and plugins without restarting |
 
-Settings — `(set key value)`, read back with `(get key)`:
+hedit loads the first applicable configuration file:
 
-```hilisp
+1. `$XDG_CONFIG_HOME/hedit/init.hl`, when `$XDG_CONFIG_HOME` is set
+2. `$HOME/.config/hedit/init.hl`
+3. `$HOME/.hedit.hl`
+
+Use `--config` to load another file. See
+[`examples/init.hl`](../examples/init.hl) for all settings and bindable action
+names.
+
+```lisp
 (set "tabsize" 4)
-(set "theme" "default")   ; or "ilseon"
-(set "theme.tabline-fg" "255,255,255")   ; per-slot true-color overrides
-(set "theme.status-bg"  "200,200,200")
-```
+(set "theme" "ilseon")
 
-Rebinding — `(bind "Ctrl-x" 'action-name)`, `'ignore` to disable a
-default without replacing it:
-
-```hilisp
 (bind "Ctrl-s" 'save)
-(bind "Ctrl-q" 'quit)
-(bind "Meta-w" 'ignore)   ; silence the default close-buffer binding
+(bind "Meta-w" 'close-buffer)
+(bind "Ctrl-w" 'ignore) ; disable a default binding
 ```
 
-A broken form in `init.hl` doesn't lock you out: hedit evaluates top
-to bottom, stops at the first error, surfaces it in the status line,
-and keeps whatever loaded before that point.
-
-**Not yet:** a plugin system, `set`/`bind` from a running "command
-prompt" (there's no colon/command-line mode — only the Save-As/Open
-path prompt), theme presets beyond `default`/`ilseon`.
-
-## Where hedit differentiate
-
-- One file (`init.hl`, HiLisp) for both settings and keybindings.
-- Buffers are a rotation ring, not a tab bar.
-- Split panes (`Meta-v`/`Meta-h`) landed in M15 — no interactive
-  resizing yet.
-- No plugin system yet. HiLisp is meant to grow into that role later
-  rather than bolting on a separate mechanism.
+Only modifier-plus-character shortcuts are rebindable. Navigation keys,
+PageUp/PageDown, Enter, Backspace, Esc, pane-focus keys, and mouse gestures are
+handled directly by the editor.
